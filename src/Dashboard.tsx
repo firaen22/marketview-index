@@ -436,50 +436,48 @@ export default function Dashboard() {
   const [isError, setIsError] = useState(false);
   const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchMarketData = async () => {
     const CACHE_KEY = 'marketflow_cache';
+    setIsLoading(true);
+    setIsError(false);
+    setFallbackMessage(null);
+    try {
+      // 加上時間戳記強制跳過瀏覽器快取
+      const response = await fetch(`/api/market-data?t=${new Date().getTime()}`);
+      const result = await response.json();
 
-    const fetchMarketData = async () => {
-      setIsLoading(true);
-      setIsError(false);
-      setFallbackMessage(null);
-      try {
-        const response = await fetch('/api/market-data');
-        const result = await response.json();
-
-        if (result.success && result.data && Array.isArray(result.data)) {
-          setMarketData(result.data);
-          // 儲存到本地快取
-          localStorage.setItem(CACHE_KEY, JSON.stringify({
-            timestamp: new Date().getTime(),
-            data: result.data
-          }));
-        } else {
-          throw new Error(result.error || "Failed to fetch data");
-        }
-      } catch (err) {
-        console.error('Failed to fetch market data, attempting local recovery:', err);
-        // 嘗試從本地快取還原
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          try {
-            const { data, timestamp } = JSON.parse(cached);
-            const timeStr = new Date(timestamp).toLocaleTimeString();
-            setMarketData(data);
-            setFallbackMessage(`目前顯示最後更新時間：${timeStr} (API 額度用盡，數據已凍結)`);
-          } catch (e) {
-            setIsError(true);
-            setFallbackMessage('快取數據損壞，無法顯示。');
-          }
-        } else {
-          setIsError(true);
-          setFallbackMessage('無法連接伺服器且無本地快取紀錄。');
-        }
-      } finally {
-        setIsLoading(false);
+      if (result.success && result.data && Array.isArray(result.data)) {
+        setMarketData(result.data);
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          timestamp: new Date().getTime(),
+          data: result.data
+        }));
+      } else {
+        throw new Error(result.error || "Failed to fetch data");
       }
-    };
+    } catch (err) {
+      console.error('Failed to fetch market data, attempting local recovery:', err);
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        try {
+          const { data, timestamp } = JSON.parse(cached);
+          const timeStr = new Date(timestamp).toLocaleTimeString();
+          setMarketData(data);
+          setFallbackMessage(`目前顯示最後更新時間：${timeStr} (數據已凍結)`);
+        } catch (e) {
+          setIsError(true);
+          setFallbackMessage('快取數據損壞，無法顯示。');
+        }
+      } else {
+        setIsError(true);
+        setFallbackMessage('無法連接伺服器且無本地快取紀錄。');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchMarketData();
   }, []);
 
@@ -518,7 +516,11 @@ export default function Dashboard() {
               {isPresentationMode ? <LayoutDashboard className="w-4 h-4" /> : <Columns className="w-4 h-4" />}
               <span className="hidden md:inline text-xs font-medium">{isPresentationMode ? "Dashboard" : "Presentation"}</span>
             </button>
-            <button className="p-2 hover:bg-zinc-900 rounded-full transition-colors">
+            <button
+              onClick={() => fetchMarketData()}
+              className={cn("p-2 hover:bg-zinc-900 rounded-full transition-colors", isLoading && "animate-spin")}
+              disabled={isLoading}
+            >
               <RefreshCcw className="w-4 h-4" />
             </button>
           </div>

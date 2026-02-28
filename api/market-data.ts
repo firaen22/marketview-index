@@ -1,9 +1,6 @@
 const ALPHA_VANTAGE_API_KEY = process.env.ALPHA_VANTAGE_API_KEY;
 const API_URL = 'https://www.alphavantage.co/query';
 
-// 使用 localStorage 的 key
-const CACHE_KEY = 'market_flow_data_v1';
-
 const INDICES_TO_FETCH = [
   { symbol: 'SPY', category: 'US', name: 'S&P 500 ETF' },
   { symbol: 'QQQ', category: 'US', name: 'Nasdaq 100 ETF' },
@@ -12,8 +9,10 @@ const INDICES_TO_FETCH = [
 
 export default async function handler(req: any, res: any) {
   try {
-    const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
-    const forceRefresh = searchParams.get('refresh') === 'true';
+    // 設置不快取的 Header 以避免 Vercel Edge 緩存過時數據
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     // 由於沒有 Vercel KV，我們只能直接去打 Alpha Vantage
     // 注意：這會直接消耗 25 次/日的配額
@@ -22,6 +21,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       success: true,
       source: 'live_api',
+      timestamp: new Date().toISOString(),
       data
     });
   } catch (error: any) {
@@ -74,6 +74,7 @@ async function fetchAllIndices() {
       });
     }
 
+    // 延遲以避免觸發次數過頻
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
