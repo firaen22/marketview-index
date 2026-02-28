@@ -438,6 +438,7 @@ export default function Dashboard() {
   const [remainingQuota, setRemainingQuota] = useState<number>(25);
 
   const fetchMarketData = async () => {
+    // 雖然伺服器有 Redis 快取了，但前端還是留著 localStorage 當作最後防線與計算每日配額 UI
     const CACHE_KEY = 'marketflow_cache';
     const QUOTA_KEY = `marketflow_quota_${new Date().toISOString().split('T')[0]}`;
 
@@ -446,11 +447,6 @@ export default function Dashboard() {
     let currentQuota = savedQuota ? parseInt(savedQuota) : 25;
     setRemainingQuota(currentQuota);
 
-    if (currentQuota <= 0) {
-      handleFallback(CACHE_KEY, '今日 API 配額已用盡 (0/25)。數據已凍結。');
-      return;
-    }
-
     setIsLoading(true);
     setIsError(false);
     setFallbackMessage(null);
@@ -458,25 +454,39 @@ export default function Dashboard() {
       const response = await fetch(`/api/market-data?t=${new Date().getTime()}`);
       const result = await response.json();
 
-      if (result.success && result.data && Array.isArray(result.data)) {
+      // 無論狀態為何，只要有 data 就先塞進 UI
+      if (result.data && Array.isArray(result.data)) {
         setMarketData(result.data);
-        localStorage.setItem(CACHE_KEY, JSON.stringify({
-          timestamp: new Date().getTime(),
-          data: result.data
-        }));
 
-        // 更新配額 (每次 fetch 3 個指數，消耗 3 次)
-        const newQuota = Math.max(0, currentQuota - 3);
-        setRemainingQuota(newQuota);
-        localStorage.setItem(QUOTA_KEY, newQuota.toString());
+        // 成功取得新資料 (非從伺服器快取拿)，才扣減前端的配額計數UI
+        if (result.success && result.source !== 'server_cache' && result.source !== 'server_stale_cache') {
+          const newQuota = Math.max(0, currentQuota - 3);
+          setRemainingQuota(newQuota);
+          localStorage.setItem(QUOTA_KEY, newQuota.toString());
+        }
+
+        // 伺服器發現 API 滿了，傳回凍結的舊資料
+        if (!result.success || result.source === 'server_stale_cache') {
+          const timeStr = new Date(result.timestamp).toLocaleTimeString();
+          setFallbackMessage(`API 額度已滿，顯示後端最後更新時間：${timeStr} (全局資料已凍結)`);
+          setRemainingQuota(0);
+          localStorage.setItem(QUOTA_KEY, "0");
+        } else {
+          // 正常狀態下，將後端傳來的最新資料也備份一份到前端 localStorage 作為最底層防線
+          localStorage.setItem(CACHE_KEY, JSON.stringify({
+            timestamp: new Date().getTime(),
+            data: result.data
+          }));
+        }
 
       } else {
         throw new Error(result.error || "Failed to fetch data");
       }
-    } catch (err) {
-      console.error('Failed to fetch market data, attempting local recovery:', err);
-      handleFallback(CACHE_KEY, `API 額度不足或連線失敗。目前數據已凍結。`);
-      // 如果出錯也把配額視為 0 或減少
+    } catch (err: any) {
+      console.error('Failed to fetch market data, attempting local frontend recovery:', err);
+      // Backend 連續出錯或沒連上，退回前端 localstorage
+      handleFallback(CACHE_KEY, `伺服器連線失敗。目前顯示裝置本地快取數據。`);
+
       if (err.message?.includes('Limit')) {
         setRemainingQuota(0);
         localStorage.setItem(QUOTA_KEY, "0");
