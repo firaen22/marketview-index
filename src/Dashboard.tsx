@@ -465,8 +465,13 @@ export default function Dashboard() {
           localStorage.setItem(QUOTA_KEY, newQuota.toString());
         }
 
+        // 伺服器回報設定錯誤 (如沒填 API Key)
+        if (result.isConfigError) {
+          setFallbackMessage("系統設定錯誤：請在 Vercel 中設定 ALPHA_VANTAGE_API_KEY 環境變數。");
+          setMarketData(MOCK_INDICES);
+        }
         // 伺服器發現 API 滿了，傳回凍結的舊資料
-        if (!result.success || result.source === 'server_stale_cache') {
+        else if (!result.success || result.source === 'server_stale_cache') {
           const timeStr = new Date(result.timestamp).toLocaleTimeString();
           setFallbackMessage(`API 額度已滿，顯示後端最後更新時間：${timeStr} (全局資料已凍結)`);
           setRemainingQuota(0);
