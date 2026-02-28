@@ -1,0 +1,5 @@
+{
+  "name": "Financial Dashboard",
+  "description": "A professional, dark-mode financial dashboard featuring a live ticker, market news feed, and index performance indicators.",
+  "requestFramePermissions": []
+}
