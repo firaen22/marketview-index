@@ -437,6 +437,8 @@ export default function Dashboard() {
   const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    const CACHE_KEY = 'marketflow_cache';
+
     const fetchMarketData = async () => {
       setIsLoading(true);
       setIsError(false);
@@ -445,27 +447,34 @@ export default function Dashboard() {
         const response = await fetch('/api/market-data');
         const result = await response.json();
 
-        if (result.success || result.source === 'stale_cache_fallback') {
-          // If we hit a snag but have fallback data
-          if (!result.success && result.source === 'stale_cache_fallback') {
-            setFallbackMessage('API updates paused. Showing last known market data.');
-          }
-
-          if (result.data && Array.isArray(result.data)) {
-            setMarketData(result.data);
-          } else {
-            // If JSON parse issue or empty data returning true
-            throw new Error("Invalid data format received.");
-          }
+        if (result.success && result.data && Array.isArray(result.data)) {
+          setMarketData(result.data);
+          // 儲存到本地快取
+          localStorage.setItem(CACHE_KEY, JSON.stringify({
+            timestamp: new Date().getTime(),
+            data: result.data
+          }));
         } else {
           throw new Error(result.error || "Failed to fetch data");
         }
       } catch (err) {
-        console.error('Failed to fetch market data:', err);
-        setIsError(true);
-        // We do NOT load MOCK_INDICES here, as per user requirement to "freeze at last update"
-        // Since we have no cache in local memory, and API completely failed without KV backup:
-        setFallbackMessage('Unable to connect to market data services.');
+        console.error('Failed to fetch market data, attempting local recovery:', err);
+        // 嘗試從本地快取還原
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          try {
+            const { data, timestamp } = JSON.parse(cached);
+            const timeStr = new Date(timestamp).toLocaleTimeString();
+            setMarketData(data);
+            setFallbackMessage(`目前顯示最後更新時間：${timeStr} (API 額度用盡，數據已凍結)`);
+          } catch (e) {
+            setIsError(true);
+            setFallbackMessage('快取數據損壞，無法顯示。');
+          }
+        } else {
+          setIsError(true);
+          setFallbackMessage('無法連接伺服器且無本地快取紀錄。');
+        }
       } finally {
         setIsLoading(false);
       }
