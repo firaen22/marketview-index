@@ -7,7 +7,7 @@
  * Ensure Tailwind CSS is configured.
  */
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -349,7 +349,7 @@ const TickerItem: React.FC<{ item: IndexData }> = ({ item }) => {
 
 const NewsCard: React.FC<{ item: NewsItem }> = ({ item }) => {
   const sentimentVariant = item.sentiment.toLowerCase() as 'bullish' | 'bearish' | 'neutral';
-  
+
   return (
     <Card className="mb-4 p-4 hover:bg-zinc-900 transition-colors cursor-pointer group border-zinc-800/60">
       <div className="flex justify-between items-start mb-2">
@@ -373,7 +373,7 @@ const NewsCard: React.FC<{ item: NewsItem }> = ({ item }) => {
 const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ item, chartHeight = "h-16" }) => {
   const isPositive = item.change >= 0;
   const isYtdPositive = item.ytdChange >= 0;
-  
+
   return (
     <Card className="p-4 flex flex-col justify-between h-full border-zinc-800/60">
       <div className="flex justify-between items-start mb-4">
@@ -386,20 +386,20 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ i
             {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className={cn("text-xs font-mono flex items-center justify-end", isPositive ? "text-emerald-400" : "text-rose-400")}>
-             1D: {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
+            1D: {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
           </div>
         </div>
       </div>
-      
+
       <div className={cn("w-full mb-4", chartHeight)}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={item.history}>
-            <Line 
-              type="monotone" 
-              dataKey="value" 
-              stroke={isPositive ? "#34d399" : "#fb7185"} 
-              strokeWidth={2} 
-              dot={false} 
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke={isPositive ? "#34d399" : "#fb7185"}
+              strokeWidth={2}
+              dot={false}
             />
             <YAxis domain={['dataMin', 'dataMax']} hide />
           </LineChart>
@@ -431,11 +431,54 @@ export default function Dashboard() {
   const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
-  const categories = ['All', ...Array.from(new Set(MOCK_INDICES.map(item => item.category)))];
+  const [marketData, setMarketData] = useState<IndexData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+  const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
 
-  const filteredIndices = selectedCategory === 'All' 
-    ? MOCK_INDICES 
-    : MOCK_INDICES.filter(item => item.category === selectedCategory);
+  useEffect(() => {
+    const fetchMarketData = async () => {
+      setIsLoading(true);
+      setIsError(false);
+      setFallbackMessage(null);
+      try {
+        const response = await fetch('/api/market-data');
+        const result = await response.json();
+
+        if (result.success || result.source === 'stale_cache_fallback') {
+          // If we hit a snag but have fallback data
+          if (!result.success && result.source === 'stale_cache_fallback') {
+            setFallbackMessage('API updates paused. Showing last known market data.');
+          }
+
+          if (result.data && Array.isArray(result.data)) {
+            setMarketData(result.data);
+          } else {
+            // If JSON parse issue or empty data returning true
+            throw new Error("Invalid data format received.");
+          }
+        } else {
+          throw new Error(result.error || "Failed to fetch data");
+        }
+      } catch (err) {
+        console.error('Failed to fetch market data:', err);
+        setIsError(true);
+        // We do NOT load MOCK_INDICES here, as per user requirement to "freeze at last update"
+        // Since we have no cache in local memory, and API completely failed without KV backup:
+        setFallbackMessage('Unable to connect to market data services.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMarketData();
+  }, []);
+
+  const categories = ['All', ...Array.from(new Set(marketData.map(item => item.category)))];
+
+  const filteredIndices = selectedCategory === 'All'
+    ? marketData
+    : marketData.filter(item => item.category === selectedCategory);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -458,7 +501,7 @@ export default function Dashboard() {
               <Clock className="w-4 h-4 mr-2" />
               {currentTime.toLocaleTimeString()}
             </span>
-            <button 
+            <button
               onClick={() => setIsPresentationMode(!isPresentationMode)}
               className={cn("p-2 rounded-full transition-colors flex items-center space-x-2", isPresentationMode ? "bg-blue-600 text-white hover:bg-blue-700" : "hover:bg-zinc-900")}
               title={isPresentationMode ? "Exit Presentation Mode" : "Enter Presentation Mode"}
@@ -471,25 +514,35 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
-        
+
         {/* Ticker Tape */}
-        <div className="overflow-hidden whitespace-nowrap border-b border-zinc-800 bg-zinc-950">
-          <div className="inline-flex animate-ticker"> {/* In a real app, use a marquee lib or CSS animation */}
-            {MOCK_INDICES.map((index) => (
-              <TickerItem key={index.symbol} item={index} />
-            ))}
-             {/* Duplicate for seamless loop effect if animated */}
-             {MOCK_INDICES.map((index) => (
-              <TickerItem key={`${index.symbol}-dup`} item={index} />
-            ))}
-          </div>
+        <div className="overflow-hidden whitespace-nowrap border-b border-zinc-800 bg-zinc-950 flex items-center h-12">
+          {isLoading ? (
+            <div className="w-full flex items-center justify-center text-xs text-zinc-500">
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading tickers...
+            </div>
+          ) : isError && marketData.length === 0 ? (
+            <div className="w-full flex items-center justify-center text-xs text-rose-500">
+              <AlertCircle className="w-4 h-4 mr-2" /> Market data unavailable.
+            </div>
+          ) : (
+            <div className="inline-flex animate-ticker">
+              {marketData.map((index) => (
+                <TickerItem key={index.symbol} item={index} />
+              ))}
+              {/* Duplicate for seamless loop effect if animated */}
+              {marketData.map((index) => (
+                <TickerItem key={`${index.symbol}-dup`} item={index} />
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
       {/* Main Content */}
       <main className="container mx-auto p-4 lg:p-6 max-w-7xl">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 transition-all duration-500 ease-in-out">
-          
+
           {/* Left Column: Core Market News */}
           {!isPresentationMode && (
             <div className="lg:col-span-7 xl:col-span-8 flex flex-col h-[calc(100vh-180px)] animate-in fade-in slide-in-from-left-4 duration-500">
@@ -500,7 +553,7 @@ export default function Dashboard() {
                 </h2>
                 <Badge variant="default" className="bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Live Feed</Badge>
               </div>
-              
+
               <ScrollArea className="flex-1 pr-4 -mr-4">
                 <div className="space-y-1">
                   {MOCK_NEWS.map((news) => (
@@ -522,7 +575,7 @@ export default function Dashboard() {
                 Market Performance
               </h2>
               {!isPresentationMode && (
-                <button 
+                <button
                   onClick={() => setIsPresentationMode(true)}
                   className="text-xs text-blue-400 hover:text-blue-300 flex items-center"
                 >
@@ -549,19 +602,37 @@ export default function Dashboard() {
               ))}
             </div>
 
-            <ScrollArea className="flex-1 pr-2 -mr-2">
-              <div className={cn(
-                "grid gap-4 transition-all duration-500",
-                isPresentationMode ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 xl:grid-cols-2"
-              )}>
-                {filteredIndices.map((index) => (
-                  <MarketStatCard 
-                    key={index.symbol} 
-                    item={index} 
-                    chartHeight={isPresentationMode ? "h-32" : "h-16"}
-                  />
-                ))}
+            {fallbackMessage && (
+              <div className="mb-4 bg-zinc-800/80 border border-zinc-700 text-yellow-500/90 text-xs px-4 py-2 rounded-lg flex items-center">
+                <AlertCircle className="w-4 h-4 mr-2 shrink-0" />
+                {fallbackMessage}
               </div>
+            )}
+
+            <ScrollArea className="flex-1 pr-2 -mr-2">
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center h-64 text-zinc-500">
+                  <Loader2 className="w-8 h-8 animate-spin mb-4" />
+                  <p className="text-sm">Connecting to Alpha Vantage...</p>
+                </div>
+              ) : marketData.length > 0 ? (
+                <div className={cn(
+                  "grid gap-4 transition-all duration-500",
+                  isPresentationMode ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 xl:grid-cols-2"
+                )}>
+                  {filteredIndices.map((index) => (
+                    <MarketStatCard
+                      key={index.symbol}
+                      item={index}
+                      chartHeight={isPresentationMode ? "h-32" : "h-16"}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                  <p className="text-sm">No market data available.</p>
+                </div>
+              )}
             </ScrollArea>
           </div>
 

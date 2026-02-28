@@ -16,13 +16,22 @@ This contains everything you need to run your app locally.
    ```bash
    npm install
    ```
-2. 設定環境變數：將 `.env.example` 複製為 `.env.local` 並填入對應的 API Key (例如：`GEMINI_API_KEY`)。
+2. 設定環境變數：將 `.env.example` 複製為 `.env.local` 並填入對應的 API Key。
+   - `ALPHA_VANTAGE_API_KEY`: 來自 [Alpha Vantage](https://www.alphavantage.co/)
+   - `KV_REST_API_URL` & `KV_REST_API_TOKEN`: 來自 Vercel Project -> Storage -> KV
 3. 啟動開發伺服器：
    ```bash
    npm run dev
    # 或使用
    npm start
    ```
+
+## 📊 數據獲取 (Alpha Vantage & Redis 快取)
+
+為了避免 Alpha Vantage 免費版每日 25 次呼叫的嚴格限制，專案使用了 **Vercel KV (Redis)** 進行快取，並透過 **Vercel Cron Jobs** 定時從 API 獲取最新資料寫入快取。
+
+- **Cron 執行時間 (HKT)**: 10:30 PM, 9:30 AM, 5:00 PM。
+- **優雅降級 (Fallback)**: 若直接呼叫 API 失敗（例如超過 25 次限制），或是伺服器錯誤，前端將會自動讀取並凍結在 **最後一次成功寫入 Redis** 的大盤數據，不再顯示錯誤的 Mock Data。
 
 ## 📂 版本控制與安全 (.gitignore)
 
