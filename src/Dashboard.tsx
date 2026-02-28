@@ -7,7 +7,7 @@
  * Ensure Tailwind CSS is configured.
  */
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -439,6 +439,16 @@ export default function Dashboard() {
   const [newsData, setNewsData] = useState<NewsItem[]>([]);
   const [isNewsLoading, setIsNewsLoading] = useState(true);
 
+  const [showSettings, setShowSettings] = useState(false);
+  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('user_gemini_key') || '');
+
+  const saveGeminiKey = (key: string) => {
+    localStorage.setItem('user_gemini_key', key);
+    setGeminiKey(key);
+    setShowSettings(false);
+    fetchNewsData(key); // Force refresh with new key
+  };
+
   const fetchMarketData = async () => {
     const CACHE_KEY = 'marketflow_cache';
 
@@ -496,10 +506,22 @@ export default function Dashboard() {
     }
   }
 
-  const fetchNewsData = async () => {
+  const fetchNewsData = async (overrideKey?: string) => {
     setIsNewsLoading(true);
+    const activeKey = overrideKey !== undefined ? overrideKey : geminiKey;
+
     try {
-      const response = await fetch(`/api/market-news?t=${new Date().getTime()}`);
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+
+      if (activeKey) {
+        headers['Authorization'] = `Bearer ${activeKey}`;
+      }
+
+      const response = await fetch(`/api/market-news?t=${new Date().getTime()}`, {
+        headers
+      });
       const result = await response.json();
 
       if (result.data && Array.isArray(result.data)) {
@@ -559,6 +581,14 @@ export default function Dashboard() {
             >
               {isPresentationMode ? <LayoutDashboard className="w-4 h-4" /> : <Columns className="w-4 h-4" />}
               <span className="hidden md:inline text-xs font-medium">{isPresentationMode ? "Dashboard" : "Presentation"}</span>
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-2 hover:bg-zinc-900 rounded-full transition-colors relative"
+              title="Settings"
+            >
+              <Settings className="w-4 h-4" />
+              {geminiKey && <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-blue-500 rounded-full border border-zinc-950" />}
             </button>
             <button
               onClick={() => {
@@ -710,6 +740,67 @@ export default function Dashboard() {
 
         </div>
       </main>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <Card className="w-full max-w-md p-6 border-zinc-700 bg-zinc-900 shadow-2xl scale-in-center overflow-hidden relative">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold flex items-center">
+                <Settings className="w-5 h-5 mr-3 text-blue-400" />
+                System Settings
+              </h3>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="p-1 hover:bg-zinc-800 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-zinc-300 flex items-center">
+                  <Cpu className="w-4 h-4 mr-2 text-indigo-400" />
+                  Gemini API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={geminiKey}
+                    onChange={(e) => setGeminiKey(e.target.value)}
+                    placeholder="Enter your Google Gemini API Key"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all font-mono"
+                  />
+                </div>
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  Provide your own API key to bypass global rate limits and generate real-time AI news summaries. The key is stored locally in your browser.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => saveGeminiKey(geminiKey)}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg transition-all active:scale-[0.98] shadow-lg shadow-blue-900/20"
+                >
+                  Save Configuration
+                </button>
+                <button
+                  onClick={() => {
+                    saveGeminiKey('');
+                    setGeminiKey('');
+                  }}
+                  className="px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-2.5 rounded-lg transition-all"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

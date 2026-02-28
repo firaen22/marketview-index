@@ -28,8 +28,19 @@ export default async function handler(req: any, res: any) {
         const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
         const forceRefresh = searchParams.get('refresh') === 'true';
 
-        // 1. Try to read from Redis Cache first
-        if (redis && !forceRefresh) {
+        // Check for custom Gemini API Key in Authorization header
+        const authHeader = req.headers.authorization;
+        const customApiKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+        // Use custom key if provided, otherwise fallback to server key
+        let activeAi = ai;
+        if (customApiKey && customApiKey !== 'null' && customApiKey !== 'undefined') {
+            activeAi = new GoogleGenAI({ apiKey: customApiKey });
+            console.log('Using custom Gemini API key from request.');
+        }
+
+        // 1. Try to read from Redis Cache first (only if NO custom key is used)
+        if (redis && !forceRefresh && !customApiKey) {
             const cachedNews: any = await redis.get(CACHE_KEY);
             if (cachedNews) {
                 const payload = typeof cachedNews === 'string' ? JSON.parse(cachedNews) : cachedNews;
@@ -51,7 +62,7 @@ export default async function handler(req: any, res: any) {
             let aiSummary = article.title; // Fallback
             let aiSentiment = "Neutral";
 
-            if (ai) {
+            if (activeAi) {
                 try {
                     const prompt = `Analyze this financial news headline and short summary:
 TITLE: ${article.title}
@@ -71,7 +82,7 @@ BULLISH
 Strong earnings from tech giants are expected to drive the S&P 500 higher this week amidst cooling inflation data.
 `;
                     // Note: using 'gemini-1.5-flash' for speed and low cost
-                    const response = await ai.models.generateContent({
+                    const response = await activeAi.models.generateContent({
                         model: 'gemini-1.5-flash',
                         contents: prompt,
                     });
