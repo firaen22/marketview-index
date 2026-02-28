@@ -92,7 +92,10 @@ export default async function handler(req: any, res: any) {
       success: false,
       error: error.message,
       isLimit: error.message.includes('Limit'),
-      message: 'API Error and No Cache Available.'
+      isConfigError: error.message.includes('configured'),
+      message: error.message.includes('configured')
+        ? 'Vercel Environment Variable "ALPHA_VANTAGE_API_KEY" is missing.'
+        : 'API Error or Limit Reached.'
     });
   }
 }
