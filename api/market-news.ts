@@ -81,9 +81,9 @@ Example:
 BULLISH
 Strong earnings from tech giants are expected to drive the S&P 500 higher this week amidst cooling inflation data.
 `;
-                    // Note: using 'gemini-2.0-flash' for latest performance
+                    // Note: using 'gemini-2.5-flash-latest' for elite performance
                     const response = await activeAi.models.generateContent({
-                        model: 'gemini-2.0-flash',
+                        model: 'gemini-2.5-flash-latest',
                         contents: prompt,
                     });
 

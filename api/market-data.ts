@@ -16,11 +16,19 @@ const redis = hasUpstash
   })
   : null;
 
-// Yahoo Finance 的 ticker symbols (有些指數前綴會加上 ^)
 const INDICES_TO_FETCH = [
-  { symbol: 'SPY', category: 'US', name: 'S&P 500 ETF' },
-  { symbol: 'QQQ', category: 'US', name: 'Nasdaq 100 ETF' },
-  { symbol: 'GLD', category: 'Commodity', name: 'Gold ETF' },
+  { symbol: '^GSPC', category: 'US', name: 'S&P 500' },
+  { symbol: '^IXIC', category: 'US', name: 'Nasdaq Composite' },
+  { symbol: '^DJI', category: 'US', name: 'Dow Jones' },
+  { symbol: '^VIX', category: 'Volatility', name: 'VIX' },
+  { symbol: 'DX-Y.NYB', category: 'Currency', name: 'US Dollar Index' },
+  { symbol: '^HSI', category: 'Asia', name: 'Hang Seng Index' },
+  { symbol: '^N225', category: 'Asia', name: 'Nikkei 225' },
+  { symbol: '^FTSE', category: 'Europe', name: 'FTSE 100' },
+  { symbol: 'BTC-USD', category: 'Crypto', name: 'Bitcoin' },
+  { symbol: 'ETH-USD', category: 'Crypto', name: 'Ethereum' },
+  { symbol: 'CL=F', category: 'Commodity', name: 'Crude Oil' },
+  { symbol: 'GC=F', category: 'Commodity', name: 'Gold' },
 ];
 
 export default async function handler(req: any, res: any) {

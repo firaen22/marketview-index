@@ -736,7 +736,7 @@ export default function Dashboard() {
               {isLoading ? (
                 <div className="flex flex-col items-center justify-center h-64 text-zinc-500">
                   <Loader2 className="w-8 h-8 animate-spin mb-4" />
-                  <p className="text-sm">Connecting to Alpha Vantage...</p>
+                  <p className="text-sm">Connecting to Yahoo Finance...</p>
                 </div>
               ) : marketData.length > 0 ? (
                 <div className={cn(
