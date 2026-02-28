@@ -506,11 +506,13 @@ export default function Dashboard() {
         setFallbackMessage(`${message} (最後更新時間：${timeStr})`);
       } catch (e) {
         setIsError(true);
-        setFallbackMessage('快取數據損壞，無法顯示。');
+        setMarketData(MOCK_INDICES);
+        setFallbackMessage('快取數據損壞，目前為模擬資料。');
       }
     } else {
       setIsError(true);
-      setFallbackMessage('無法連接伺服器且無本地快取紀錄。');
+      setMarketData(MOCK_INDICES);
+      setFallbackMessage('初次載入或無快取，API 配額可能已滿，目前顯示模擬資料。');
     }
   }
 
