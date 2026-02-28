@@ -7,7 +7,7 @@
  * Ensure Tailwind CSS is configured.
  */
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -441,6 +441,27 @@ export default function Dashboard() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('user_gemini_key') || '');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<{ success: boolean; models?: any[]; recommended?: string; message?: string } | null>(null);
+
+  const handleVerifyKey = async () => {
+    if (!geminiKey) return;
+    setIsVerifying(true);
+    setVerificationResult(null);
+    try {
+      const response = await fetch('/api/verify-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: geminiKey })
+      });
+      const result = await response.json();
+      setVerificationResult(result);
+    } catch (err) {
+      setVerificationResult({ success: false, message: 'Verification failed.' });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const saveGeminiKey = (key: string) => {
     localStorage.setItem('user_gemini_key', key);
@@ -770,11 +791,47 @@ export default function Dashboard() {
                   <input
                     type="password"
                     value={geminiKey}
-                    onChange={(e) => setGeminiKey(e.target.value)}
+                    onChange={(e) => {
+                      setGeminiKey(e.target.value);
+                      setVerificationResult(null);
+                    }}
                     placeholder="Enter your Google Gemini API Key"
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all font-mono"
                   />
+                  <button
+                    onClick={handleVerifyKey}
+                    disabled={isVerifying || !geminiKey}
+                    className="absolute right-2 top-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-xs font-semibold rounded-md border border-zinc-700 transition-colors"
+                  >
+                    {isVerifying ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Verify'}
+                  </button>
                 </div>
+
+                {verificationResult && (
+                  <div className={cn(
+                    "p-3 rounded-lg text-xs flex items-start space-x-3 animate-in slide-in-from-top-2 duration-200",
+                    verificationResult.success ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border border-rose-500/20 text-rose-400"
+                  )}>
+                    {verificationResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                    ) : (
+                      <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
+                    )}
+                    <div className="space-y-1">
+                      <p className="font-bold">{verificationResult.success ? 'Verification Successful' : 'Verification Failed'}</p>
+                      <p className="opacity-80">{verificationResult.message || (verificationResult.success ? `Supports ${verificationResult.models?.length} models. Recommended: ${verificationResult.recommended}` : '')}</p>
+                      {verificationResult.success && (
+                        <div className="pt-1 flex flex-wrap gap-1">
+                          {verificationResult.models?.slice(0, 3).map((m: any) => (
+                            <span key={m.name} className="px-1.5 py-0.5 bg-emerald-500/20 rounded text-[10px]">{m.name}</span>
+                          ))}
+                          {(verificationResult.models?.length || 0) > 3 && <span className="text-[10px] opacity-60">+{verificationResult.models!.length - 3} more</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-[11px] text-zinc-500 leading-relaxed">
                   Provide your own API key to bypass global rate limits and generate real-time AI news summaries. The key is stored locally in your browser.
                 </p>
@@ -791,6 +848,7 @@ export default function Dashboard() {
                   onClick={() => {
                     saveGeminiKey('');
                     setGeminiKey('');
+                    setVerificationResult(null);
                   }}
                   className="px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-2.5 rounded-lg transition-all"
                 >
