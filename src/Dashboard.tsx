@@ -435,17 +435,12 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
-  const [remainingQuota, setRemainingQuota] = useState<number>(25);
+
+  const [newsData, setNewsData] = useState<NewsItem[]>([]);
+  const [isNewsLoading, setIsNewsLoading] = useState(true);
 
   const fetchMarketData = async () => {
-    // 雖然伺服器有 Redis 快取了，但前端還是留著 localStorage 當作最後防線與計算每日配額 UI
     const CACHE_KEY = 'marketflow_cache';
-    const QUOTA_KEY = `marketflow_quota_${new Date().toISOString().split('T')[0]}`;
-
-    // 初始化或讀取今日剩餘配額
-    const savedQuota = localStorage.getItem(QUOTA_KEY);
-    let currentQuota = savedQuota ? parseInt(savedQuota) : 25;
-    setRemainingQuota(currentQuota);
 
     setIsLoading(true);
     setIsError(false);
@@ -454,28 +449,13 @@ export default function Dashboard() {
       const response = await fetch(`/api/market-data?t=${new Date().getTime()}`);
       const result = await response.json();
 
-      // 無論狀態為何，只要有 data 就先塞進 UI
       if (result.data && Array.isArray(result.data)) {
         setMarketData(result.data);
 
-        // 成功取得新資料 (非從伺服器快取拿)，才扣減前端的配額計數UI
-        if (result.success && result.source !== 'server_cache' && result.source !== 'server_stale_cache') {
-          const newQuota = Math.max(0, currentQuota - 3);
-          setRemainingQuota(newQuota);
-          localStorage.setItem(QUOTA_KEY, newQuota.toString());
-        }
-
-        // 伺服器回報設定錯誤 (如沒填 API Key)
-        if (result.isConfigError) {
-          setFallbackMessage("系統設定錯誤：請在 Vercel 中設定 ALPHA_VANTAGE_API_KEY 環境變數。");
-          setMarketData(MOCK_INDICES);
-        }
-        // 伺服器發現 API 滿了，傳回凍結的舊資料
-        else if (!result.success || result.source === 'server_stale_cache') {
+        // 伺服器發現錯誤，傳回凍結的舊資料
+        if (!result.success || result.source === 'server_stale_cache') {
           const timeStr = new Date(result.timestamp).toLocaleTimeString();
-          setFallbackMessage(`API 額度已滿，顯示後端最後更新時間：${timeStr} (全局資料已凍結)`);
-          setRemainingQuota(0);
-          localStorage.setItem(QUOTA_KEY, "0");
+          setFallbackMessage(`無法取得最新資料，顯示後端最後更新時間：${timeStr} (全局資料已凍結)`);
         } else {
           // 正常狀態下，將後端傳來的最新資料也備份一份到前端 localStorage 作為最底層防線
           localStorage.setItem(CACHE_KEY, JSON.stringify({
@@ -491,11 +471,6 @@ export default function Dashboard() {
       console.error('Failed to fetch market data, attempting local frontend recovery:', err);
       // Backend 連續出錯或沒連上，退回前端 localstorage
       handleFallback(CACHE_KEY, `伺服器連線失敗。目前顯示裝置本地快取數據。`);
-
-      if (err.message?.includes('Limit')) {
-        setRemainingQuota(0);
-        localStorage.setItem(QUOTA_KEY, "0");
-      }
     } finally {
       setIsLoading(false);
     }
@@ -521,8 +496,33 @@ export default function Dashboard() {
     }
   }
 
+  const fetchNewsData = async () => {
+    setIsNewsLoading(true);
+    try {
+      const response = await fetch(`/api/market-news?t=${new Date().getTime()}`);
+      const result = await response.json();
+
+      if (result.data && Array.isArray(result.data)) {
+        setNewsData(result.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch news data:', err);
+    } finally {
+      setIsNewsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchMarketData();
+    fetchNewsData();
+
+    // 30-second polling for real-time feel
+    const pollInterval = setInterval(() => {
+      fetchMarketData();
+      fetchNewsData();
+    }, 30 * 1000);
+
+    return () => clearInterval(pollInterval);
   }, []);
 
   const categories = ['All', ...Array.from(new Set(marketData.map(item => item.category)))];
@@ -548,15 +548,6 @@ export default function Dashboard() {
             <span className="font-bold text-xl tracking-tight">Market<span className="text-blue-500">Flow</span></span>
           </div>
           <div className="flex items-center space-x-4 text-sm text-zinc-400">
-            <div className="hidden sm:flex items-center space-x-3 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-zinc-800">
-              <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Daily API Quota</span>
-              <div className="flex items-center">
-                <div className={cn("w-2 h-2 rounded-full mr-2", remainingQuota > 10 ? "bg-emerald-500" : remainingQuota > 0 ? "bg-yellow-500" : "bg-rose-500 animate-pulse")} />
-                <span className={cn("font-mono font-bold", remainingQuota > 0 ? "text-zinc-200" : "text-rose-400")}>{remainingQuota}</span>
-                <span className="text-zinc-600 mx-1">/</span>
-                <span className="text-zinc-500 font-mono">25</span>
-              </div>
-            </div>
             <span className="flex items-center font-mono">
               <Clock className="w-4 h-4 mr-2" />
               {currentTime.toLocaleTimeString()}
@@ -570,9 +561,12 @@ export default function Dashboard() {
               <span className="hidden md:inline text-xs font-medium">{isPresentationMode ? "Dashboard" : "Presentation"}</span>
             </button>
             <button
-              onClick={() => fetchMarketData()}
-              className={cn("p-2 hover:bg-zinc-900 rounded-full transition-colors", isLoading && "animate-spin")}
-              disabled={isLoading || remainingQuota <= 0}
+              onClick={() => {
+                fetchMarketData();
+                fetchNewsData();
+              }}
+              className={cn("p-2 hover:bg-zinc-900 rounded-full transition-colors", (isLoading || isNewsLoading) && "animate-spin")}
+              disabled={isLoading || isNewsLoading}
             >
               <RefreshCcw className="w-4 h-4" />
             </button>
@@ -615,14 +609,28 @@ export default function Dashboard() {
                   <span className="w-1 h-6 bg-blue-500 mr-3 rounded-full"></span>
                   Core Market News
                 </h2>
-                <Badge variant="default" className="bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Live Feed</Badge>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">Powered by Gemini AI</span>
+                  <Badge variant="default" className="bg-zinc-800 text-zinc-300 hover:bg-zinc-700">Live Feed</Badge>
+                </div>
               </div>
 
               <ScrollArea className="flex-1 pr-4 -mr-4">
                 <div className="space-y-1">
-                  {MOCK_NEWS.map((news) => (
-                    <NewsCard key={news.id} item={news} />
-                  ))}
+                  {isNewsLoading ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-zinc-500">
+                      <Loader2 className="w-8 h-8 animate-spin mb-4" />
+                      <p className="text-sm">Gemini is analyzing latest news...</p>
+                    </div>
+                  ) : newsData.length > 0 ? (
+                    newsData.map((news) => (
+                      <NewsCard key={news.id} item={news} />
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-48 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                      <p className="text-sm">No recent news available.</p>
+                    </div>
+                  )}
                 </div>
               </ScrollArea>
             </div>

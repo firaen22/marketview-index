@@ -37,3 +37,4 @@ build
 .parcel-cache
 .eslintcache
 .stylelintcache
+.vercel

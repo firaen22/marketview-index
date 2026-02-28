@@ -1,8 +1,7 @@
 import { Redis } from '@upstash/redis'
+import yahooFinance from 'yahoo-finance2';
 
-const ALPHA_VANTAGE_API_KEY = process.env.ALPHA_VANTAGE_API_KEY;
-const API_URL = 'https://www.alphavantage.co/query';
-const CACHE_KEY = 'global_market_cache_v2';
+const CACHE_KEY = 'global_market_cache_yfinance_v1';
 
 // 檢查是否有配置 Upstash (從 Vercel 自動注入)
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
@@ -17,6 +16,7 @@ const redis = hasUpstash
   })
   : null;
 
+// Yahoo Finance 的 ticker symbols (有些指數前綴會加上 ^)
 const INDICES_TO_FETCH = [
   { symbol: 'SPY', category: 'US', name: 'S&P 500 ETF' },
   { symbol: 'QQQ', category: 'US', name: 'Nasdaq 100 ETF' },
@@ -34,35 +34,32 @@ export default async function handler(req: any, res: any) {
     const forceRefresh = searchParams.get('refresh') === 'true';
     const isCron = req.headers['user-agent']?.includes('Vercel-Cron');
 
-    // 如果 Redis 尚未設定，回退到原本的無快取模式
-    if (!redis) {
-      const data = await fetchAllIndices();
-      return res.status(200).json({ success: true, source: 'live_api_no_redis', timestamp: new Date().toISOString(), data });
-    }
-
     // 1. 嘗試從 Redis 讀取全球快取資料
-    let cachedPayload: any = await redis.get(CACHE_KEY);
+    let cachedPayload: any = redis ? await redis.get(CACHE_KEY) : null;
 
-    // 2. 如果是 Cron 時段、強制更新、或 Redis 內完全沒資料，就拉取新資料並寫入 Redis
+    // 2. 如果是 Cron 時段 (早上 9 點)、強制更新、或 Redis 內完全沒資料，就拉取新資料並寫入 Redis
     if (isCron || forceRefresh || !cachedPayload) {
-      console.log('Fetching fresh data from Alpha Vantage...');
+      console.log('Fetching fresh data from Yahoo Finance...');
       const freshData = await fetchAllIndices();
 
       const payload = {
         success: true,
-        source: isCron ? 'cron_updated_cache' : 'live_api_cached',
+        source: isCron ? 'cron_updated_cache' : (redis ? 'live_api_cached' : 'live_api_no_redis'),
         timestamp: new Date().toISOString(),
         data: freshData,
       };
 
-      await redis.set(CACHE_KEY, JSON.stringify(payload));
+      if (redis) {
+        await redis.set(CACHE_KEY, JSON.stringify(payload));
+      }
       return res.status(200).json(payload);
     }
 
-    // 3. 一般前端請求，直接回傳 Redis 上的資料（節省 API 額度）
-    // Upstash Redis SDK 如果讀取 JSON字串 且傳入型別沒設定，有時會自動 parse 有時不會，這裡做個防呆
+    // 3. 一般前端請求，直接回傳 Redis 上的資料（節省 API 額度與防 IP Ban）
     const resultPayload = typeof cachedPayload === 'string' ? JSON.parse(cachedPayload) : cachedPayload;
-    resultPayload.source = 'server_cache';
+    if (resultPayload) {
+      resultPayload.source = 'server_cache';
+    }
 
     return res.status(200).json(resultPayload);
 
@@ -80,7 +77,7 @@ export default async function handler(req: any, res: any) {
             success: false,
             source: 'server_stale_cache',
             error: error.message,
-            message: 'Alpha Vantage Limit Reached. Serving Server-Side Frozen Data.'
+            message: 'Yahoo Finance Fetch Error. Serving Server-Side Frozen Data.'
           });
         }
       } catch (e) {
@@ -91,55 +88,52 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       success: false,
       error: error.message,
-      isLimit: error.message.includes('Limit'),
-      isConfigError: error.message.includes('configured'),
-      message: error.message.includes('configured')
-        ? 'Vercel Environment Variable "ALPHA_VANTAGE_API_KEY" is missing.'
-        : 'API Error or Limit Reached.'
+      message: 'API Error and No Cache Available.'
     });
   }
 }
 
 async function fetchAllIndices() {
-  if (!ALPHA_VANTAGE_API_KEY) {
-    throw new Error("ALPHA_VANTAGE_API_KEY is not configured.");
-  }
-
   const results = [];
 
   for (const index of INDICES_TO_FETCH) {
-    const url = `${API_URL}?function=GLOBAL_QUOTE&symbol=${index.symbol}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-    const response = await fetch(url);
-    const data = await response.json();
+    try {
+      const quoteString = index.symbol;
+      const quote: any = await yahooFinance.quote(quoteString);
 
-    if (data.Information || data.Note) {
-      throw new Error(`Alpha Vantage Limit: ${data.Information || data.Note}`);
+      if (quote) {
+        const price = quote.regularMarketPrice || 0;
+        const change = quote.regularMarketChange || 0;
+        const changePercent = quote.regularMarketChangePercent || 0;
+        const open = quote.regularMarketOpen || price;
+        const high = quote.regularMarketDayHigh || price;
+        const low = quote.regularMarketDayLow || price;
+
+        results.push({
+          symbol: index.symbol,
+          name: index.name,
+          category: index.category,
+          price,
+          change,
+          changePercent,
+          open,
+          high,
+          low,
+          ytdChange: 0, // 可以另外算或忽略
+          ytdChangePercent: 0,
+          history: Array.from({ length: 20 }, (_, i) => ({ value: price + (Math.random() - 0.5) * (high - low || price * 0.01) })),
+        });
+      }
+    } catch (err: any) {
+      console.warn(`Failed to fetch ${index.symbol}:`, err.message);
     }
 
-    const quote = data["Global Quote"];
+    // 稍微延遲避免瞬間併發太多被鎖
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
 
-    if (quote && quote["05. price"]) {
-      const price = parseFloat(quote["05. price"]);
-      const high = parseFloat(quote["03. high"]);
-      const low = parseFloat(quote["04. low"]);
-
-      results.push({
-        symbol: index.symbol,
-        name: index.name,
-        category: index.category,
-        price,
-        change: parseFloat(quote["09. change"]),
-        changePercent: parseFloat(quote["10. change percent"].replace('%', '')),
-        open: parseFloat(quote["02. open"]),
-        high,
-        low,
-        ytdChange: 0,
-        ytdChangePercent: 0,
-        history: Array.from({ length: 20 }, (_, i) => ({ value: price + (Math.random() - 0.5) * (high - low) })),
-      });
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 800));
+  if (results.length === 0) {
+    throw new Error('Failed to fetch any data from Yahoo Finance');
   }
 
   return results;
