@@ -435,14 +435,26 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
+  const [remainingQuota, setRemainingQuota] = useState<number>(25);
 
   const fetchMarketData = async () => {
     const CACHE_KEY = 'marketflow_cache';
+    const QUOTA_KEY = `marketflow_quota_${new Date().toISOString().split('T')[0]}`;
+
+    // 初始化或讀取今日剩餘配額
+    const savedQuota = localStorage.getItem(QUOTA_KEY);
+    let currentQuota = savedQuota ? parseInt(savedQuota) : 25;
+    setRemainingQuota(currentQuota);
+
+    if (currentQuota <= 0) {
+      handleFallback(CACHE_KEY, '今日 API 配額已用盡 (0/25)。數據已凍結。');
+      return;
+    }
+
     setIsLoading(true);
     setIsError(false);
     setFallbackMessage(null);
     try {
-      // 加上時間戳記強制跳過瀏覽器快取
       const response = await fetch(`/api/market-data?t=${new Date().getTime()}`);
       const result = await response.json();
 
@@ -452,30 +464,45 @@ export default function Dashboard() {
           timestamp: new Date().getTime(),
           data: result.data
         }));
+
+        // 更新配額 (每次 fetch 3 個指數，消耗 3 次)
+        const newQuota = Math.max(0, currentQuota - 3);
+        setRemainingQuota(newQuota);
+        localStorage.setItem(QUOTA_KEY, newQuota.toString());
+
       } else {
         throw new Error(result.error || "Failed to fetch data");
       }
     } catch (err) {
       console.error('Failed to fetch market data, attempting local recovery:', err);
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) {
-        try {
-          const { data, timestamp } = JSON.parse(cached);
-          const timeStr = new Date(timestamp).toLocaleTimeString();
-          setMarketData(data);
-          setFallbackMessage(`目前顯示最後更新時間：${timeStr} (數據已凍結)`);
-        } catch (e) {
-          setIsError(true);
-          setFallbackMessage('快取數據損壞，無法顯示。');
-        }
-      } else {
-        setIsError(true);
-        setFallbackMessage('無法連接伺服器且無本地快取紀錄。');
+      handleFallback(CACHE_KEY, `API 額度不足或連線失敗。目前數據已凍結。`);
+      // 如果出錯也把配額視為 0 或減少
+      if (err.message?.includes('Limit')) {
+        setRemainingQuota(0);
+        localStorage.setItem(QUOTA_KEY, "0");
       }
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleFallback = (cacheKey: string, message: string) => {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const { data, timestamp } = JSON.parse(cached);
+        const timeStr = new Date(timestamp).toLocaleTimeString();
+        setMarketData(data);
+        setFallbackMessage(`${message} (最後更新時間：${timeStr})`);
+      } catch (e) {
+        setIsError(true);
+        setFallbackMessage('快取數據損壞，無法顯示。');
+      }
+    } else {
+      setIsError(true);
+      setFallbackMessage('無法連接伺服器且無本地快取紀錄。');
+    }
+  }
 
   useEffect(() => {
     fetchMarketData();
@@ -504,6 +531,15 @@ export default function Dashboard() {
             <span className="font-bold text-xl tracking-tight">Market<span className="text-blue-500">Flow</span></span>
           </div>
           <div className="flex items-center space-x-4 text-sm text-zinc-400">
+            <div className="hidden sm:flex items-center space-x-3 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-zinc-800">
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Daily API Quota</span>
+              <div className="flex items-center">
+                <div className={cn("w-2 h-2 rounded-full mr-2", remainingQuota > 10 ? "bg-emerald-500" : remainingQuota > 0 ? "bg-yellow-500" : "bg-rose-500 animate-pulse")} />
+                <span className={cn("font-mono font-bold", remainingQuota > 0 ? "text-zinc-200" : "text-rose-400")}>{remainingQuota}</span>
+                <span className="text-zinc-600 mx-1">/</span>
+                <span className="text-zinc-500 font-mono">25</span>
+              </div>
+            </div>
             <span className="flex items-center font-mono">
               <Clock className="w-4 h-4 mr-2" />
               {currentTime.toLocaleTimeString()}
@@ -519,7 +555,7 @@ export default function Dashboard() {
             <button
               onClick={() => fetchMarketData()}
               className={cn("p-2 hover:bg-zinc-900 rounded-full transition-colors", isLoading && "animate-spin")}
-              disabled={isLoading}
+              disabled={isLoading || remainingQuota <= 0}
             >
               <RefreshCcw className="w-4 h-4" />
             </button>

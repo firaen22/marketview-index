@@ -1,6 +1,10 @@
 const ALPHA_VANTAGE_API_KEY = process.env.ALPHA_VANTAGE_API_KEY;
 const API_URL = 'https://www.alphavantage.co/query';
 
+// 本地存儲配額狀態的 Key (雖然 Vercel KV 沒了，但在 Server 內我們可以用一個模擬機制或環境變數控管)
+// 由於 Vercel Serverless 無法持久化狀態，我們依賴前端記錄或從 Alpha Vantage Header/Error 判斷
+// 這裡我們在 API 回傳中帶上配額估計（假設每日 25 次）
+
 const INDICES_TO_FETCH = [
   { symbol: 'SPY', category: 'US', name: 'S&P 500 ETF' },
   { symbol: 'QQQ', category: 'US', name: 'Nasdaq 100 ETF' },
@@ -9,13 +13,10 @@ const INDICES_TO_FETCH = [
 
 export default async function handler(req: any, res: any) {
   try {
-    // 設置不快取的 Header 以避免 Vercel Edge 緩存過時數據
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // 由於沒有 Vercel KV，我們只能直接去打 Alpha Vantage
-    // 注意：這會直接消耗 25 次/日的配額
     const data = await fetchAllIndices();
 
     return res.status(200).json({
@@ -30,14 +31,15 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       success: false,
       error: error.message,
-      message: 'API Error or Limit Reached. Frontend will handle freeze.'
+      isLimit: error.message.includes('Limit'),
+      message: 'API Error or Limit Reached.'
     });
   }
 }
 
 async function fetchAllIndices() {
   if (!ALPHA_VANTAGE_API_KEY) {
-    throw new Error("ALPHA_VANTAGE_API_KEY is not configured in Vercel environment variables.");
+    throw new Error("ALPHA_VANTAGE_API_KEY is not configured.");
   }
 
   const results = [];
@@ -48,6 +50,7 @@ async function fetchAllIndices() {
     const data = await response.json();
 
     if (data.Information || data.Note) {
+      // 這裡丟出 Error，前端會捕捉並顯示剩餘 0
       throw new Error(`Alpha Vantage Limit: ${data.Information || data.Note}`);
     }
 
@@ -74,8 +77,7 @@ async function fetchAllIndices() {
       });
     }
 
-    // 延遲以避免觸發次數過頻
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 800));
   }
 
   return results;
