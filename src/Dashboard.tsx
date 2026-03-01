@@ -225,7 +225,7 @@ const TickerItem: React.FC<{ item: IndexData; t: any }> = ({ item, t }) => {
       <div className="flex flex-col">
         <span className="text-xs font-bold text-zinc-400">{item.symbol}</span>
         <span className="text-sm font-semibold text-zinc-100">
-          {(t.indexNames && t.indexNames[item.name]) || item.name}
+          {t?.indexNames?.[item.name] || item.name}
         </span>
       </div>
       <div className="flex flex-col items-end">
@@ -294,7 +294,7 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t: any }
       <div className="grid grid-cols-[1fr_auto] gap-x-2 items-start mb-5">
         <div className="min-w-0">
           <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">
-            {(t.indexNames && t.indexNames[item.name]) || item.name}
+            {t?.indexNames?.[item.name] || item.name}
           </h4>
           <span className="text-[10px] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
         </div>
@@ -354,7 +354,15 @@ export default function Dashboard() {
   const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [timeRange, setTimeRange] = useState<string>('YTD');
-  const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => (localStorage.getItem('marketflow_lang') as any) || 'en');
+  const [language, setLanguage] = useState<'en' | 'zh-TW'>('en'); // Default to 'en' for SSR hydration
+
+  // Hydrate language from localStorage on client mount
+  useEffect(() => {
+    const savedLang = localStorage.getItem('marketflow_lang') as 'en' | 'zh-TW';
+    if (savedLang && (savedLang === 'en' || savedLang === 'zh-TW')) {
+      setLanguage(savedLang);
+    }
+  }, []);
 
   const t = DICTIONARY[language] || DICTIONARY.en;
 
@@ -403,8 +411,8 @@ export default function Dashboard() {
     localStorage.setItem('marketflow_lang', nextLang);
   };
 
-  const fetchMarketData = async (rangeStr = timeRange, isBackground = false, forceRefresh = false) => {
-    const CACHE_KEY = `marketflow_cache_${rangeStr}`;
+  const fetchMarketData = async (rangeStr = timeRange, isBackground = false, forceRefresh = false, overrideLang = language) => {
+    const CACHE_KEY = `marketflow_cache_${rangeStr}_${overrideLang}`;
 
     if (!isBackground) {
       setIsLoading(true);
@@ -413,7 +421,7 @@ export default function Dashboard() {
     }
 
     try {
-      const url = `/api/market-data?t=${new Date().getTime()}&range=${rangeStr}${forceRefresh ? '&refresh=true' : ''}`;
+      const url = `/api/market-data?t=${new Date().getTime()}&range=${rangeStr}&lang=${overrideLang}${forceRefresh ? '&refresh=true' : ''}`;
       const response = await fetch(url);
       const result = await response.json();
 
@@ -485,11 +493,11 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchMarketData(timeRange);
+    fetchMarketData(timeRange, false, false, language);
     fetchNewsData(language);
 
     const pollInterval = setInterval(() => {
-      fetchMarketData(timeRange, true, true);
+      fetchMarketData(timeRange, true, true, language);
       fetchNewsData(language, undefined, true, true);
     }, 60 * 60 * 1000);
 

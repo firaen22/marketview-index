@@ -38,3 +38,4 @@ build
 .eslintcache
 .stylelintcache
 .vercel
+.env*.local
