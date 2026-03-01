@@ -351,22 +351,24 @@ const NewsCard: React.FC<{ item: NewsItem }> = ({ item }) => {
   const sentimentVariant = item.sentiment.toLowerCase() as 'bullish' | 'bearish' | 'neutral';
 
   return (
-    <Card className="mb-4 p-4 hover:bg-zinc-900 transition-colors cursor-pointer group border-zinc-800/60">
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex items-center space-x-2 text-xs text-zinc-500">
-          <span className="font-medium text-zinc-400">{item.source}</span>
-          <span>•</span>
-          <span className="flex items-center"><Clock className="w-3 h-3 mr-1" />{item.time}</span>
+    <a href={item.url || '#'} target="_blank" rel="noopener noreferrer" className="block outline-none mb-4">
+      <Card className="p-4 hover:bg-zinc-900 transition-colors cursor-pointer group border-zinc-800/60 h-full">
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex items-center space-x-2 text-xs text-zinc-500">
+            <span className="font-medium text-zinc-400">{item.source}</span>
+            <span>•</span>
+            <span className="flex items-center"><Clock className="w-3 h-3 mr-1" />{item.time}</span>
+          </div>
+          <Badge variant={sentimentVariant}>{item.sentiment}</Badge>
         </div>
-        <Badge variant={sentimentVariant}>{item.sentiment}</Badge>
-      </div>
-      <h3 className="text-lg font-bold text-zinc-100 mb-2 group-hover:text-blue-400 transition-colors leading-tight">
-        {item.title}
-      </h3>
-      <p className="text-sm text-zinc-400 line-clamp-2 leading-relaxed">
-        {item.summary}
-      </p>
-    </Card>
+        <h3 className="text-lg font-bold text-zinc-100 mb-2 group-hover:text-blue-400 transition-colors leading-tight">
+          {item.title}
+        </h3>
+        <p className="text-sm text-zinc-400 line-clamp-2 leading-relaxed">
+          {item.summary}
+        </p>
+      </Card>
+    </a>
   );
 };
 
