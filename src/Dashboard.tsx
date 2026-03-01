@@ -59,6 +59,8 @@ const DICTIONARY: Record<string, any> = {
       Volatility: "Volatility"
     },
     noAiWarning: "AI translation unavailable. Set your Gemini API Key in Settings.",
+    dailyPulse: "Daily Market Pulse",
+    marketOutlook: "Market Outlook",
     indexNames: {
       "S&P 500": "S&P 500",
       "Nasdaq Composite": "Nasdaq",
@@ -116,6 +118,8 @@ const DICTIONARY: Record<string, any> = {
       Volatility: "波動率"
     },
     noAiWarning: "AI 翻譯暫時無法使用。請在「系統設定」中提供您的 Gemini API 金鑰。",
+    dailyPulse: "今日市場脈動",
+    marketOutlook: "市場策略展望",
     indexNames: {
       "S&P 500": "標普 500 指數",
       "Nasdaq Composite": "納斯達克綜合指數",
@@ -350,6 +354,24 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t: any }
 
 // --- Main Dashboard Component ---
 
+const DailyPulse = ({ summary, t }: { summary: string; t: any }) => {
+  if (!summary) return null;
+  return (
+    <div className="mb-6 p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 backdrop-blur-sm relative overflow-hidden group">
+      <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+        <TrendingUp className="w-12 h-12 text-blue-500" />
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <Cpu className="w-4 h-4 text-blue-400" />
+        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">{t.dailyPulse}</span>
+      </div>
+      <p className="text-sm text-zinc-200 leading-relaxed font-medium">
+        {summary}
+      </p>
+    </div>
+  );
+};
+
 export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -376,6 +398,7 @@ export default function Dashboard() {
   const [newsData, setNewsData] = useState<NewsItem[]>([]);
   const [isNewsLoading, setIsNewsLoading] = useState(true);
   const [isAiTranslated, setIsAiTranslated] = useState(true);
+  const [marketSummary, setMarketSummary] = useState<string>('');
 
   const [showSettings, setShowSettings] = useState(false);
   const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('user_gemini_key') || '');
@@ -485,6 +508,7 @@ export default function Dashboard() {
       const response = await fetch(url, { headers });
       const result = await response.json();
       setIsAiTranslated(result.isAiTranslated !== false);
+      setMarketSummary(result.marketSummary || '');
 
       if (result.data && Array.isArray(result.data)) {
         setNewsData(result.data);
@@ -638,14 +662,19 @@ export default function Dashboard() {
                       <Loader2 className="w-8 h-8 animate-spin mb-4" />
                       <p className="text-sm">{t.newsLoading}</p>
                     </div>
-                  ) : newsData.length > 0 ? (
-                    newsData.map((news) => (
-                      <NewsCard key={news.id} item={news} language={language} />
-                    ))
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-48 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
-                      <p className="text-sm">{t.noNews}</p>
-                    </div>
+                    <>
+                      <DailyPulse summary={marketSummary} t={t} />
+                      {newsData.length > 0 ? (
+                        newsData.map((news) => (
+                          <NewsCard key={news.id} item={news} language={language} />
+                        ))
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-48 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                          <p className="text-sm">{t.noNews}</p>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </ScrollArea>
@@ -751,99 +780,95 @@ export default function Dashboard() {
               )}
             </ScrollArea>
           </div>
-
-        </div>
-      </main>
+        </div >
+      </main >
 
       {/* Settings Modal */}
-      {showSettings && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <Card className="w-full max-w-md p-6 border-zinc-700 bg-zinc-900 shadow-2xl scale-in-center overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
-
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold flex items-center">
-                <Settings className="w-5 h-5 mr-3 text-blue-400" />
-                {t.settings}
-              </h3>
-              <button
-                onClick={() => setShowSettings(false)}
-                className="p-1 hover:bg-zinc-800 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-6">
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-zinc-300 flex items-center">
-                  <Cpu className="w-4 h-4 mr-2 text-indigo-400" />
-                  {t.apiKey}
-                </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    value={geminiKey}
-                    onChange={(e) => {
-                      setGeminiKey(e.target.value);
+      {
+        showSettings && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <Card className="w-full max-w-md p-6 border-zinc-700 bg-zinc-900 shadow-2xl scale-in-center overflow-hidden relative">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold flex items-center">
+                  <Settings className="w-5 h-5 mr-3 text-blue-400" />
+                  {t.settings}
+                </h3>
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="p-1 hover:bg-zinc-800 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-zinc-300 flex items-center">
+                    <Cpu className="w-4 h-4 mr-2 text-indigo-400" />
+                    {t.apiKey}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="password"
+                      value={geminiKey}
+                      onChange={(e) => {
+                        setGeminiKey(e.target.value);
+                        setVerificationResult(null);
+                      }}
+                      placeholder={t.apiKeyPlaceholder}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all font-mono"
+                    />
+                    <button
+                      onClick={handleVerifyKey}
+                      disabled={isVerifying || !geminiKey}
+                      className="absolute right-2 top-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-xs font-semibold rounded-md border border-zinc-700 transition-colors"
+                    >
+                      {isVerifying ? <Loader2 className="w-3 h-3 animate-spin" /> : t.verify}
+                    </button>
+                  </div>
+                  {verificationResult && (
+                    <div className={cn(
+                      "p-3 rounded-lg text-xs flex items-start space-x-3 animate-in slide-in-from-top-2 duration-200",
+                      verificationResult.success ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border border-rose-500/20 text-rose-400"
+                    )}>
+                      {verificationResult.success ? (
+                        <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                      ) : (
+                        <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
+                      )}
+                      <div className="space-y-1">
+                        <p className="font-bold">{verificationResult.success ? t.verifySuccess : t.verifyFailed}</p>
+                        <p className="opacity-80">{verificationResult.message || (verificationResult.success ? `Supports ${verificationResult.models?.length} models. Recommended: ${verificationResult.recommended}` : '')}</p>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    {t.apiKeyNote}
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => saveGeminiKey(geminiKey)}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg transition-all active:scale-[0.98] shadow-lg shadow-blue-900/20"
+                  >
+                    {t.saveConfig}
+                  </button>
+                  <button
+                    onClick={() => {
+                      saveGeminiKey('');
+                      setGeminiKey('');
                       setVerificationResult(null);
                     }}
-                    placeholder={t.apiKeyPlaceholder}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all font-mono"
-                  />
-                  <button
-                    onClick={handleVerifyKey}
-                    disabled={isVerifying || !geminiKey}
-                    className="absolute right-2 top-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-xs font-semibold rounded-md border border-zinc-700 transition-colors"
+                    className="px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-2.5 rounded-lg transition-all"
                   >
-                    {isVerifying ? <Loader2 className="w-3 h-3 animate-spin" /> : t.verify}
+                    {t.clear}
                   </button>
                 </div>
-
-                {verificationResult && (
-                  <div className={cn(
-                    "p-3 rounded-lg text-xs flex items-start space-x-3 animate-in slide-in-from-top-2 duration-200",
-                    verificationResult.success ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border border-rose-500/20 text-rose-400"
-                  )}>
-                    {verificationResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-                    ) : (
-                      <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
-                    )}
-                    <div className="space-y-1">
-                      <p className="font-bold">{verificationResult.success ? t.verifySuccess : t.verifyFailed}</p>
-                      <p className="opacity-80">{verificationResult.message || (verificationResult.success ? `Supports ${verificationResult.models?.length} models. Recommended: ${verificationResult.recommended}` : '')}</p>
-                    </div>
-                  </div>
-                )}
-
-                <p className="text-[11px] text-zinc-500 leading-relaxed">
-                  {t.apiKeyNote}
-                </p>
               </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={() => saveGeminiKey(geminiKey)}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg transition-all active:scale-[0.98] shadow-lg shadow-blue-900/20"
-                >
-                  {t.saveConfig}
-                </button>
-                <button
-                  onClick={() => {
-                    saveGeminiKey('');
-                    setGeminiKey('');
-                    setVerificationResult(null);
-                  }}
-                  className="px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-2.5 rounded-lg transition-all"
-                >
-                  {t.clear}
-                </button>
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
-    </div>
+            </Card>
+          </div>
+        )
+      }
+    </div >
   );
 }

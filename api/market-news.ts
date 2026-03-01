@@ -90,15 +90,16 @@ export default async function handler(req: any, res: any) {
 
         const isChinese = lang === 'zh-TW';
 
-        // 3. Process each News Item with Gemini AI
-        const processedNews = await Promise.all(newsItems.map(async (article, index) => {
-            let aiSummary = article.title;
-            let aiSentiment = "Neutral";
-            let translatedTitle = article.title;
+        // 3. Process each News Item with Gemini AI + Aggregate Summary in parallel
+        const [processedNews, marketSummary] = await Promise.all([
+            Promise.all(newsItems.map(async (article, index) => {
+                let aiSummary = article.title;
+                let aiSentiment = "Neutral";
+                let translatedTitle = article.title;
 
-            if (activeAi) {
-                try {
-                    const prompt = `Analyze this financial news article:
+                if (activeAi) {
+                    try {
+                        const prompt = `Analyze this financial news article:
 TITLE: ${article.title}
 PUBLISHER: ${article.publisher}
 
@@ -115,52 +116,75 @@ LINE3: THE_SUMMARY
 Example output:
 ${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨頭的強勁業績預計在大盤反彈背景下推動指數走高。' : 'BULLISH\nS&P 500 Bullish on Tech Strength\nStrong earnings from tech giants are expected to drive the index higher amidst a broader market rally.'}
 `;
-                    const response = await activeAi.models.generateContent({
-                        model: 'gemini-2.0-flash-exp',
-                        contents: prompt,
-                    });
+                        const response = await activeAi.models.generateContent({
+                            model: 'gemini-2.0-flash-exp',
+                            contents: prompt,
+                        });
 
-                    const text = (response.text || "").trim();
-                    const lines = text.split('\n')
-                        .map(l => l.replace(/^(LINE\d:|\[.*?\]|\d\.\s*)/i, '').trim())
-                        .filter(l => l !== '');
+                        const text = (response.text || "").trim();
+                        const lines = text.split('\n')
+                            .map(l => l.replace(/^(LINE\d:|\[.*?\]|\d\.\s*)/i, '').trim())
+                            .filter(l => l !== '');
 
-                    if (lines.length >= 3) {
-                        const rawSentiment = lines[0].toUpperCase();
-                        if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
-                        else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
-                        else aiSentiment = 'Neutral';
+                        if (lines.length >= 3) {
+                            const rawSentiment = lines[0].toUpperCase();
+                            if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
+                            else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
+                            else aiSentiment = 'Neutral';
 
-                        translatedTitle = lines[1];
-                        aiSummary = lines.slice(2).join(' ').trim();
-                    } else if (lines.length === 2) {
-                        const rawSentiment = lines[0].toUpperCase();
-                        if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
-                        else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
-                        else aiSentiment = 'Neutral';
-                        aiSummary = lines[1];
+                            translatedTitle = lines[1];
+                            aiSummary = lines.slice(2).join(' ').trim();
+                        } else if (lines.length === 2) {
+                            const rawSentiment = lines[0].toUpperCase();
+                            if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
+                            else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
+                            else aiSentiment = 'Neutral';
+                            aiSummary = lines[1];
+                        }
+                    } catch (genErr) {
+                        console.warn('Gemini AI Generation failed for an article:', genErr);
                     }
-                } catch (genErr) {
-                    console.warn('Gemini AI Generation failed for an article:', genErr);
                 }
-            }
 
-            return {
-                id: article.uuid || `news-${index}`,
-                source: article.publisher || 'Yahoo Finance',
-                time: new Date(article.providerPublishTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                title: translatedTitle,
-                summary: aiSummary,
-                sentiment: aiSentiment,
-                sentimentScore: aiSentiment === 'Bullish' ? 0.8 : (aiSentiment === 'Bearish' ? -0.8 : 0),
-                url: article.link
-            };
-        }));
+                return {
+                    id: article.uuid || `news-${index}`,
+                    source: article.publisher || 'Yahoo Finance',
+                    time: new Date(article.providerPublishTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    title: translatedTitle,
+                    summary: aiSummary,
+                    sentiment: aiSentiment,
+                    sentimentScore: aiSentiment === 'Bullish' ? 0.8 : (aiSentiment === 'Bearish' ? -0.8 : 0),
+                    url: article.link
+                };
+            })),
+            (async () => {
+                if (!activeAi || newsItems.length === 0) return "";
+                try {
+                    const aggregatePrompt = `Analyze these latest financial headlines and provide a concise 2-sentence "Market Pulse" overview.
+${isChinese ? 'Respond in Traditional Chinese (繁體中文).' : 'Respond in English.'}
+
+HEADLINES:
+${newsItems.map((n, i) => `${i + 1}. ${n.title}`).join('\n')}
+
+FORMAT: Just the 2 sentences summary. No extra text, no markdown.
+`;
+                    const summaryResponse = await activeAi.models.generateContent({
+                        model: 'gemini-2.0-flash-exp',
+                        contents: aggregatePrompt,
+                    });
+                    return (summaryResponse.text || "").trim();
+                } catch (e) {
+                    console.warn('Aggregate summary failed:', e);
+                    return "";
+                }
+            })()
+        ]);
 
         const responsePayload = {
             success: true,
             timestamp: new Date().toISOString(),
             data: processedNews,
+            marketSummary: marketSummary,
             isAiTranslated: activeAi ? true : false
         };
 
