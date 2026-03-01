@@ -117,7 +117,7 @@ Example output:
 ${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨頭的強勁業績預計在大盤反彈背景下推動指數走高。' : 'BULLISH\nS&P 500 Bullish on Tech Strength\nStrong earnings from tech giants are expected to drive the index higher amidst a broader market rally.'}
 `;
                         const response = await activeAi.models.generateContent({
-                            model: 'gemini-2.0-flash-exp',
+                            model: 'gemini-1.5-flash',
                             contents: prompt,
                         });
 
@@ -181,7 +181,7 @@ Sentence 1. Sentence 2.
 No extra text, no markdown like ** or #.
 `;
                     const summaryResponse = await activeAi.models.generateContent({
-                        model: 'gemini-2.0-flash-exp',
+                        model: 'gemini-1.5-flash',
                         contents: aggregatePrompt,
                     });
                     return (summaryResponse.text || "").trim();

@@ -14,10 +14,17 @@ export default async function handler(req: any, res: any) {
         const genAI = new GoogleGenAI({ apiKey });
 
         // Phase 1: List models to check initial authorization
-        let models: any[] = [];
+        let geminiModels: any[] = [];
         try {
             const modelListResult: any = await genAI.models.list();
-            models = modelListResult.models || [];
+            for await (const model of modelListResult) {
+                if (model.name.includes('gemini')) {
+                    geminiModels.push({
+                        name: model.name.replace('models/', ''),
+                        displayName: model.displayName
+                    });
+                }
+            }
         } catch (listErr: any) {
             const errMsg = listErr.message || '';
             if (errMsg.includes('apiKey expired')) {
@@ -29,41 +36,45 @@ export default async function handler(req: any, res: any) {
             throw listErr; // Fall through to general catch
         }
 
-        // Filter for Gemini models
-        const geminiModels = models.filter((m: any) =>
-            m.name.includes('gemini')
-        ).map((m: any) => ({
-            name: m.name.replace('models/', ''),
-            displayName: m.displayName
-        }));
-
         if (geminiModels.length === 0) {
             return res.status(200).json({ success: false, keyValid: false, errorCode: 'NO_GEMINI_MODELS', message: 'This key is valid but does not have access to any Gemini models.' });
         }
 
         // Phase 2: Attempt a "Hello" generation to verify actual connectivity and usage
         try {
-            const model = genAI.model('gemini-1.5-flash');
-            await model.generateContent({ contents: [{ role: 'user', parts: [{ text: 'Ping' }] }] });
+            const hasFlash20 = geminiModels.some(m => m.name === 'gemini-2.0-flash');
+            const hasFlash15 = geminiModels.some(m => m.name === 'gemini-1.5-flash');
+            const modelName = hasFlash20 ? 'gemini-2.0-flash' : (hasFlash15 ? 'gemini-1.5-flash' : geminiModels[0].name);
+
+            await genAI.models.generateContent({
+                model: modelName,
+                contents: [{ role: 'user', parts: [{ text: 'Ping' }] }]
+            });
         } catch (genErr: any) {
-            const msg = genErr.message || '';
-            if (msg.includes('rate limit')) {
-                return res.status(200).json({ success: true, keyValid: true, warning: 'RATE_LIMITED', message: 'Key is valid but currently hitting rate limits.' });
+            const msg = typeof genErr === 'string' ? genErr : (genErr.message || JSON.stringify(genErr));
+            if (msg.includes('rate limit') || msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+                return res.status(200).json({
+                    success: true,
+                    keyValid: true,
+                    models: geminiModels,
+                    warning: 'RATE_LIMITED',
+                    message: 'Your API key is VALID and has access, but has EXHAUSTED its current quota (429 Resource Exhausted). Please check your Google AI Studio plan or wait for it to reset.'
+                });
             }
             if (msg.includes('safety')) {
-                return res.status(200).json({ success: true, keyValid: true, message: 'Key is valid (Safety filters triggered on test ping).' });
+                return res.status(200).json({ success: true, keyValid: true, models: geminiModels, message: 'Key is valid (Safety filters triggered on test ping).' });
             }
-            return res.status(200).json({ success: false, keyValid: false, errorCode: 'CONNECTION_FAILED', message: `Key is valid but generation failed: ${msg.substring(0, 100)}` });
+            return res.status(200).json({ success: false, keyValid: false, errorCode: 'CONNECTION_FAILED', message: `Key is valid but generation failed: ${msg.substring(0, 150)}` });
         }
 
-        const hasFlash20 = geminiModels.some(m => m.name.includes('2.0-flash'));
-        const hasFlash15 = geminiModels.some(m => m.name.includes('1.5-flash'));
+        const has20 = geminiModels.some(m => m.name.includes('2.0'));
+        const has15 = geminiModels.some(m => m.name.includes('1.5'));
 
         return res.status(200).json({
             success: true,
             keyValid: true,
             models: geminiModels,
-            recommended: hasFlash20 ? 'gemini-2.0-flash' : (hasFlash15 ? 'gemini-1.5-flash' : 'gemini-pro'),
+            recommended: has20 ? 'gemini-2.0-flash' : (has15 ? 'gemini-1.5-flash' : 'gemini-pro'),
             message: 'Connectivity verified. All systems operational.'
         });
 
