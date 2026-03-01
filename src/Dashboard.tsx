@@ -7,7 +7,7 @@
  * Ensure Tailwind CSS is configured.
  */
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert, Newspaper } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -61,6 +61,8 @@ const DICTIONARY: Record<string, any> = {
     noAiWarning: "AI translation unavailable. Set your Gemini API Key in Settings.",
     dailyPulse: "Daily Market Pulse",
     marketOutlook: "Market Outlook",
+    newsOnly: "News Focus",
+    allIndices: "All Indices",
     indexNames: {
       "S&P 500": "S&P 500",
       "Nasdaq Composite": "Nasdaq",
@@ -120,6 +122,8 @@ const DICTIONARY: Record<string, any> = {
     noAiWarning: "AI 翻譯暫時無法使用。請在「系統設定」中提供您的 Gemini API 金鑰。",
     dailyPulse: "今日市場脈動",
     marketOutlook: "市場策略展望",
+    newsOnly: "新聞專注模式",
+    allIndices: "全部指數指標",
     indexNames: {
       "S&P 500": "標普 500 指數",
       "Nasdaq Composite": "納斯達克綜合指數",
@@ -376,6 +380,7 @@ export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
+  const [isNewsOnly, setIsNewsOnly] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [timeRange, setTimeRange] = useState<string>('YTD');
   const [language, setLanguage] = useState<'en' | 'zh-TW'>('en'); // Default to 'en' for SSR hydration
@@ -579,6 +584,18 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center space-x-1 border border-zinc-800 rounded-full p-1 bg-zinc-950/50">
               <button
+                onClick={() => setIsNewsOnly(!isNewsOnly)}
+                className={cn(
+                  "p-1 px-2.5 rounded-full transition-all text-[10px] font-bold flex items-center gap-1.5",
+                  isNewsOnly ? "bg-blue-600 text-white shadow-lg shadow-blue-900/40" : "hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                )}
+                title={isNewsOnly ? t.allIndices : t.newsOnly}
+              >
+                <Newspaper className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{isNewsOnly ? t.allIndices : t.newsOnly}</span>
+              </button>
+              <div className="h-3 w-px bg-zinc-800"></div>
+              <button
                 onClick={toggleLanguage}
                 className="p-1 px-2.5 hover:bg-zinc-800 rounded-full transition-all text-[10px] font-bold text-zinc-300 hover:text-white"
               >
@@ -609,35 +626,40 @@ export default function Dashboard() {
         </div>
 
         {/* Ticker Tape */}
-        <div className="overflow-hidden whitespace-nowrap border-b border-zinc-800 bg-zinc-950 flex items-center h-12">
-          {isLoading ? (
-            <div className="w-full flex items-center justify-center text-xs text-zinc-500">
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t.loading}
-            </div>
-          ) : isError && marketData.length === 0 ? (
-            <div className="w-full flex items-center justify-center text-xs text-rose-500">
-              <AlertCircle className="w-4 h-4 mr-2" /> {t.error}
-            </div>
-          ) : (
-            <div className="inline-flex animate-ticker">
-              {marketData.map((index) => (
-                <TickerItem key={index.symbol} item={index} t={t} />
-              ))}
-              {marketData.map((index) => (
-                <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
-              ))}
-            </div>
-          )}
-        </div>
+        {!isNewsOnly && (
+          <div className="overflow-hidden whitespace-nowrap border-b border-zinc-800 bg-zinc-950 flex items-center h-12">
+            {isLoading ? (
+              <div className="w-full flex items-center justify-center text-xs text-zinc-500">
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t.loading}
+              </div>
+            ) : isError && marketData.length === 0 ? (
+              <div className="w-full flex items-center justify-center text-xs text-rose-500">
+                <AlertCircle className="w-4 h-4 mr-2" /> {t.error}
+              </div>
+            ) : (
+              <div className="inline-flex animate-ticker">
+                {marketData.map((index) => (
+                  <TickerItem key={index.symbol} item={index} t={t} />
+                ))}
+                {marketData.map((index) => (
+                  <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
       <main className="container mx-auto p-4 lg:p-6 max-w-7xl">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 transition-all duration-500 ease-in-out">
 
-          {/* Left/Right Column Swapped: Core Market News (Now on Right Sidebar) */}
-          {!isPresentationMode && (
-            <div className="lg:col-span-5 xl:col-span-4 lg:order-last flex flex-col h-[calc(100vh-180px)] animate-in fade-in slide-in-from-right-4 duration-500">
+          {/* Core Market News Column */}
+          {(isNewsOnly || !isPresentationMode) && (
+            <div className={cn(
+              "flex flex-col animate-in fade-in duration-500",
+              isNewsOnly ? "lg:col-span-12" : "lg:col-span-5 xl:col-span-4 lg:order-last h-[calc(100vh-180px)]"
+            )}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold flex items-center text-balance">
                   <span className="w-1 h-6 bg-blue-500 mr-3 rounded-full"></span>
@@ -682,106 +704,108 @@ export default function Dashboard() {
           )}
 
           {/* Right/Left Column Swapped: Index Performance (Now Primary Left Column) */}
-          <div className={cn(
-            "flex flex-col h-[calc(100vh-180px)] transition-all duration-500 ease-in-out lg:order-first",
-            isPresentationMode ? "col-span-1 lg:col-span-12" : "lg:col-span-7 xl:col-span-8"
-          )}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold flex items-center">
-                <span className="w-1 h-6 bg-emerald-500 mr-3 rounded-full"></span>
-                {t.performance}
-              </h2>
-              {isPresentationMode ? (
-                <button
-                  onClick={() => setIsPresentationMode(false)}
-                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center px-2 py-1 bg-blue-500/10 rounded-md border border-blue-500/20 transition-colors"
-                >
-                  <LayoutDashboard className="w-3 h-3 mr-1.5" />
-                  {t.goBack}
-                </button>
-              ) : (
-                <button
-                  onClick={() => setIsPresentationMode(true)}
-                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center"
-                >
-                  {t.showAll} <ExternalLink className="w-3 h-3 ml-1" />
-                </button>
-              )}
-            </div>
-
-            {/* Category Filter */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-              <div className="flex flex-wrap gap-2">
-                {categories.map(category => (
+          {!isNewsOnly && (
+            <div className={cn(
+              "flex flex-col h-[calc(100vh-180px)] transition-all duration-500 ease-in-out lg:order-first",
+              isPresentationMode ? "col-span-1 lg:col-span-12" : "lg:col-span-7 xl:col-span-8"
+            )}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold flex items-center">
+                  <span className="w-1 h-6 bg-emerald-500 mr-3 rounded-full"></span>
+                  {t.performance}
+                </h2>
+                {isPresentationMode ? (
                   <button
-                    key={category}
-                    onClick={() => setSelectedCategory(category)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border",
-                      selectedCategory === category
-                        ? "bg-zinc-100 text-zinc-900 border-zinc-100 shadow-[0_0_15px_rgba(255,255,255,0.1)]"
-                        : "bg-zinc-900/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200"
-                    )}
+                    onClick={() => setIsPresentationMode(false)}
+                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center px-2 py-1 bg-blue-500/10 rounded-md border border-blue-500/20 transition-colors"
                   >
-                    {t.categories[category] || category}
+                    <LayoutDashboard className="w-3 h-3 mr-1.5" />
+                    {t.goBack}
                   </button>
-                ))}
-              </div>
-
-              <div className="flex items-center bg-zinc-900/80 p-1 rounded-lg border border-zinc-800/80 backdrop-blur-md">
-                {['1M', '3M', 'YTD', '1Y'].map(range => (
+                ) : (
                   <button
-                    key={range}
-                    onClick={() => setTimeRange(range)}
-                    className={cn(
-                      "px-3 py-1 text-xs font-mono font-medium rounded-md transition-all duration-200 relative",
-                      timeRange === range
-                        ? "bg-zinc-800 text-zinc-100 shadow-sm"
-                        : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
-                    )}
+                    onClick={() => setIsPresentationMode(true)}
+                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center"
                   >
-                    {range}
+                    {t.showAll} <ExternalLink className="w-3 h-3 ml-1" />
                   </button>
-                ))}
+                )}
               </div>
-            </div>
 
-            {fallbackMessage && (
-              <div className="mb-4 bg-zinc-800/80 border border-zinc-700 text-yellow-500/90 text-xs px-4 py-2 rounded-lg flex items-center animate-in fade-in slide-in-from-top-2 duration-300">
-                <AlertCircle className="w-4 h-4 mr-2 shrink-0" />
-                {fallbackMessage}
-              </div>
-            )}
-
-            <ScrollArea className="flex-1 pr-2 -mr-2">
-              {isLoading ? (
-                <div className="flex flex-col items-center justify-center h-64 text-zinc-500">
-                  <Loader2 className="w-8 h-8 animate-spin mb-4" />
-                  <p className="text-sm">{t.loading}</p>
-                </div>
-              ) : marketData.length > 0 ? (
-                <div className={cn(
-                  "grid gap-4 transition-all duration-500",
-                  isPresentationMode ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2"
-                )}>
-                  {filteredIndices.map((index) => (
-                    <MarketStatCard
-                      key={index.symbol}
-                      item={index}
-                      chartHeight={isPresentationMode ? "h-32" : "h-16"}
-                      t={t}
-                    />
+              {/* Category Filter */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+                <div className="flex flex-wrap gap-2">
+                  {categories.map(category => (
+                    <button
+                      key={category}
+                      onClick={() => setSelectedCategory(category)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border",
+                        selectedCategory === category
+                          ? "bg-zinc-100 text-zinc-900 border-zinc-100 shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                          : "bg-zinc-900/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200"
+                      )}
+                    >
+                      {t.categories[category] || category}
+                    </button>
                   ))}
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-64 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
-                  <p className="text-sm">{t.noMarketData}</p>
+
+                <div className="flex items-center bg-zinc-900/80 p-1 rounded-lg border border-zinc-800/80 backdrop-blur-md">
+                  {['1M', '3M', 'YTD', '1Y'].map(range => (
+                    <button
+                      key={range}
+                      onClick={() => setTimeRange(range)}
+                      className={cn(
+                        "px-3 py-1 text-xs font-mono font-medium rounded-md transition-all duration-200 relative",
+                        timeRange === range
+                          ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                          : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                      )}
+                    >
+                      {range}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {fallbackMessage && (
+                <div className="mb-4 bg-zinc-800/80 border border-zinc-700 text-yellow-500/90 text-xs px-4 py-2 rounded-lg flex items-center animate-in fade-in slide-in-from-top-2 duration-300">
+                  <AlertCircle className="w-4 h-4 mr-2 shrink-0" />
+                  {fallbackMessage}
                 </div>
               )}
-            </ScrollArea>
-          </div>
-        </div >
-      </main >
+
+              <ScrollArea className="flex-1 pr-2 -mr-2">
+                {isLoading ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-zinc-500">
+                    <Loader2 className="w-8 h-8 animate-spin mb-4" />
+                    <p className="text-sm">{t.loading}</p>
+                  </div>
+                ) : marketData.length > 0 ? (
+                  <div className={cn(
+                    "grid gap-4 transition-all duration-500",
+                    isPresentationMode ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2"
+                  )}>
+                    {filteredIndices.map((index) => (
+                      <MarketStatCard
+                        key={index.symbol}
+                        item={index}
+                        chartHeight={isPresentationMode ? "h-32" : "h-16"}
+                        t={t}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-64 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                    <p className="text-sm">{t.noMarketData}</p>
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+          )}
+        </div>
+      </main>
 
       {/* Settings Modal */}
       {
