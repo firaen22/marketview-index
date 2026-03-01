@@ -55,21 +55,37 @@ export default async function handler(req: any, res: any) {
         }
 
         // 2. Fetch Fresh News from Yahoo Finance
-        console.log('Fetching fresh news from Yahoo Finance...');
-        // yahoo-finance2 v3 search API no longer supports complex 'OR' queries well
-        const [spySearch, qqqSearch] = await Promise.all([
-            yahooFinance.search('SPY', { newsCount: 3, quotesCount: 0 }),
-            yahooFinance.search('QQQ', { newsCount: 3, quotesCount: 0 })
-        ]);
+        console.log('Fetching fresh news from multi-source search...');
 
-        const combinedNews = [...(spySearch.news || []), ...(qqqSearch.news || [])];
+        // Broaden search to multiple major market tickers and specific terms to capture premium sources
+        const searchTasks = [
+            yahooFinance.search('SPY', { newsCount: 5, quotesCount: 0 }),
+            yahooFinance.search('QQQ', { newsCount: 5, quotesCount: 0 }),
+            yahooFinance.search('Reuters Bloomberg', { newsCount: 5, quotesCount: 0 }),
+            yahooFinance.search('Seeking Alpha Investing.com', { newsCount: 5, quotesCount: 0 })
+        ];
+
+        const searchResults = await Promise.all(searchTasks);
+        let allNews: any[] = [];
+        searchResults.forEach(res => {
+            if (res.news) allNews = [...allNews, ...res.news];
+        });
+
         // Deduplicate by UUID
         const seen = new Set();
-        const newsItems = combinedNews.filter(n => {
-            if (seen.has(n.uuid)) return false;
+        const newsItems = allNews.filter(n => {
+            if (!n.uuid || seen.has(n.uuid)) return false;
             seen.add(n.uuid);
             return true;
-        }).slice(0, 5);
+        }).sort((a, b) => {
+            // Prioritize major sources requested by user
+            const premiumSources = ['Reuters', 'Bloomberg', 'Investing.com', 'Seeking Alpha'];
+            const aIsPremium = premiumSources.some(s => a.publisher?.includes(s));
+            const bIsPremium = premiumSources.some(s => b.publisher?.includes(s));
+            if (aIsPremium && !bIsPremium) return -1;
+            if (!aIsPremium && bIsPremium) return 1;
+            return 0;
+        }).slice(0, 8); // Slightly increase count to show more variety
 
         // 3. Process each News Item with Gemini AI
         const processedNews = await Promise.all(newsItems.map(async (article, index) => {
