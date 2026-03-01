@@ -607,7 +607,7 @@ export default function Dashboard() {
           <div className="flex items-center space-x-4 text-sm text-zinc-400">
             {lastUpdated && (
               <span className="hidden md:flex items-center text-xs font-mono text-zinc-500 bg-zinc-900/50 px-2 py-1 rounded">
-                Updated: {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                Updated: {lastUpdated.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
             )}
             <span className="flex items-center font-mono text-zinc-300">
