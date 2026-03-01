@@ -634,7 +634,11 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center space-x-1 border border-zinc-800 rounded-full p-1 bg-zinc-950/50">
               <button
-                onClick={() => setIsNewsOnly(!isNewsOnly)}
+                onClick={() => {
+                  const nextState = !isNewsOnly;
+                  setIsNewsOnly(nextState);
+                  if (nextState) setIsPresentationMode(false);
+                }}
                 className={cn(
                   "p-1 px-2.5 rounded-full transition-all text-[10px] font-bold flex items-center gap-1.5",
                   isNewsOnly ? "bg-blue-600 text-white shadow-lg shadow-blue-900/40" : "hover:bg-zinc-800 text-zinc-400 hover:text-white"
