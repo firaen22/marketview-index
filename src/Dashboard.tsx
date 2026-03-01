@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
+import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -418,6 +418,7 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ i
               dot={false}
               activeDot={{ r: 4, fill: isPositive ? "#34d399" : "#fb7185", stroke: "#18181b", strokeWidth: 2 }}
             />
+            <XAxis dataKey="date" hide />
             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#3f3f46', strokeWidth: 1, strokeDasharray: '4 4' }} />
             <YAxis domain={['dataMin', 'dataMax']} hide />
           </LineChart>
