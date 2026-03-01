@@ -468,10 +468,10 @@ export default function Dashboard() {
     localStorage.setItem('user_gemini_key', key);
     setGeminiKey(key);
     setShowSettings(false);
-    fetchNewsData(key); // Force refresh with new key
+    fetchNewsData(key, false, true); // Force refresh with new key
   };
 
-  const fetchMarketData = async (isBackground = false) => {
+  const fetchMarketData = async (isBackground = false, forceRefresh = false) => {
     const CACHE_KEY = 'marketflow_cache';
 
     if (!isBackground) {
@@ -481,7 +481,8 @@ export default function Dashboard() {
     }
 
     try {
-      const response = await fetch(`/api/market-data?t=${new Date().getTime()}`);
+      const url = `/api/market-data?t=${new Date().getTime()}${forceRefresh ? '&refresh=true' : ''}`;
+      const response = await fetch(url);
       const result = await response.json();
 
       if (result.data && Array.isArray(result.data)) {
@@ -533,7 +534,7 @@ export default function Dashboard() {
     }
   }
 
-  const fetchNewsData = async (overrideKey?: string, isBackground = false) => {
+  const fetchNewsData = async (overrideKey?: string, isBackground = false, forceRefresh = false) => {
     if (!isBackground) setIsNewsLoading(true);
     const activeKey = overrideKey !== undefined ? overrideKey : geminiKey;
 
@@ -546,7 +547,8 @@ export default function Dashboard() {
         headers['Authorization'] = `Bearer ${activeKey}`;
       }
 
-      const response = await fetch(`/api/market-news?t=${new Date().getTime()}`, {
+      const url = `/api/market-news?t=${new Date().getTime()}${forceRefresh ? '&refresh=true' : ''}`;
+      const response = await fetch(url, {
         headers
       });
       const result = await response.json();
@@ -565,11 +567,11 @@ export default function Dashboard() {
     fetchMarketData();
     fetchNewsData();
 
-    // 30-second polling for real-time feel
+    // 1-hour polling for background updates
     const pollInterval = setInterval(() => {
       fetchMarketData(true);
       fetchNewsData(undefined, true);
-    }, 30 * 1000);
+    }, 60 * 60 * 1000);
 
     return () => clearInterval(pollInterval);
   }, []);
@@ -630,8 +632,8 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => {
-                fetchMarketData();
-                fetchNewsData();
+                fetchMarketData(false, true);
+                fetchNewsData(undefined, false, true);
               }}
               className={cn("p-2 hover:bg-zinc-900 rounded-full transition-colors", (isLoading || isNewsLoading) && "animate-spin")}
               disabled={isLoading || isNewsLoading}
