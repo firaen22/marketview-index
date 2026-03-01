@@ -30,7 +30,7 @@ const INDICES_TO_FETCH = [
   { symbol: 'DX-Y.NYB', category: 'Currency', name: 'US Dollar Index' },
   { symbol: '^HSI', category: 'Asia', name: 'Hang Seng Index' },
   { symbol: '^N225', category: 'Asia', name: 'Nikkei 225' },
-  { symbol: '^NSEI', category: 'Asia', name: 'NIFTY 50' },
+  { symbol: '^BSESN', category: 'Asia', name: 'BSE SENSEX' },
   { symbol: '^FTSE', category: 'Europe', name: 'FTSE 100' },
   { symbol: '^GDAXI', category: 'Europe', name: 'DAX Performance' },
   { symbol: 'BTC-USD', category: 'Crypto', name: 'Bitcoin' },
