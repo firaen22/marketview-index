@@ -626,28 +626,26 @@ export default function Dashboard() {
         </div>
 
         {/* Ticker Tape */}
-        {!isNewsOnly && (
-          <div className="overflow-hidden whitespace-nowrap border-b border-zinc-800 bg-zinc-950 flex items-center h-12">
-            {isLoading ? (
-              <div className="w-full flex items-center justify-center text-xs text-zinc-500">
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t.loading}
-              </div>
-            ) : isError && marketData.length === 0 ? (
-              <div className="w-full flex items-center justify-center text-xs text-rose-500">
-                <AlertCircle className="w-4 h-4 mr-2" /> {t.error}
-              </div>
-            ) : (
-              <div className="inline-flex animate-ticker">
-                {marketData.map((index) => (
-                  <TickerItem key={index.symbol} item={index} t={t} />
-                ))}
-                {marketData.map((index) => (
-                  <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        <div className="overflow-hidden whitespace-nowrap border-b border-zinc-800 bg-zinc-950 flex items-center h-12">
+          {isLoading ? (
+            <div className="w-full flex items-center justify-center text-xs text-zinc-500">
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t.loading}
+            </div>
+          ) : isError && marketData.length === 0 ? (
+            <div className="w-full flex items-center justify-center text-xs text-rose-500">
+              <AlertCircle className="w-4 h-4 mr-2" /> {t.error}
+            </div>
+          ) : (
+            <div className="inline-flex animate-ticker">
+              {marketData.map((index) => (
+                <TickerItem key={index.symbol} item={index} t={t} />
+              ))}
+              {marketData.map((index) => (
+                <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
+              ))}
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Main Content */}
