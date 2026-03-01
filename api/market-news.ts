@@ -56,12 +56,20 @@ export default async function handler(req: any, res: any) {
 
         // 2. Fetch Fresh News from Yahoo Finance
         console.log('Fetching fresh news from Yahoo Finance...');
-        const searchResults = await yahooFinance.search('AAPL OR TSLA OR NVDA OR SPY', {
-            newsCount: 5,
-            quotesCount: 0
-        });
+        // yahoo-finance2 v3 search API no longer supports complex 'OR' queries well
+        const [spySearch, qqqSearch] = await Promise.all([
+            yahooFinance.search('SPY', { newsCount: 3, quotesCount: 0 }),
+            yahooFinance.search('QQQ', { newsCount: 3, quotesCount: 0 })
+        ]);
 
-        const newsItems: any[] = (searchResults as any).news || [];
+        const combinedNews = [...(spySearch.news || []), ...(qqqSearch.news || [])];
+        // Deduplicate by UUID
+        const seen = new Set();
+        const newsItems = combinedNews.filter(n => {
+            if (seen.has(n.uuid)) return false;
+            seen.add(n.uuid);
+            return true;
+        }).slice(0, 5);
 
         // 3. Process each News Item with Gemini AI
         const processedNews = await Promise.all(newsItems.map(async (article, index) => {
@@ -112,7 +120,7 @@ Strong earnings from tech giants are expected to drive the S&P 500 higher this w
             return {
                 id: article.uuid || `news-${index}`,
                 source: article.publisher || 'Yahoo Finance',
-                time: new Date(article.providerPublishTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                time: new Date(article.providerPublishTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 title: article.title,
                 summary: aiSummary,
                 sentiment: aiSentiment,
