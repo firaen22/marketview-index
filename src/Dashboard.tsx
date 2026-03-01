@@ -58,6 +58,7 @@ const DICTIONARY: Record<string, any> = {
       Currency: "Currencies",
       Volatility: "Volatility"
     },
+    noAiWarning: "AI translation unavailable. Set your Gemini API Key in Settings.",
     indexNames: {
       "S&P 500": "S&P 500",
       "Nasdaq Composite": "Nasdaq",
@@ -114,6 +115,7 @@ const DICTIONARY: Record<string, any> = {
       Currency: "全球匯率",
       Volatility: "波動率"
     },
+    noAiWarning: "AI 翻譯暫時無法使用。請在「系統設定」中提供您的 Gemini API 金鑰。",
     indexNames: {
       "S&P 500": "標普 500 指數",
       "Nasdaq Composite": "納斯達克綜合指數",
@@ -373,6 +375,7 @@ export default function Dashboard() {
 
   const [newsData, setNewsData] = useState<NewsItem[]>([]);
   const [isNewsLoading, setIsNewsLoading] = useState(true);
+  const [isAiTranslated, setIsAiTranslated] = useState(true);
 
   const [showSettings, setShowSettings] = useState(false);
   const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('user_gemini_key') || '');
@@ -481,6 +484,7 @@ export default function Dashboard() {
       const url = `/api/market-news?t=${new Date().getTime()}&lang=${langStr}${forceRefresh ? '&refresh=true' : ''}`;
       const response = await fetch(url, { headers });
       const result = await response.json();
+      setIsAiTranslated(result.isAiTranslated !== false);
 
       if (result.data && Array.isArray(result.data)) {
         setNewsData(result.data);
@@ -615,6 +619,12 @@ export default function Dashboard() {
                   <span className="w-1 h-6 bg-blue-500 mr-3 rounded-full"></span>
                   {t.news}
                 </h2>
+                {!isAiTranslated && language === 'zh-TW' && (
+                  <div className="flex items-center text-[10px] bg-amber-500/10 text-amber-500 px-2 py-1 rounded border border-amber-500/20 max-w-[150px] leading-tight">
+                    <ShieldAlert className="w-3 h-3 mr-1 flex-shrink-0" />
+                    {t.noAiWarning}
+                  </div>
+                )}
                 <div className="flex items-center space-x-2">
                   <span className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">{t.poweredBy}</span>
                   <Badge variant="default" className="bg-zinc-800 text-zinc-300 hover:bg-zinc-700">{t.liveFeed}</Badge>
