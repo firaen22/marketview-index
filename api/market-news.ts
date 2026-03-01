@@ -90,107 +90,85 @@ export default async function handler(req: any, res: any) {
 
         const isChinese = lang === 'zh-TW';
 
-        // 3. Process each News Item with Gemini AI + Aggregate Summary in parallel
-        const [processedNews, marketSummary] = await Promise.all([
-            Promise.all(newsItems.map(async (article, index) => {
-                let aiSummary = article.title;
-                let aiSentiment = "Neutral";
-                let translatedTitle = article.title;
+        // 3. Consolidated AI Processing: Single Request for ALL data
+        let processedNews = newsItems.map((article: any, index: number) => ({
+            id: article.uuid || `news-${index}`,
+            title: article.title,
+            originalTitle: article.title,
+            summary: article.title,
+            url: article.link || article.url,
+            publisher: article.publisher || "Market News",
+            time: article.providerPublishTime ? new Date(article.providerPublishTime * 1000).toISOString() : new Date().toISOString(),
+            sentiment: "Neutral" as 'Bullish' | 'Bearish' | 'Neutral'
+        }));
 
-                if (activeAi) {
-                    try {
-                        const prompt = `Analyze this financial news article:
-TITLE: ${article.title}
-PUBLISHER: ${article.publisher}
+        let marketSummary = "";
+
+        if (activeAi) {
+            try {
+                const combinedPrompt = `
+Analyze the following financial news headlines and provide a consolidated response.
+
+ARTICLE LIST:
+${newsItems.map((n: any, i: number) => `${i + 1}. [${n.publisher}] ${n.title}`).join('\n')}
 
 TASK:
-1. [SENTIMENT]: BULLISH, BEARISH, or NEUTRAL.
-2. [TITLE]: ${isChinese ? 'Translate the TITLE to Traditional Chinese (繁體中文). Professional financial style.' : 'Original or refined TITLE in English.'}
-3. [SUMMARY]: ${isChinese ? 'Summary of market impact in Traditional Chinese (繁體中文), max 35 words.' : 'Summary of market impact in English, max 30 words.'}
+1. Provide a 2-sentence market overview in ${isChinese ? 'Traditional Chinese (繁體中文)' : 'English'}.
+2. Provide 3 bulleted key highlights in ${isChinese ? 'Traditional Chinese (繁體中文)' : 'English'}.
+3. For EACH article above, provide:
+   - A short summary (max 25 words) in ${isChinese ? 'Traditional Chinese (繁體中文)' : 'English'}.
+   - Sentiment: BULLISH, BEARISH, or NEUTRAL.
+   - Professional ${isChinese ? 'Traditional Chinese (繁體中文) translation' : 'English refinement'} of the title.
 
-OUTPUT FORMAT (Strictly 3 lines, no extra text, no markdown like ** or #):
-LINE1: THE_SENTIMENT
-LINE2: THE_TRANSLATED_TITLE
-LINE3: THE_SUMMARY
-
-Example output:
-${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨頭的強勁業績預計在大盤反彈背景下推動指數走高。' : 'BULLISH\nS&P 500 Bullish on Tech Strength\nStrong earnings from tech giants are expected to drive the index higher amidst a broader market rally.'}
+OUTPUT FORMAT (Valid JSON only):
+{
+  "pulse": {
+    "overview": "...",
+    "highlights": ["...", "...", "..."]
+  },
+  "articles": [
+    { "title": "...", "summary": "...", "sentiment": "..." },
+    ...
+  ]
+}
 `;
-                        const response = await activeAi.models.generateContent({
-                            model: 'gemini-1.5-flash',
-                            contents: prompt,
-                        });
 
-                        const text = (response.text || "").trim();
-                        const lines = text.split('\n')
-                            .map(l => l.replace(/^(LINE\d:|\[.*?\]|\d\.\s*)/i, '').trim())
-                            .filter(l => l !== '');
+                const result = await activeAi.models.generateContent({
+                    model: 'gemini-1.5-flash',
+                    contents: [{ role: 'user', parts: [{ text: combinedPrompt }] }],
+                    config: { responseMimeType: 'application/json' }
+                });
 
-                        if (lines.length >= 3) {
-                            const rawSentiment = lines[0].toUpperCase();
-                            if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
-                            else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
-                            else aiSentiment = 'Neutral';
+                const aiResponse = JSON.parse(result.text || "{}");
 
-                            translatedTitle = lines[1];
-                            aiSummary = lines.slice(2).join(' ').trim();
-                        } else if (lines.length === 2) {
-                            const rawSentiment = lines[0].toUpperCase();
-                            if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
-                            else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
-                            else aiSentiment = 'Neutral';
-                            aiSummary = lines[1];
-                        }
-                    } catch (genErr) {
-                        console.warn('Gemini AI Generation failed for an article:', genErr);
-                    }
+                // Parse Market Pulse
+                if (aiResponse.pulse) {
+                    marketSummary = `[OVERVIEW]\n${aiResponse.pulse.overview}\n[HIGHLIGHTS]\n${aiResponse.pulse.highlights.map((h: string) => `- ${h}`).join('\n')}`;
                 }
 
-                return {
-                    id: article.uuid || `news-${index}`,
-                    source: article.publisher || 'Yahoo Finance',
-                    time: new Date(article.providerPublishTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    title: translatedTitle,
-                    summary: aiSummary,
-                    sentiment: aiSentiment,
-                    sentimentScore: aiSentiment === 'Bullish' ? 0.8 : (aiSentiment === 'Bearish' ? -0.8 : 0),
-                    url: article.link
-                };
-            })),
-            (async () => {
-                if (!activeAi || newsItems.length === 0) return "";
-                try {
-                    const aggregatePrompt = `Analyze these latest financial headlines and provide a comprehensive "Market Pulse" overview.
-${isChinese ? 'Respond in Traditional Chinese (繁體中文).' : 'Respond in English.'}
+                // Map results back to articles
+                if (Array.isArray(aiResponse.articles)) {
+                    processedNews = processedNews.map((article, i) => {
+                        const aiData = aiResponse.articles[i];
+                        if (!aiData) return article;
 
-HEADLINES:
-${newsItems.map((n, i) => `${i + 1}. ${n.title}`).join('\n')}
+                        let sentiment: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
+                        if (aiData.sentiment?.toUpperCase().includes('BULLISH')) sentiment = 'Bullish';
+                        else if (aiData.sentiment?.toUpperCase().includes('BEARISH')) sentiment = 'Bearish';
 
-TASK:
-1. Provide a concise 2-sentence market overview.
-2. Provide 3 key bulleted highlights of the day's market sentiment.
-
-FORMAT:
-[OVERVIEW]
-Sentence 1. Sentence 2.
-[HIGHLIGHTS]
-- Highlight 1
-- Highlight 2
-- Highlight 3
-
-No extra text, no markdown like ** or #.
-`;
-                    const summaryResponse = await activeAi.models.generateContent({
-                        model: 'gemini-1.5-flash',
-                        contents: aggregatePrompt,
+                        return {
+                            ...article,
+                            title: aiData.title || article.title,
+                            summary: aiData.summary || article.summary,
+                            sentiment
+                        };
                     });
-                    return (summaryResponse.text || "").trim();
-                } catch (e) {
-                    console.warn('Aggregate summary failed:', e);
-                    return "";
                 }
-            })()
-        ]);
+            } catch (err) {
+                console.error('Consolidated AI processing failed:', err);
+                marketSummary = "AI Summary unavailable due to quota or processing error.";
+            }
+        }
 
         const responsePayload = {
             success: true,
@@ -206,9 +184,10 @@ No extra text, no markdown like ** or #.
         // 4. Save to Redis Cache (Valid for 15 minutes)
         if (redis && !customApiKey) {
             await redis.set(CURRENT_CACHE_KEY, JSON.stringify(responsePayload), { ex: NEWS_CACHE_TTL });
+            console.log('Cache updated in Redis.');
         }
 
-        return res.status(200).json({ ...responsePayload, source: 'live' });
+        return res.status(200).json(responsePayload);
 
     } catch (error: any) {
         console.error('News API Error:', error);
