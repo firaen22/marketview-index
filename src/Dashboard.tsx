@@ -452,6 +452,7 @@ export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [timeRange, setTimeRange] = useState<string>('YTD');
 
   const [marketData, setMarketData] = useState<IndexData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -492,8 +493,8 @@ export default function Dashboard() {
     fetchNewsData(key, false, true); // Force refresh with new key
   };
 
-  const fetchMarketData = async (isBackground = false, forceRefresh = false) => {
-    const CACHE_KEY = 'marketflow_cache';
+  const fetchMarketData = async (rangeStr = timeRange, isBackground = false, forceRefresh = false) => {
+    const CACHE_KEY = `marketflow_cache_${rangeStr}`;
 
     if (!isBackground) {
       setIsLoading(true);
@@ -502,7 +503,7 @@ export default function Dashboard() {
     }
 
     try {
-      const url = `/api/market-data?t=${new Date().getTime()}${forceRefresh ? '&refresh=true' : ''}`;
+      const url = `/api/market-data?t=${new Date().getTime()}&range=${rangeStr}${forceRefresh ? '&refresh=true' : ''}`;
       const response = await fetch(url);
       const result = await response.json();
 
@@ -585,17 +586,17 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchMarketData();
+    fetchMarketData(timeRange);
     fetchNewsData();
 
     // 1-hour polling for background updates
     const pollInterval = setInterval(() => {
-      fetchMarketData(true, true);
+      fetchMarketData(timeRange, true, true);
       fetchNewsData(undefined, true, true);
     }, 60 * 60 * 1000);
 
     return () => clearInterval(pollInterval);
-  }, []);
+  }, [timeRange]);
 
   const categories = ['All', ...Array.from(new Set(marketData.map(item => item.category)))];
 
@@ -748,21 +749,40 @@ export default function Dashboard() {
             </div>
 
             {/* Category Filter */}
-            <div className="flex space-x-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  onClick={() => setSelectedCategory(category)}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap",
-                    selectedCategory === category
-                      ? "bg-emerald-600 text-white"
-                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-                  )}
-                >
-                  {category}
-                </button>
-              ))}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+              <div className="flex flex-wrap gap-2">
+                {categories.map(category => (
+                  <button
+                    key={category}
+                    onClick={() => setSelectedCategory(category)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border",
+                      selectedCategory === category
+                        ? "bg-zinc-100 text-zinc-900 border-zinc-100 shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                        : "bg-zinc-900/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200"
+                    )}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center bg-zinc-900/80 p-1 rounded-lg border border-zinc-800/80 backdrop-blur-md">
+                {['1M', '3M', 'YTD', '1Y'].map(range => (
+                  <button
+                    key={range}
+                    onClick={() => setTimeRange(range)}
+                    className={cn(
+                      "px-3 py-1 text-xs font-mono font-medium rounded-md transition-all duration-200 relative",
+                      timeRange === range
+                        ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                        : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                    )}
+                  >
+                    {range}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {fallbackMessage && (

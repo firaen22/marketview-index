@@ -48,15 +48,20 @@ export default async function handler(req: any, res: any) {
 
     const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
     const forceRefresh = searchParams.get('refresh') === 'true';
+    const range = searchParams.get('range') || 'YTD'; // 1M, 3M, YTD, 1Y
+
+    // Unique cache key per range
+    const RANGE_CACHE_KEY = `${CACHE_KEY}_${range}`;
+
     const isCron = req.headers['user-agent']?.includes('Vercel-Cron');
 
     // 1. 嘗試從 Redis 讀取全球快取資料
-    let cachedPayload: any = redis ? await redis.get(CACHE_KEY) : null;
+    let cachedPayload: any = redis ? await redis.get(RANGE_CACHE_KEY) : null;
 
     // 2. 如果是 Cron 時段 (早上 9 點)、強制更新、或 Redis 內完全沒資料，就拉取新資料並寫入 Redis
     if (isCron || forceRefresh || !cachedPayload) {
-      console.log('Fetching fresh data from Yahoo Finance...');
-      const freshData = await fetchAllIndices();
+      console.log(`Fetching fresh data for range ${range} from Yahoo Finance...`);
+      const freshData = await fetchAllIndices(range);
 
       const payload = {
         success: true,
@@ -67,7 +72,7 @@ export default async function handler(req: any, res: any) {
 
       if (redis) {
         // Cache expires in 1 hour
-        await redis.set(CACHE_KEY, JSON.stringify(payload), { ex: 3600 });
+        await redis.set(RANGE_CACHE_KEY, JSON.stringify(payload), { ex: 3600 });
       }
       return res.status(200).json(payload);
     }
@@ -110,7 +115,7 @@ export default async function handler(req: any, res: any) {
   }
 }
 
-async function fetchAllIndices() {
+async function fetchAllIndices(range: string) {
   const symbols = INDICES_TO_FETCH.map(i => i.symbol);
   let quotes: any[] = [];
   try {
@@ -119,15 +124,25 @@ async function fetchAllIndices() {
     throw new Error('Failed to fetch from Yahoo Finance in batch: ' + err.message);
   }
 
-  // Calculate year-beginning and today for YTD Chart fetch
-  const d1 = new Date(); d1.setFullYear(d1.getFullYear(), 0, 1);
+  // Calculate dynamic start date based on range
+  const d1 = new Date();
+  if (range === '1M') {
+    d1.setMonth(d1.getMonth() - 1);
+  } else if (range === '3M') {
+    d1.setMonth(d1.getMonth() - 3);
+  } else if (range === '1Y') {
+    d1.setFullYear(d1.getFullYear() - 1);
+  } else {
+    // Default YTD
+    d1.setFullYear(d1.getFullYear(), 0, 1);
+  }
   const period1 = d1.toISOString().split('T')[0];
   const d2 = new Date();
   const period2 = d2.toISOString().split('T')[0];
 
-  // Fetch true YTD history in parallel
+  // Fetch true dynamic history in parallel with daily interval
   const rawHistories = await Promise.all(symbols.map(s =>
-    yahooFinance.chart(s, { period1, period2, interval: '1wk' }).catch(() => ({ quotes: [] }))
+    yahooFinance.chart(s, { period1, period2, interval: '1d' }).catch(() => ({ quotes: [] }))
   ));
 
   const results = [];
