@@ -471,12 +471,15 @@ export default function Dashboard() {
     fetchNewsData(key); // Force refresh with new key
   };
 
-  const fetchMarketData = async () => {
+  const fetchMarketData = async (isBackground = false) => {
     const CACHE_KEY = 'marketflow_cache';
 
-    setIsLoading(true);
-    setIsError(false);
-    setFallbackMessage(null);
+    if (!isBackground) {
+      setIsLoading(true);
+      setIsError(false);
+      setFallbackMessage(null);
+    }
+
     try {
       const response = await fetch(`/api/market-data?t=${new Date().getTime()}`);
       const result = await response.json();
@@ -505,7 +508,7 @@ export default function Dashboard() {
       // Backend 連續出錯或沒連上，退回前端 localstorage
       handleFallback(CACHE_KEY, `伺服器連線失敗。目前顯示裝置本地快取數據。`);
     } finally {
-      setIsLoading(false);
+      if (!isBackground) setIsLoading(false);
     }
   };
 
@@ -530,8 +533,8 @@ export default function Dashboard() {
     }
   }
 
-  const fetchNewsData = async (overrideKey?: string) => {
-    setIsNewsLoading(true);
+  const fetchNewsData = async (overrideKey?: string, isBackground = false) => {
+    if (!isBackground) setIsNewsLoading(true);
     const activeKey = overrideKey !== undefined ? overrideKey : geminiKey;
 
     try {
@@ -554,7 +557,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Failed to fetch news data:', err);
     } finally {
-      setIsNewsLoading(false);
+      if (!isBackground) setIsNewsLoading(false);
     }
   };
 
@@ -564,8 +567,8 @@ export default function Dashboard() {
 
     // 30-second polling for real-time feel
     const pollInterval = setInterval(() => {
-      fetchMarketData();
-      fetchNewsData();
+      fetchMarketData(true);
+      fetchNewsData(undefined, true);
     }, 30 * 1000);
 
     return () => clearInterval(pollInterval);
