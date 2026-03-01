@@ -1,5 +1,6 @@
 import { Redis } from '@upstash/redis'
-import yahooFinance from 'yahoo-finance2';
+import YahooFinance from 'yahoo-finance2';
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 import { GoogleGenAI } from '@google/genai';
 
 const CACHE_KEY = 'global_market_news_v1';
