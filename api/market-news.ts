@@ -33,6 +33,9 @@ export default async function handler(req: any, res: any) {
 
         const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
         const forceRefresh = searchParams.get('refresh') === 'true';
+        const lang = searchParams.get('lang') || 'en'; // default to English
+
+        const CURRENT_CACHE_KEY = lang === 'en' ? CACHE_KEY : `${CACHE_KEY}_${lang}`;
 
         // Check for custom Gemini API Key in Authorization header
         const authHeader = req.headers.authorization;
@@ -47,7 +50,7 @@ export default async function handler(req: any, res: any) {
 
         // 1. Try to read from Redis Cache first (only if NO custom key is used)
         if (redis && !forceRefresh && !customApiKey) {
-            const cachedNews: any = await redis.get(CACHE_KEY);
+            const cachedNews: any = await redis.get(CURRENT_CACHE_KEY);
             if (cachedNews) {
                 const payload = typeof cachedNews === 'string' ? JSON.parse(cachedNews) : cachedNews;
                 return res.status(200).json({ ...payload, source: 'cache' });
@@ -94,6 +97,7 @@ export default async function handler(req: any, res: any) {
 
             if (activeAi) {
                 try {
+                    const isChinese = lang === 'zh-TW';
                     const prompt = `Analyze this financial news headline and short summary:
 TITLE: ${article.title}
 SUMMARY: ${article.publisher}
@@ -103,13 +107,14 @@ TASK:
 1. Write a strict 30-word max summary of how this news impacts the US or Global market.
 2. Determine if the sentiment is strictly BULLISH, BEARISH, or NEUTRAL.
 
+${isChinese ? 'IMPORTANT: You MUST write the summary completely in Traditional Chinese (繁體中文). Use [看漲], [看跌], or [中立] for sentiment.' : ''}
+
 OUTPUT FORMAT (strictly follow this):
 [SENTIMENT]
 [SUMMARY]
 
 Example:
-BULLISH
-Strong earnings from tech giants are expected to drive the S&P 500 higher this week amidst cooling inflation data.
+${isChinese ? '看漲\n科技巨頭的強勁業績預計將在通脹數據降溫的背景下推動標準普爾 500 指數本週走高。' : 'BULLISH\nStrong earnings from tech giants are expected to drive the S&P 500 higher this week amidst cooling inflation data.'}
 `;
                     // Note: using 'gemini-2.5-flash-latest' for elite performance
                     const response = await activeAi.models.generateContent({
@@ -121,10 +126,17 @@ Strong earnings from tech giants are expected to drive the S&P 500 higher this w
                     const lines = text.split('\n').filter(line => line.trim() !== '');
 
                     if (lines.length >= 2) {
-                        const parsedSentiment = lines[0].trim().toUpperCase();
-                        if (['BULLISH', 'BEARISH', 'NEUTRAL'].includes(parsedSentiment)) {
-                            aiSentiment = parsedSentiment.charAt(0) + parsedSentiment.slice(1).toLowerCase();
+                        const rawSentiment = lines[0].trim().toUpperCase();
+
+                        // Handle English and Chinese Sentiment mapping
+                        if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) {
+                            aiSentiment = 'Bullish';
+                        } else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) {
+                            aiSentiment = 'Bearish';
+                        } else {
+                            aiSentiment = 'Neutral';
                         }
+
                         aiSummary = lines.slice(1).join(' ').trim();
                     }
 
@@ -153,7 +165,7 @@ Strong earnings from tech giants are expected to drive the S&P 500 higher this w
 
         // 4. Save to Redis Cache (Valid for 15 minutes)
         if (redis) {
-            await redis.set(CACHE_KEY, JSON.stringify(responsePayload), { ex: NEWS_CACHE_TTL });
+            await redis.set(CURRENT_CACHE_KEY, JSON.stringify(responsePayload), { ex: NEWS_CACHE_TTL });
         }
 
         return res.status(200).json({ ...responsePayload, source: 'live' });
