@@ -489,7 +489,7 @@ export default function Dashboard() {
                 {lastUpdated ? (
                   <>
                     <span className="opacity-70 mr-1">{t.lastUpdated}:</span>
-                    {lastUpdated.toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined, { hour: '2-digit', minute: '2-digit' })}
+                    {lastUpdated.toLocaleString(language === 'zh-TW' ? 'zh-TW' : undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </>
                 ) : (
                   <span className="opacity-70">Awaiting data...</span>
