@@ -13,36 +13,78 @@ export default async function handler(req: any, res: any) {
 
         const genAI = new GoogleGenAI({ apiKey });
 
-        // Attempt to list models to verify the key and its permissions
-        const modelListResult: any = await genAI.models.list();
-        const models = modelListResult.models || [];
+        // Phase 1: List models to check initial authorization
+        let models: any[] = [];
+        try {
+            const modelListResult: any = await genAI.models.list();
+            models = modelListResult.models || [];
+        } catch (listErr: any) {
+            const errMsg = listErr.message || '';
+            if (errMsg.includes('apiKey expired')) {
+                return res.status(200).json({ success: false, keyValid: false, errorCode: 'KEY_EXPIRED', message: 'The API key has expired. Please renew it in Google AI Studio.' });
+            }
+            if (errMsg.includes('API key not found') || errMsg.includes('invalid')) {
+                return res.status(200).json({ success: false, keyValid: false, errorCode: 'KEY_INVALID', message: 'Invalid API key format or the key does not exist.' });
+            }
+            throw listErr; // Fall through to general catch
+        }
 
-        // Filter for Gemini models that support text generation
+        // Filter for Gemini models
         const geminiModels = models.filter((m: any) =>
             m.name.includes('gemini')
         ).map((m: any) => ({
             name: m.name.replace('models/', ''),
-            displayName: m.displayName,
-            description: m.description,
-            version: m.version
+            displayName: m.displayName
         }));
+
+        if (geminiModels.length === 0) {
+            return res.status(200).json({ success: false, keyValid: false, errorCode: 'NO_GEMINI_MODELS', message: 'This key is valid but does not have access to any Gemini models.' });
+        }
+
+        // Phase 2: Attempt a "Hello" generation to verify actual connectivity and usage
+        try {
+            const model = genAI.model('gemini-1.5-flash');
+            await model.generateContent({ contents: [{ role: 'user', parts: [{ text: 'Ping' }] }] });
+        } catch (genErr: any) {
+            const msg = genErr.message || '';
+            if (msg.includes('rate limit')) {
+                return res.status(200).json({ success: true, keyValid: true, warning: 'RATE_LIMITED', message: 'Key is valid but currently hitting rate limits.' });
+            }
+            if (msg.includes('safety')) {
+                return res.status(200).json({ success: true, keyValid: true, message: 'Key is valid (Safety filters triggered on test ping).' });
+            }
+            return res.status(200).json({ success: false, keyValid: false, errorCode: 'CONNECTION_FAILED', message: `Key is valid but generation failed: ${msg.substring(0, 100)}` });
+        }
 
         const hasFlash20 = geminiModels.some(m => m.name.includes('2.0-flash'));
         const hasFlash15 = geminiModels.some(m => m.name.includes('1.5-flash'));
 
         return res.status(200).json({
             success: true,
+            keyValid: true,
             models: geminiModels,
             recommended: hasFlash20 ? 'gemini-2.0-flash' : (hasFlash15 ? 'gemini-1.5-flash' : 'gemini-pro'),
-            keyValid: true
+            message: 'Connectivity verified. All systems operational.'
         });
 
     } catch (error: any) {
         console.error('API Key Verification Error:', error);
+
+        // Final comprehensive error parsing
+        let friendlyMessage = 'An unexpected error occurred during verification.';
+        const raw = error.message || '';
+
+        if (raw.includes('apiKey expired')) friendlyMessage = '您的 API 金鑰已過期，請更換。 (Key Expired)';
+        else if (raw.includes('not found')) friendlyMessage = '找不到此金鑰，請檢查輸入是否正確。 (Key Not Found)';
+        else if (raw.includes('permission')) friendlyMessage = '權限不足，請確認您的 Google AI 專案已啟用。 (Permission Denied)';
+        else if (raw.includes('quota')) friendlyMessage = '配額已滿或速度受限。 (Quota Exceeded)';
+        else friendlyMessage = raw.substring(0, 150);
+
         return res.status(200).json({
             success: false,
             keyValid: false,
-            message: error.message || 'Invalid API Key or permission denied.'
+            message: friendlyMessage,
+            rawError: process.env.NODE_ENV === 'development' ? raw : undefined
         });
     }
 }
