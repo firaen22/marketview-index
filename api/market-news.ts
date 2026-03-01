@@ -104,17 +104,17 @@ SUMMARY: ${article.publisher}
 Link to article publisher for context.
 
 TASK:
-1. Write a strict 30-word max summary of how this news impacts the US or Global market.
-2. Determine if the sentiment is strictly BULLISH, BEARISH, or NEUTRAL.
+1. Determine if the sentiment is strictly BULLISH, BEARISH, or NEUTRAL.
+2. ${isChinese ? 'Translate the original TITLE to Traditional Chinese (繁體中文). Keep it professional and punchy.' : 'Refine the original TITLE for clarity if needed.'}
+3. Write a strict 30-word max summary of how this news impacts the US or Global market${isChinese ? ' in Traditional Chinese (繁體中文)' : ''}.
 
-${isChinese ? 'IMPORTANT: You MUST write the summary completely in Traditional Chinese (繁體中文). Use [看漲], [看跌], or [中立] for sentiment.' : ''}
-
-OUTPUT FORMAT (strictly follow this):
+OUTPUT FORMAT (strictly follow this, 3 lines):
 [SENTIMENT]
+[TITLE]
 [SUMMARY]
 
 Example:
-${isChinese ? '看漲\n科技巨頭的強勁業績預計將在通脹數據降溫的背景下推動標準普爾 500 指數本週走高。' : 'BULLISH\nStrong earnings from tech giants are expected to drive the S&P 500 higher this week amidst cooling inflation data.'}
+${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨頭的強勁業績預計在大盤反彈背景下推動指數走高。' : 'BULLISH\nS&P 500 Bullish on Tech Strength\nStrong earnings from tech giants are expected to drive the index higher amidst a broader market rally.'}
 `;
                     // Note: using 'gemini-2.5-flash-latest' for elite performance
                     const response = await activeAi.models.generateContent({
@@ -123,10 +123,10 @@ ${isChinese ? '看漲\n科技巨頭的強勁業績預計將在通脹數據降溫
                     });
 
                     const text = response.text || "";
-                    const lines = text.split('\n').filter(line => line.trim() !== '');
+                    const lines = text.split('\n').map(line => line.trim()).filter(line => line !== '');
 
-                    if (lines.length >= 2) {
-                        const rawSentiment = lines[0].trim().toUpperCase();
+                    if (lines.length >= 3) {
+                        const rawSentiment = lines[0].toUpperCase();
 
                         // Handle English and Chinese Sentiment mapping
                         if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) {
@@ -137,7 +137,17 @@ ${isChinese ? '看漲\n科技巨頭的強勁業績預計將在通脹數據降溫
                             aiSentiment = 'Neutral';
                         }
 
-                        aiSummary = lines.slice(1).join(' ').trim();
+                        // Update title with translated version
+                        article.title = lines[1];
+                        // Update summary
+                        aiSummary = lines.slice(2).join(' ').trim();
+                    } else if (lines.length === 2) {
+                        // Support fallback to legacy 2-line output if AI misses a beat
+                        const rawSentiment = lines[0].toUpperCase();
+                        if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
+                        else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
+                        else aiSentiment = 'Neutral';
+                        aiSummary = lines[1];
                     }
 
                 } catch (genErr) {

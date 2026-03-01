@@ -57,6 +57,22 @@ const DICTIONARY: Record<string, any> = {
       Crypto: "Crypto",
       Currency: "Currencies",
       Volatility: "Volatility"
+    },
+    indexNames: {
+      "S&P 500": "S&P 500",
+      "Nasdaq Composite": "Nasdaq",
+      "Dow Jones": "Dow Jones",
+      "VIX": "VIX",
+      "US Dollar Index": "Dollar Index",
+      "Hang Seng Index": "Hang Seng",
+      "Nikkei 225": "Nikkei 225",
+      "BSE SENSEX": "BSE SENSEX",
+      "FTSE 100": "FTSE 100",
+      "DAX Performance": "DAX Index",
+      "Bitcoin": "Bitcoin",
+      "Ethereum": "Ethereum",
+      "Crude Oil": "Crude Oil",
+      "Gold": "Gold"
     }
   },
   'zh-TW': {
@@ -97,6 +113,22 @@ const DICTIONARY: Record<string, any> = {
       Crypto: "加密貨幣",
       Currency: "全球匯率",
       Volatility: "波動率"
+    },
+    indexNames: {
+      "S&P 500": "標普 500 指數",
+      "Nasdaq Composite": "納斯達克綜合指數",
+      "Dow Jones": "道瓊工業指數",
+      "VIX": "恐慌指數 VIX",
+      "US Dollar Index": "美元指數",
+      "Hang Seng Index": "恆生指數",
+      "Nikkei 225": "日經 225 指數",
+      "BSE SENSEX": "印度 SENSEX 指數",
+      "FTSE 100": "富時 100 指數",
+      "DAX Performance": "德國 DAX 指數",
+      "Bitcoin": "比特幣",
+      "Ethereum": "乙太幣",
+      "Crude Oil": "原油期貨",
+      "Gold": "黃金期貨"
     }
   }
 };
@@ -186,13 +218,15 @@ ScrollArea.displayName = "ScrollArea";
 
 // --- Sub-Components ---
 
-const TickerItem: React.FC<{ item: IndexData }> = ({ item }) => {
+const TickerItem: React.FC<{ item: IndexData; t: any }> = ({ item, t }) => {
   const isPositive = item.change >= 0;
   return (
     <div className="flex items-center space-x-4 px-6 py-2 border-r border-zinc-800 whitespace-nowrap">
       <div className="flex flex-col">
         <span className="text-xs font-bold text-zinc-400">{item.symbol}</span>
-        <span className="text-sm font-semibold text-zinc-100">{item.name}</span>
+        <span className="text-sm font-semibold text-zinc-100">
+          {(t.indexNames && t.indexNames[item.name]) || item.name}
+        </span>
       </div>
       <div className="flex flex-col items-end">
         <span className="text-sm font-mono font-medium text-zinc-100">{item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -259,7 +293,9 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t: any }
     <Card className="p-4 flex flex-col justify-between h-full border-zinc-800/60 transition-all duration-300 hover:border-zinc-700/50">
       <div className="grid grid-cols-[1fr_auto] gap-x-2 items-start mb-5">
         <div className="min-w-0">
-          <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">{item.name}</h4>
+          <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">
+            {(t.indexNames && t.indexNames[item.name]) || item.name}
+          </h4>
           <span className="text-[10px] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
         </div>
         <div className="text-right flex flex-col items-end">
@@ -549,10 +585,10 @@ export default function Dashboard() {
           ) : (
             <div className="inline-flex animate-ticker">
               {marketData.map((index) => (
-                <TickerItem key={index.symbol} item={index} />
+                <TickerItem key={index.symbol} item={index} t={t} />
               ))}
               {marketData.map((index) => (
-                <TickerItem key={`${index.symbol}-dup`} item={index} />
+                <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
               ))}
             </div>
           )}
