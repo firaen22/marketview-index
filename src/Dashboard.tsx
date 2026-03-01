@@ -344,7 +344,9 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t: any }
 
       <div className="flex justify-between items-end text-[10px] border-t border-zinc-800/80 pt-3">
         <div className="flex flex-col">
-          <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">{t.ytd}</span>
+          <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">
+            {t.rangeLabels?.[t.activeRange] || t.ytd}
+          </span>
           <span className={cn("font-mono font-medium text-xs", isYtdPositive ? "text-emerald-400" : "text-rose-400")}>
             {isYtdPositive ? '+' : ''}{item.ytdChangePercent.toFixed(2)}%
           </span>
@@ -443,7 +445,17 @@ export default function Dashboard() {
     }
   }, []);
 
-  const t = DICTIONARY[language] || DICTIONARY.en;
+  const baseT = DICTIONARY[language] || DICTIONARY.en;
+  const t = {
+    ...baseT,
+    activeRange: timeRange,
+    rangeLabels: {
+      '1M': language === 'en' ? '1 Month' : '1個月漲跌',
+      '3M': language === 'en' ? '3 Months' : '3個月漲跌',
+      'YTD': language === 'en' ? 'YTD Change' : '今年至今',
+      '1Y': language === 'en' ? '1 Year' : '1年漲跌'
+    }
+  };
 
   const [marketData, setMarketData] = useState<IndexData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -595,9 +607,12 @@ export default function Dashboard() {
   const categoriesOrder = ['All', 'US', 'Europe', 'Asia', 'Commodity', 'Crypto', 'Currency', 'Volatility'];
   const categories = categoriesOrder.filter(c => c === 'All' || marketData.some(item => item.category === c));
 
-  const filteredIndices = selectedCategory === 'All'
+  const filteredIndices = (selectedCategory === 'All'
     ? marketData
-    : marketData.filter(item => item.category === selectedCategory);
+    : marketData.filter(item => item.category === selectedCategory)
+  ).sort((a, b) => b.ytdChangePercent - a.ytdChangePercent);
+
+  // Rendering...
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-blue-500/30 font-sans">
@@ -806,6 +821,12 @@ export default function Dashboard() {
                       {t.categories[category] || category}
                     </button>
                   ))}
+                  <div className="hidden sm:flex items-center ml-2 px-2 py-1 bg-zinc-900/30 rounded border border-emerald-500/20">
+                    <TrendingUp className="w-3 h-3 text-emerald-400 mr-1.5" />
+                    <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-bold">
+                      {language === 'en' ? 'Sorted by Return' : '按報酬率排序'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex items-center bg-zinc-900/80 p-1 rounded-lg border border-zinc-800/80 backdrop-blur-md">
