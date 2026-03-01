@@ -391,18 +391,18 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ i
   const isYtdPositive = item.ytdChange >= 0;
 
   return (
-    <Card className="p-4 flex flex-col justify-between h-full border-zinc-800/60">
-      <div className="flex justify-between items-start mb-5">
-        <div className="flex-1 pr-2">
-          <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1">{item.name}</h4>
-          <span className="text-[10px] sm:text-xs text-zinc-500">{item.symbol}</span>
+    <Card className="p-4 flex flex-col justify-between h-full border-zinc-800/60 transition-all duration-300 hover:border-zinc-700/50">
+      <div className="grid grid-cols-[1fr_auto] gap-x-2 items-start mb-5">
+        <div className="min-w-0">
+          <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">{item.name}</h4>
+          <span className="text-[10px] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
         </div>
-        <div className="text-right shrink-0">
-          <div className={cn("text-base font-mono font-bold", isPositive ? "text-emerald-400" : "text-rose-400")}>
+        <div className="text-right flex flex-col items-end">
+          <div className={cn("text-base font-mono font-bold leading-none", isPositive ? "text-emerald-400" : "text-rose-400")}>
             {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <div className={cn("text-[10px] sm:text-xs font-mono flex items-center justify-end mt-0.5", isPositive ? "text-emerald-400" : "text-rose-400")}>
-            1D: {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
+          <div className={cn("text-[10px] font-mono flex items-center justify-end mt-1 px-1.5 py-0.5 rounded bg-zinc-950/50", isPositive ? "text-emerald-400" : "text-rose-400")}>
+            {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
           </div>
         </div>
       </div>
@@ -425,18 +425,20 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ i
         </ResponsiveContainer>
       </div>
 
-      <div className="flex justify-between items-end text-[10px] sm:text-xs border-t border-zinc-800/80 pt-3">
-        <div>
-          <div className="text-zinc-500 mb-0.5">YTD Change</div>
-          <div className={cn("font-mono font-medium", isYtdPositive ? "text-emerald-400" : "text-rose-400")}>
+      <div className="flex justify-between items-end text-[10px] border-t border-zinc-800/80 pt-3">
+        <div className="flex flex-col">
+          <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">YTD Change</span>
+          <span className={cn("font-mono font-medium text-xs", isYtdPositive ? "text-emerald-400" : "text-rose-400")}>
             {isYtdPositive ? '+' : ''}{item.ytdChangePercent.toFixed(2)}%
-          </div>
+          </span>
         </div>
-        <div className="text-right">
-          <div className="text-zinc-500 mb-0.5">Range</div>
-          <div className="font-mono text-zinc-300">
-            {item.low.toLocaleString(undefined, { maximumFractionDigits: 0 })} - {item.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-          </div>
+        <div className="text-right flex flex-col">
+          <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">Day Range</span>
+          <span className="font-mono text-zinc-100 text-[11px] leading-tight">
+            {item.low.toLocaleString(undefined, { maximumFractionDigits: 0 })}<br />
+            <span className="text-zinc-500 opacity-50">—</span><br />
+            {item.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </span>
         </div>
       </div>
     </Card>
