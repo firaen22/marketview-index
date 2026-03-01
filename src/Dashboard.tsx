@@ -392,22 +392,22 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ i
 
   return (
     <Card className="p-4 flex flex-col justify-between h-full border-zinc-800/60">
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <h4 className="font-bold text-zinc-100">{item.name}</h4>
-          <span className="text-xs text-zinc-500">{item.symbol}</span>
+      <div className="flex justify-between items-start mb-5">
+        <div className="flex-1 pr-2">
+          <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1">{item.name}</h4>
+          <span className="text-[10px] sm:text-xs text-zinc-500">{item.symbol}</span>
         </div>
-        <div className="text-right">
-          <div className={cn("text-lg font-mono font-bold", isPositive ? "text-emerald-400" : "text-rose-400")}>
+        <div className="text-right shrink-0">
+          <div className={cn("text-base font-mono font-bold", isPositive ? "text-emerald-400" : "text-rose-400")}>
             {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-          <div className={cn("text-xs font-mono flex items-center justify-end", isPositive ? "text-emerald-400" : "text-rose-400")}>
+          <div className={cn("text-[10px] sm:text-xs font-mono flex items-center justify-end mt-0.5", isPositive ? "text-emerald-400" : "text-rose-400")}>
             1D: {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
           </div>
         </div>
       </div>
 
-      <div className={cn("w-full mb-4", chartHeight)}>
+      <div className={cn("w-full mb-5 transition-all", chartHeight)}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={item.history}>
             <Line
@@ -425,15 +425,15 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ i
         </ResponsiveContainer>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs border-t border-zinc-800 pt-3">
+      <div className="flex justify-between items-end text-[10px] sm:text-xs border-t border-zinc-800/80 pt-3">
         <div>
-          <div className="text-zinc-500 mb-1">YTD Change</div>
+          <div className="text-zinc-500 mb-0.5">YTD Change</div>
           <div className={cn("font-mono font-medium", isYtdPositive ? "text-emerald-400" : "text-rose-400")}>
             {isYtdPositive ? '+' : ''}{item.ytdChangePercent.toFixed(2)}%
           </div>
         </div>
         <div className="text-right">
-          <div className="text-zinc-500 mb-1">Range</div>
+          <div className="text-zinc-500 mb-0.5">Range</div>
           <div className="font-mono text-zinc-300">
             {item.low.toLocaleString(undefined, { maximumFractionDigits: 0 })} - {item.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </div>
