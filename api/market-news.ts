@@ -60,7 +60,6 @@ export default async function handler(req: any, res: any) {
         // 2. Fetch Fresh News from Yahoo Finance
         console.log('Fetching fresh news from multi-source search...');
 
-        // Broaden search to multiple major market tickers and specific terms to capture premium sources
         const searchTasks = [
             yahooFinance.search('SPY', { newsCount: 5, quotesCount: 0 }),
             yahooFinance.search('QQQ', { newsCount: 5, quotesCount: 0 }),
@@ -81,75 +80,66 @@ export default async function handler(req: any, res: any) {
             seen.add(n.uuid);
             return true;
         }).sort((a, b) => {
-            // Prioritize major sources requested by user
             const premiumSources = ['Reuters', 'Bloomberg', 'Investing.com', 'Seeking Alpha'];
             const aIsPremium = premiumSources.some(s => a.publisher?.includes(s));
             const bIsPremium = premiumSources.some(s => b.publisher?.includes(s));
             if (aIsPremium && !bIsPremium) return -1;
             if (!aIsPremium && bIsPremium) return 1;
             return 0;
-        }).slice(0, 8); // Slightly increase count to show more variety
+        }).slice(0, 8);
+
+        const isChinese = lang === 'zh-TW';
 
         // 3. Process each News Item with Gemini AI
         const processedNews = await Promise.all(newsItems.map(async (article, index) => {
-            let aiSummary = article.title; // Fallback
+            let aiSummary = article.title;
             let aiSentiment = "Neutral";
+            let translatedTitle = article.title;
 
             if (activeAi) {
                 try {
-                    const isChinese = lang === 'zh-TW';
-                    const prompt = `Analyze this financial news headline and short summary:
+                    const prompt = `Analyze this financial news article:
 TITLE: ${article.title}
-SUMMARY: ${article.publisher}
-Link to article publisher for context.
+PUBLISHER: ${article.publisher}
 
 TASK:
-1. Determine if the sentiment is strictly BULLISH, BEARISH, or NEUTRAL.
-2. ${isChinese ? 'Translate the original TITLE to Traditional Chinese (繁體中文). Keep it professional and punchy.' : 'Refine the original TITLE for clarity if needed.'}
-3. Write a strict 30-word max summary of how this news impacts the US or Global market${isChinese ? ' in Traditional Chinese (繁體中文)' : ''}.
+1. [SENTIMENT]: BULLISH, BEARISH, or NEUTRAL.
+2. [TITLE]: ${isChinese ? 'Translate the TITLE to Traditional Chinese (繁體中文). Professional financial style.' : 'Original or refined TITLE in English.'}
+3. [SUMMARY]: ${isChinese ? 'Summary of market impact in Traditional Chinese (繁體中文), max 35 words.' : 'Summary of market impact in English, max 30 words.'}
 
-OUTPUT FORMAT (strictly follow this, 3 lines):
-[SENTIMENT]
-[TITLE]
-[SUMMARY]
+OUTPUT FORMAT (Strictly 3 lines, no extra text, no markdown like ** or #):
+LINE1: THE_SENTIMENT
+LINE2: THE_TRANSLATED_TITLE
+LINE3: THE_SUMMARY
 
-Example:
+Example output:
 ${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨頭的強勁業績預計在大盤反彈背景下推動指數走高。' : 'BULLISH\nS&P 500 Bullish on Tech Strength\nStrong earnings from tech giants are expected to drive the index higher amidst a broader market rally.'}
 `;
-                    // Note: using 'gemini-2.5-flash-latest' for elite performance
                     const response = await activeAi.models.generateContent({
-                        model: 'gemini-2.5-flash-latest',
+                        model: 'gemini-2.0-flash-exp',
                         contents: prompt,
                     });
 
-                    const text = response.text || "";
-                    const lines = text.split('\n').map(line => line.trim()).filter(line => line !== '');
+                    const text = (response.text || "").trim();
+                    const lines = text.split('\n')
+                        .map(l => l.replace(/^(LINE\d:|\[.*?\]|\d\.\s*)/i, '').trim())
+                        .filter(l => l !== '');
 
                     if (lines.length >= 3) {
                         const rawSentiment = lines[0].toUpperCase();
+                        if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
+                        else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
+                        else aiSentiment = 'Neutral';
 
-                        // Handle English and Chinese Sentiment mapping
-                        if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) {
-                            aiSentiment = 'Bullish';
-                        } else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) {
-                            aiSentiment = 'Bearish';
-                        } else {
-                            aiSentiment = 'Neutral';
-                        }
-
-                        // Update title with translated version
-                        article.title = lines[1];
-                        // Update summary
+                        translatedTitle = lines[1];
                         aiSummary = lines.slice(2).join(' ').trim();
                     } else if (lines.length === 2) {
-                        // Support fallback to legacy 2-line output if AI misses a beat
                         const rawSentiment = lines[0].toUpperCase();
                         if (['BULLISH', '看漲', '看涨'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bullish';
                         else if (['BEARISH', '看跌'].some(s => rawSentiment.includes(s))) aiSentiment = 'Bearish';
                         else aiSentiment = 'Neutral';
                         aiSummary = lines[1];
                     }
-
                 } catch (genErr) {
                     console.warn('Gemini AI Generation failed for an article:', genErr);
                 }
@@ -159,7 +149,7 @@ ${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨�
                 id: article.uuid || `news-${index}`,
                 source: article.publisher || 'Yahoo Finance',
                 time: new Date(article.providerPublishTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                title: article.title,
+                title: translatedTitle,
                 summary: aiSummary,
                 sentiment: aiSentiment,
                 sentimentScore: aiSentiment === 'Bullish' ? 0.8 : (aiSentiment === 'Bearish' ? -0.8 : 0),
@@ -174,7 +164,7 @@ ${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨�
         };
 
         // 4. Save to Redis Cache (Valid for 15 minutes)
-        if (redis) {
+        if (redis && !customApiKey) {
             await redis.set(CURRENT_CACHE_KEY, JSON.stringify(responsePayload), { ex: NEWS_CACHE_TTL });
         }
 
