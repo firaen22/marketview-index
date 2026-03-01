@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
+import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -29,7 +29,7 @@ interface IndexData {
   open: number;
   high: number;
   low: number;
-  history: { value: number }[];
+  history: { value: number; date?: string }[];
   category: 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Volatility';
 }
 
@@ -372,6 +372,20 @@ const NewsCard: React.FC<{ item: NewsItem }> = ({ item }) => {
   );
 };
 
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    const dateStr = data.date ? new Date(data.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Live';
+    return (
+      <div className="bg-zinc-800/95 border border-zinc-700/50 p-2.5 rounded-lg shadow-xl text-xs font-mono z-50 animate-in fade-in zoom-in-95 duration-200">
+        <p className="text-zinc-400 mb-1">{dateStr}</p>
+        <p className="font-bold text-zinc-100 text-sm">{Number(data.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+      </div>
+    );
+  }
+  return null;
+};
+
 const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ item, chartHeight = "h-16" }) => {
   const isPositive = item.change >= 0;
   const isYtdPositive = item.ytdChange >= 0;
@@ -402,7 +416,9 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ i
               stroke={isPositive ? "#34d399" : "#fb7185"}
               strokeWidth={2}
               dot={false}
+              activeDot={{ r: 4, fill: isPositive ? "#34d399" : "#fb7185", stroke: "#18181b", strokeWidth: 2 }}
             />
+            <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#3f3f46', strokeWidth: 1, strokeDasharray: '4 4' }} />
             <YAxis domain={['dataMin', 'dataMax']} hide />
           </LineChart>
         </ResponsiveContainer>

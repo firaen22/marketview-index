@@ -154,16 +154,22 @@ async function fetchAllIndices() {
       ytdChangePercent = firstClose !== 0 ? (ytdChange / firstClose) * 100 : 0;
 
       // Parse authentic graph points (fill with close, or last known if missing)
-      history = chartData.map((pt: any) => ({ value: pt.close || price }));
+      history = chartData.map((pt: any) => ({
+        value: pt.close || price,
+        date: pt.date ? new Date(pt.date).toISOString() : new Date().toISOString()
+      }));
       // Ensure the graph always mathematically ends perfectly on the live price
-      history.push({ value: price });
+      history.push({ value: price, date: new Date().toISOString() });
     } else {
       // Fallback if Yahoo Chart API fails for a specific obscure ticker
       const fiftyTwoWeekLow = quote.fiftyTwoWeekLow || price * 0.9;
       ytdChange = (price - fiftyTwoWeekLow) * 0.15;
       ytdChangePercent = (ytdChange / (price - ytdChange)) * 100;
-      history = Array.from({ length: 20 }, (_, i) => ({ value: price * (0.95 + Math.random() * 0.1) }));
-      history.push({ value: price });
+      history = Array.from({ length: 20 }, (_, i) => ({
+        value: price * (0.95 + Math.random() * 0.1),
+        date: new Date(Date.now() - (20 - i) * 86400000).toISOString()
+      }));
+      history.push({ value: price, date: new Date().toISOString() });
     }
 
     results.push({
