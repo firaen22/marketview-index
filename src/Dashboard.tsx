@@ -38,6 +38,7 @@ const DICTIONARY: Record<string, any> = {
     newsLoading: "Gemini is analyzing latest news...",
     noNews: "No recent news available.",
     showAll: "View All",
+    goBack: "Go Back",
     apiKey: "Gemini API Key",
     apiKeyPlaceholder: "Enter your Google Gemini API Key",
     saveConfig: "Save Configuration",
@@ -77,6 +78,7 @@ const DICTIONARY: Record<string, any> = {
     newsLoading: "Gemini 正在分析最新新聞...",
     noNews: "目前無最新新聞。",
     showAll: "查看全部",
+    goBack: "退出全屏",
     apiKey: "Gemini API 金鑰",
     apiKeyPlaceholder: "請輸入您的 Google Gemini API Key",
     saveConfig: "儲存設定",
@@ -606,7 +608,15 @@ export default function Dashboard() {
                 <span className="w-1 h-6 bg-emerald-500 mr-3 rounded-full"></span>
                 {t.performance}
               </h2>
-              {!isPresentationMode && (
+              {isPresentationMode ? (
+                <button
+                  onClick={() => setIsPresentationMode(false)}
+                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center px-2 py-1 bg-blue-500/10 rounded-md border border-blue-500/20 transition-colors"
+                >
+                  <LayoutDashboard className="w-3 h-3 mr-1.5" />
+                  {t.goBack}
+                </button>
+              ) : (
                 <button
                   onClick={() => setIsPresentationMode(true)}
                   className="text-xs text-blue-400 hover:text-blue-300 flex items-center"
