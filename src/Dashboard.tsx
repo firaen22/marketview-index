@@ -479,28 +479,30 @@ export default function Dashboard() {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/20">
               <TrendingUp className="text-white w-5 h-5" />
             </div>
-            <div className="flex flex-col">
+            <div className="flex flex-col justify-center">
               <h1 className="text-xl font-black tracking-tighter text-zinc-100 flex items-center">
-                <span className="bg-gradient-to-br from-blue-400 to-emerald-400 bg-clip-text text-transparent mr-1">
+                <span className="bg-gradient-to-br from-blue-400 to-emerald-400 bg-clip-text text-transparent">
                   {t.title}
-                </span>
-                <span className="text-[10px] font-mono border border-zinc-700 px-1 py-0.5 rounded ml-1 text-zinc-500">
-                  {t.subtitle}
                 </span>
               </h1>
               <div className="flex items-center text-[10px] text-zinc-500 mt-0.5">
-                <Clock className="w-3 h-3 mr-1" />
-                {currentTime.toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined)}
+                {lastUpdated ? (
+                  <>
+                    <span className="opacity-70 mr-1">{t.lastUpdated}:</span>
+                    {lastUpdated.toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined, { hour: '2-digit', minute: '2-digit' })}
+                  </>
+                ) : (
+                  <span className="opacity-70">Awaiting data...</span>
+                )}
               </div>
             </div>
           </div>
 
           <div className="flex items-center space-x-3">
-            <button className="flex items-center text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors bg-emerald-500/5 px-2 py-1 rounded border border-emerald-500/20">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-2 animate-pulse"></span>
-              {t.vip}
-            </button>
-            <div className="h-4 w-px bg-zinc-800"></div>
+            <div className="flex items-center font-mono text-zinc-300 text-[11px] px-3 py-1 bg-zinc-900/50 rounded-full border border-zinc-800">
+              <Clock className="w-3 h-3 mr-1.5 text-blue-500" />
+              {currentTime.toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined)}
+            </div>
             <div className="flex items-center space-x-1 border border-zinc-800 rounded-full p-1 bg-zinc-950/50">
               <button
                 onClick={toggleLanguage}
