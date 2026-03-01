@@ -518,12 +518,12 @@ export default function Dashboard() {
       } catch (e) {
         setIsError(true);
         setMarketData(MOCK_INDICES);
-        setFallbackMessage('快取數據損壞，目前為模擬資料。');
+        setFallbackMessage('本機快取數據損壞，目前顯示預設模擬資料。');
       }
     } else {
       setIsError(true);
       setMarketData(MOCK_INDICES);
-      setFallbackMessage('初次載入或無快取，API 配額可能已滿，目前顯示模擬資料。');
+      setFallbackMessage('後端連線失敗且無快取，目前顯示預設模擬資料。請稍後重試。');
     }
   }
 
