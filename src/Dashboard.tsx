@@ -561,9 +561,9 @@ export default function Dashboard() {
       <main className="container mx-auto p-4 lg:p-6 max-w-7xl">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 transition-all duration-500 ease-in-out">
 
-          {/* Left Column: Core Market News */}
+          {/* Left/Right Column Swapped: Core Market News (Now on Right Sidebar) */}
           {!isPresentationMode && (
-            <div className="lg:col-span-7 xl:col-span-8 flex flex-col h-[calc(100vh-180px)] animate-in fade-in slide-in-from-left-4 duration-500">
+            <div className="lg:col-span-5 xl:col-span-4 lg:order-last flex flex-col h-[calc(100vh-180px)] animate-in fade-in slide-in-from-right-4 duration-500">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold flex items-center text-balance">
                   <span className="w-1 h-6 bg-blue-500 mr-3 rounded-full"></span>
@@ -596,10 +596,10 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Right Column: Index Performance */}
+          {/* Right/Left Column Swapped: Index Performance (Now Primary Left Column) */}
           <div className={cn(
-            "flex flex-col h-[calc(100vh-180px)] transition-all duration-500 ease-in-out",
-            isPresentationMode ? "col-span-1 lg:col-span-12" : "lg:col-span-5 xl:col-span-4"
+            "flex flex-col h-[calc(100vh-180px)] transition-all duration-500 ease-in-out lg:order-first",
+            isPresentationMode ? "col-span-1 lg:col-span-12" : "lg:col-span-7 xl:col-span-8"
           )}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold flex items-center">
@@ -669,7 +669,7 @@ export default function Dashboard() {
               ) : marketData.length > 0 ? (
                 <div className={cn(
                   "grid gap-4 transition-all duration-500",
-                  isPresentationMode ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 xl:grid-cols-2"
+                  isPresentationMode ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2"
                 )}>
                   {filteredIndices.map((index) => (
                     <MarketStatCard
