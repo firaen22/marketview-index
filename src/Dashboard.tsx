@@ -587,8 +587,8 @@ export default function Dashboard() {
 
     // 1-hour polling for background updates
     const pollInterval = setInterval(() => {
-      fetchMarketData(true);
-      fetchNewsData(undefined, true);
+      fetchMarketData(true, true);
+      fetchNewsData(undefined, true, true);
     }, 60 * 60 * 1000);
 
     return () => clearInterval(pollInterval);

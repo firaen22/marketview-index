@@ -66,7 +66,8 @@ export default async function handler(req: any, res: any) {
       };
 
       if (redis) {
-        await redis.set(CACHE_KEY, JSON.stringify(payload));
+        // Cache expires in 1 hour
+        await redis.set(CACHE_KEY, JSON.stringify(payload), { ex: 3600 });
       }
       return res.status(200).json(payload);
     }
