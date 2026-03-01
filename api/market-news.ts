@@ -160,8 +160,12 @@ ${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨�
         const responsePayload = {
             success: true,
             timestamp: new Date().toISOString(),
-            data: processedNews
+            data: processedNews,
+            isAiTranslated: activeAi ? true : false
         };
+
+        if (activeAi) console.log(`Processed ${processedNews.length} news items with Gemini. Lang: ${lang}`);
+        else console.log(`Returning ${processedNews.length} news items WITHOUT Gemini translation (No API Key).`);
 
         // 4. Save to Redis Cache (Valid for 15 minutes)
         if (redis && !customApiKey) {
