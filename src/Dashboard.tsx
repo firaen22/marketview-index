@@ -428,6 +428,7 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string }> = ({ i
 
 export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
@@ -489,6 +490,7 @@ export default function Dashboard() {
           setFallbackMessage(`無法取得最新資料，顯示後端最後更新時間：${timeStr} (全局資料已凍結)`);
         } else {
           // 正常狀態下，將後端傳來的最新資料也備份一份到前端 localStorage 作為最底層防線
+          setLastUpdated(new Date(result.timestamp));
           localStorage.setItem(CACHE_KEY, JSON.stringify({
             timestamp: new Date().getTime(),
             data: result.data
@@ -514,7 +516,8 @@ export default function Dashboard() {
         const { data, timestamp } = JSON.parse(cached);
         const timeStr = new Date(timestamp).toLocaleTimeString();
         setMarketData(data);
-        setFallbackMessage(`${message} (最後更新時間：${timeStr})`);
+        setLastUpdated(new Date(timestamp));
+        setFallbackMessage(`${message} (最後快取時間：${timeStr})`);
       } catch (e) {
         setIsError(true);
         setMarketData(MOCK_INDICES);
@@ -585,14 +588,25 @@ export default function Dashboard() {
       <header className="sticky top-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800">
         <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800/50">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/20">
               <TrendingUp className="text-white w-5 h-5" />
             </div>
             <span className="font-bold text-xl tracking-tight">Market<span className="text-blue-500">Flow</span></span>
+            <div className="hidden sm:flex items-center ml-3 px-2.5 py-1 bg-zinc-900/80 border border-zinc-800 rounded-full">
+              <div className={cn("w-1.5 h-1.5 rounded-full mr-2", isError ? "bg-rose-500 animate-pulse" : "bg-emerald-500")} />
+              <span className="text-[10px] font-mono text-zinc-400 tracking-wider">
+                {isError ? "MOCK DATA" : "DATABASE CONNECTED"}
+              </span>
+            </div>
           </div>
           <div className="flex items-center space-x-4 text-sm text-zinc-400">
-            <span className="flex items-center font-mono">
-              <Clock className="w-4 h-4 mr-2" />
+            {lastUpdated && (
+              <span className="hidden md:flex items-center text-xs font-mono text-zinc-500 bg-zinc-900/50 px-2 py-1 rounded">
+                Updated: {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
+            <span className="flex items-center font-mono text-zinc-300">
+              <Clock className="w-4 h-4 mr-2 text-blue-500" />
               {currentTime.toLocaleTimeString()}
             </span>
             <button
