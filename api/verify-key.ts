@@ -42,9 +42,16 @@ export default async function handler(req: any, res: any) {
 
         // Phase 2: Attempt a "Hello" generation to verify actual connectivity and usage
         try {
-            const hasFlash20 = geminiModels.some(m => m.name === 'gemini-2.0-flash');
-            const hasFlash15 = geminiModels.some(m => m.name === 'gemini-1.5-flash');
-            const modelName = hasFlash20 ? 'gemini-2.0-flash' : (hasFlash15 ? 'gemini-1.5-flash' : geminiModels[0].name);
+            // Find the best available model from the list we just got
+            const preferredModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro'];
+            let modelName = geminiModels[0].name; // fallback to whatever is first
+
+            for (const preferred of preferredModels) {
+                if (geminiModels.some(m => m.name === preferred)) {
+                    modelName = preferred;
+                    break;
+                }
+            }
 
             await genAI.models.generateContent({
                 model: modelName,

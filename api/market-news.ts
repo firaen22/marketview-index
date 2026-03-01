@@ -106,6 +106,25 @@ export default async function handler(req: any, res: any) {
 
         if (activeAi) {
             try {
+                // Determine best model for this key
+                let modelName = 'gemini-1.5-flash';
+                try {
+                    const modelListResult: any = await activeAi.models.list();
+                    const availableModels: string[] = [];
+                    for await (const m of modelListResult) {
+                        availableModels.push(m.name.replace('models/', ''));
+                    }
+                    const preferred = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro'];
+                    for (const p of preferred) {
+                        if (availableModels.includes(p)) {
+                            modelName = p;
+                            break;
+                        }
+                    }
+                } catch (listErr) {
+                    console.warn('Fallback to gemini-1.5-flash:', listErr);
+                }
+
                 const combinedPrompt = `
 Analyze the following financial news headlines and provide a consolidated response.
 
@@ -134,7 +153,7 @@ OUTPUT FORMAT (Valid JSON only):
 `;
 
                 const result = await activeAi.models.generateContent({
-                    model: 'gemini-1.5-flash',
+                    model: modelName,
                     contents: [{ role: 'user', parts: [{ text: combinedPrompt }] }],
                     config: { responseMimeType: 'application/json' }
                 });
