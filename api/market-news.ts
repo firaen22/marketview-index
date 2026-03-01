@@ -8,11 +8,16 @@ const NEWS_CACHE_TTL = 60 * 15; // 15 minutes in seconds
 // 1. Upstash Redis Setup
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-const hasUpstash = !!redisUrl && !!redisToken;
+const hasUpstash = !!redisUrl && !!redisToken && String(redisUrl).startsWith('https://');
 
-const redis = hasUpstash
-    ? new Redis({ url: redisUrl!, token: redisToken! })
-    : null;
+let redis: Redis | null = null;
+if (hasUpstash) {
+    try {
+        redis = new Redis({ url: redisUrl!, token: redisToken! });
+    } catch (e) {
+        console.error('Upstash Redis initialization error:', e);
+    }
+}
 
 // 2. Gemini GenAI Setup
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;

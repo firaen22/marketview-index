@@ -6,15 +6,20 @@ const CACHE_KEY = 'global_market_cache_yfinance_v1';
 // 檢查是否有配置 Upstash (從 Vercel 自動注入)
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-const hasUpstash = !!redisUrl && !!redisToken;
+const hasUpstash = !!redisUrl && !!redisToken && String(redisUrl).startsWith('https://');
 
-// 建立 Redis Client (若無配置則為 null)
-const redis = hasUpstash
-  ? new Redis({
-    url: redisUrl!,
-    token: redisToken!,
-  })
-  : null;
+// 建立 Redis Client (若無配置或 URL 不合法則為 null)
+let redis: Redis | null = null;
+if (hasUpstash) {
+  try {
+    redis = new Redis({
+      url: redisUrl!,
+      token: redisToken!,
+    });
+  } catch (e) {
+    console.error('Upstash Redis initialization error:', e);
+  }
+}
 
 const INDICES_TO_FETCH = [
   { symbol: '^GSPC', category: 'US', name: 'S&P 500' },
