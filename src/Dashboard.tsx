@@ -249,7 +249,7 @@ const TickerItem: React.FC<{ item: IndexData; t: any }> = ({ item, t }) => {
   );
 };
 
-const NewsCard: React.FC<{ item: NewsItem; language: string }> = ({ item, language }) => {
+const NewsCard: React.FC<{ item: NewsItem; language: string; isFocusMode?: boolean }> = ({ item, language, isFocusMode }) => {
   const sentimentVariant = item.sentiment.toLowerCase() as 'bullish' | 'bearish' | 'neutral';
 
   // Localized sentiment display
@@ -270,10 +270,16 @@ const NewsCard: React.FC<{ item: NewsItem; language: string }> = ({ item, langua
           </div>
           <Badge variant={sentimentVariant}>{label}</Badge>
         </div>
-        <h3 className="text-lg font-bold text-zinc-100 mb-2 group-hover:text-blue-400 transition-colors leading-tight text-balance">
+        <h3 className={cn(
+          "font-bold text-zinc-100 mb-2 group-hover:text-blue-400 transition-colors leading-tight text-balance",
+          isFocusMode ? "text-xl" : "text-lg"
+        )}>
           {item.title}
         </h3>
-        <p className="text-sm text-zinc-400 line-clamp-2 leading-relaxed">
+        <p className={cn(
+          "text-sm text-zinc-400 leading-relaxed",
+          isFocusMode ? "" : "line-clamp-2"
+        )}>
           {item.summary}
         </p>
       </Card>
@@ -358,20 +364,64 @@ const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t: any }
 
 // --- Main Dashboard Component ---
 
-const DailyPulse = ({ summary, t }: { summary: string; t: any }) => {
+const DailyPulse = ({ summary, t, isFocusMode }: { summary: string; t: any; isFocusMode: boolean }) => {
   if (!summary) return null;
+
+  // Handle parsing of structured overview/highlights
+  let overview = summary;
+  let highlights: string[] = [];
+
+  if (summary.includes('[OVERVIEW]')) {
+    const parts = summary.split('[HIGHLIGHTS]');
+    overview = parts[0].replace('[OVERVIEW]', '').trim();
+    if (parts[1]) {
+      highlights = parts[1].split('\n')
+        .map(h => h.trim())
+        .filter(h => h.startsWith('-'))
+        .map(h => h.substring(1).trim());
+    }
+  }
+
   return (
-    <div className="mb-6 p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 backdrop-blur-sm relative overflow-hidden group">
-      <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-        <TrendingUp className="w-12 h-12 text-blue-500" />
+    <div className={cn(
+      "mb-6 p-5 rounded-xl border relative overflow-hidden group transition-all duration-500",
+      isFocusMode
+        ? "border-blue-500/30 bg-blue-500/10 shadow-2xl shadow-blue-900/10 py-8"
+        : "border-blue-500/20 bg-blue-500/5 backdrop-blur-sm"
+    )}>
+      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+        <TrendingUp className={cn("text-blue-500", isFocusMode ? "w-24 h-24" : "w-12 h-12")} />
       </div>
-      <div className="flex items-center gap-2 mb-2">
-        <Cpu className="w-4 h-4 text-blue-400" />
-        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">{t.dailyPulse}</span>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="p-1 px-2 rounded-md bg-blue-500/20 text-blue-400 flex items-center gap-2">
+          <Cpu className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">{t.dailyPulse}</span>
+        </div>
+        {isFocusMode && <div className="h-px flex-1 bg-blue-500/20"></div>}
       </div>
-      <p className="text-sm text-zinc-200 leading-relaxed font-medium">
-        {summary}
-      </p>
+
+      <div className={cn("space-y-4", isFocusMode ? "max-w-4xl" : "")}>
+        <p className={cn(
+          "text-zinc-200 leading-relaxed font-semibold mb-4",
+          isFocusMode ? "text-lg md:text-xl" : "text-sm"
+        )}>
+          {overview}
+        </p>
+
+        {highlights.length > 0 && (
+          <div className={cn(
+            "grid gap-3 animate-in fade-in slide-in-from-left-4 duration-700",
+            isFocusMode ? "grid-cols-1 md:grid-cols-3 mt-8" : "grid-cols-1"
+          )}>
+            {highlights.map((h, i) => (
+              <div key={i} className="flex gap-3 items-start p-3 rounded-lg bg-black/20 border border-white/5">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                <p className="text-sm text-zinc-300 leading-tight font-medium">{h}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -684,16 +734,21 @@ export default function Dashboard() {
                     </div>
                   ) : (
                     <>
-                      <DailyPulse summary={marketSummary} t={t} />
-                      {newsData.length > 0 ? (
-                        newsData.map((news) => (
-                          <NewsCard key={news.id} item={news} language={language} />
-                        ))
-                      ) : (
-                        <div className="flex flex-col items-center justify-center h-48 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
-                          <p className="text-sm">{t.noNews}</p>
-                        </div>
-                      )}
+                      <DailyPulse summary={marketSummary} t={t} isFocusMode={isNewsOnly} />
+                      <div className={cn(
+                        "grid gap-x-6",
+                        isNewsOnly ? "grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3" : "grid-cols-1"
+                      )}>
+                        {newsData.length > 0 ? (
+                          newsData.map((news) => (
+                            <NewsCard key={news.id} item={news} language={language} isFocusMode={isNewsOnly} />
+                          ))
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-48 text-zinc-500 border border-dashed border-zinc-800 rounded-xl lg:col-span-full">
+                            <p className="text-sm">{t.noNews}</p>
+                          </div>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>

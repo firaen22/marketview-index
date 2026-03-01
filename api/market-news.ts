@@ -160,13 +160,25 @@ ${isChinese ? '看漲\n標普 500 指數因科技股走強而看漲\n科技巨�
             (async () => {
                 if (!activeAi || newsItems.length === 0) return "";
                 try {
-                    const aggregatePrompt = `Analyze these latest financial headlines and provide a concise 2-sentence "Market Pulse" overview.
+                    const aggregatePrompt = `Analyze these latest financial headlines and provide a comprehensive "Market Pulse" overview.
 ${isChinese ? 'Respond in Traditional Chinese (繁體中文).' : 'Respond in English.'}
 
 HEADLINES:
 ${newsItems.map((n, i) => `${i + 1}. ${n.title}`).join('\n')}
 
-FORMAT: Just the 2 sentences summary. No extra text, no markdown.
+TASK:
+1. Provide a concise 2-sentence market overview.
+2. Provide 3 key bulleted highlights of the day's market sentiment.
+
+FORMAT:
+[OVERVIEW]
+Sentence 1. Sentence 2.
+[HIGHLIGHTS]
+- Highlight 1
+- Highlight 2
+- Highlight 3
+
+No extra text, no markdown like ** or #.
 `;
                     const summaryResponse = await activeAi.models.generateContent({
                         model: 'gemini-2.0-flash-exp',
