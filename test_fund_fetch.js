@@ -1,23 +1,17 @@
 import YahooFinance from 'yahoo-finance2';
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
-async function test() {
-  const symbol = '0P00000EBQ.HK';
+async function check() {
+  const symbol = '0P00000EBQ'; // Using the base ticker you found
   try {
-    const quote = await yahooFinance.quote(symbol);
-    console.log("Quote exists:", !!quote);
-    console.log("Quote price:", quote.regularMarketPrice || quote.price);
-    console.log("Quote change:", quote.regularMarketChange);
-  } catch (err) {
-    console.error("Quote Error:", err.message);
-  }
-
-  try {
+    const q1 = await yahooFinance.quote(symbol);
+    console.log("quote exists:", !!q1, q1.regularMarketPrice);
+    
+    // Attempt chart
     const chart = await yahooFinance.chart(symbol, { interval: '1d', period1: '2024-01-01', period2: new Date().toISOString().split('T')[0] });
     console.log("Chart length:", chart.quotes.length);
-  } catch (err) {
-    console.error("Chart Error:", err.message);
+  } catch(e) {
+    console.error("quote/chart error:", e.message);
   }
 }
-
-test();
+check();

@@ -38,7 +38,7 @@ const INDICES_TO_FETCH = [
   { symbol: 'CL=F', category: 'Commodity', name: 'Crude Oil' },
   { symbol: 'GC=F', category: 'Commodity', name: 'Gold' },
   {
-    symbol: '0P0000GOQJ',
+    symbol: '0P00000EBQ',
     category: 'Fund',
     name: '駿利亨德森遠見基金 - 環球科技領先基金',
     nameEn: 'Janus Henderson Horizon Fund - Global Technology Leaders Fund'
