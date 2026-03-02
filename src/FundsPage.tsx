@@ -58,13 +58,25 @@ export default function FundsPage() {
                     <p className="text-sm text-zinc-500 mt-2 font-medium">{t.subtitle}</p>
                 </div>
 
-                <Link
-                    to="/"
-                    className="group flex items-center gap-2.5 text-sm bg-zinc-900/50 backdrop-blur-md px-5 py-2.5 rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all shadow-xl"
-                >
-                    <LayoutDashboard size={18} className="text-blue-400 group-hover:scale-110 transition-transform" />
-                    <span className="font-bold">{t.back}</span>
-                </Link>
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => {
+                            const nextLang = language === 'en' ? 'zh-TW' : 'en';
+                            setLanguage(nextLang);
+                            localStorage.setItem('marketflow_lang', nextLang);
+                        }}
+                        className="px-4 py-2.5 text-sm font-bold bg-zinc-900/50 backdrop-blur-md rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all text-zinc-300 hover:text-white"
+                    >
+                        {language === 'en' ? 'EN' : '中文'}
+                    </button>
+                    <Link
+                        to="/"
+                        className="group flex items-center gap-2.5 text-sm bg-zinc-900/50 backdrop-blur-md px-5 py-2.5 rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all shadow-xl"
+                    >
+                        <LayoutDashboard size={18} className="text-blue-400 group-hover:scale-110 transition-transform" />
+                        <span className="font-bold">{t.back}</span>
+                    </Link>
+                </div>
             </header>
 
             <main className="max-w-7xl mx-auto">
