@@ -150,6 +150,7 @@ const DICTIONARY: Record<string, any> = {
 interface IndexData {
   symbol: string;
   name: string;
+  nameEn?: string;
   price: number;
   change: number;
   changePercent: number;
@@ -159,7 +160,7 @@ interface IndexData {
   high: number;
   low: number;
   history: { value: number; date?: string }[];
-  category: 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Volatility';
+  category: 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Volatility' | 'Fund';
 }
 
 interface NewsItem {
@@ -238,7 +239,7 @@ const TickerItem: React.FC<{ item: IndexData; t: any }> = ({ item, t }) => {
       <div className="flex flex-col">
         <span className="text-xs font-bold text-zinc-400">{item.symbol}</span>
         <span className="text-sm font-semibold text-zinc-100">
-          {t?.indexNames?.[item.name] || item.name}
+          {t?.indexNames?.[item.name] || (t?.language === 'en' ? (item.nameEn || item.name) : item.name)}
         </span>
       </div>
       <div className="flex flex-col items-end">
@@ -313,7 +314,7 @@ export const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t
       <div className="grid grid-cols-[1fr_auto] gap-x-2 items-start mb-5">
         <div className="min-w-0">
           <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">
-            {t?.indexNames?.[item.name] || item.name}
+            {t?.indexNames?.[item.name] || (t?.language === 'en' ? (item.nameEn || item.name) : item.name)}
           </h4>
           <span className="text-[10px] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
         </div>
@@ -452,6 +453,7 @@ export default function Dashboard() {
   const baseT = DICTIONARY[language] || DICTIONARY.en;
   const t = {
     ...baseT,
+    language,
     activeRange: timeRange,
     rangeLabels: {
       '1M': language === 'en' ? '1 Month' : '1個月漲跌',
