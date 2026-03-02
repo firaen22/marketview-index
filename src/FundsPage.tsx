@@ -70,10 +70,10 @@ export default function FundsPage() {
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                         {marketData.map((fund) => (
-                            <div key={fund.symbol} className="relative group">
+                            <div key={fund.symbol} className="relative group pt-6">
                                 {/* 顯示基金英文名 Badge */}
                                 {fund.nameEn && (
-                                    <div className="absolute -top-3 left-6 bg-blue-600 text-[10px] px-3 py-1 rounded-full z-10 font-black uppercase tracking-[0.1em] shadow-lg shadow-blue-900/40 border border-blue-400/30">
+                                    <div className="absolute top-0 left-8 -translate-y-1/2 bg-blue-600 text-[10px] px-3 py-1.5 rounded-full z-20 font-black uppercase tracking-[0.1em] shadow-xl shadow-blue-900/40 border border-blue-400/30 whitespace-nowrap">
                                         {fund.nameEn}
                                     </div>
                                 )}
