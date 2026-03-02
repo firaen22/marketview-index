@@ -43,6 +43,18 @@ const INDICES_TO_FETCH = [
     name: '駿利亨德森遠見基金 - 環球科技領先基金',
     nameEn: 'Janus Henderson Horizon Fund - Global Technology Leaders Fund'
   },
+  {
+    symbol: '0P00001EVH',
+    category: 'Fund',
+    name: '柏瑞環球基金 - 柏瑞印度股票基金"A"',
+    nameEn: 'PineBridge Global Funds - PineBridge Japan Equity Fund "A"'
+  },
+  {
+    symbol: '0P00000LV1',
+    category: 'Fund',
+    name: 'JPM 日本股票（美元） - J股（分派）',
+    nameEn: 'JPM Japan Equity J (dist) USD'
+  }
 ];
 
 export default async function handler(req: any, res: any) {
