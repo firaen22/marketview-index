@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Wallet, LayoutDashboard, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './Dashboard';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+// --- Utility ---
+function cn(...inputs: ClassValue[]) {
+    return twMerge(clsx(inputs));
+}
 
 export default function FundsPage() {
     const [marketData, setMarketData] = useState<any[]>([]);
@@ -10,6 +17,7 @@ export default function FundsPage() {
         const saved = localStorage.getItem('marketflow_lang');
         return (saved === 'en' || saved === 'zh-TW') ? saved : 'zh-TW';
     });
+    const [timeRange, setTimeRange] = useState<string>('YTD');
 
     const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(() => {
         const saved = localStorage.getItem('marketflow_chart_mode');
@@ -17,9 +25,10 @@ export default function FundsPage() {
     });
 
     useEffect(() => {
-        const fetchFunds = async () => {
+        const fetchFunds = async (currentRange = timeRange) => {
+            setIsLoading(true);
             try {
-                const response = await fetch('/api/market-data?range=YTD');
+                const response = await fetch(`/api/market-data?range=${currentRange}`);
                 const result = await response.json();
                 if (result.success) {
                     // 只過濾類別為 'Fund' 的資料
@@ -32,7 +41,7 @@ export default function FundsPage() {
             }
         };
         fetchFunds();
-    }, []);
+    }, [timeRange]);
 
     const indexNames = marketData.reduce((acc: any, fund: any) => {
         acc[fund.name] = language === 'en' ? (fund.nameEn || fund.name) : fund.name;
@@ -46,6 +55,12 @@ export default function FundsPage() {
         loading: language === 'en' ? 'Loading funds...' : '正在讀取基金數據...',
         nominal: language === 'en' ? 'Nominal' : '數值模式',
         percent: language === 'en' ? 'Percent' : '百分比模式',
+        rangeLabels: {
+            '1M': language === 'en' ? '1 Month' : '1個月漲跌',
+            '3M': language === 'en' ? '3 Months' : '3個月漲跌',
+            'YTD': language === 'en' ? 'YTD Change' : '今年至今',
+            '1Y': language === 'en' ? '1 Year' : '1年漲跌'
+        },
         indexNames
     };
 
@@ -64,6 +79,22 @@ export default function FundsPage() {
                 </div>
 
                 <div className="flex items-center gap-4">
+                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 backdrop-blur-md mr-2">
+                        {['1M', '3M', 'YTD', '1Y'].map(range => (
+                            <button
+                                key={range}
+                                onClick={() => setTimeRange(range)}
+                                className={cn(
+                                    "px-3 py-1.5 text-xs font-mono font-bold rounded-lg transition-all duration-200",
+                                    timeRange === range
+                                        ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20"
+                                        : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                                )}
+                            >
+                                {range}
+                            </button>
+                        ))}
+                    </div>
                     <button
                         onClick={() => {
                             const nextMode = chartMode === 'nominal' ? 'percent' : 'nominal';
@@ -108,7 +139,14 @@ export default function FundsPage() {
                                     <MarketStatCard
                                         item={fund}
                                         chartHeight="h-40"
-                                        t={{ ytd: t.ytd, range: "Day Range", indexNames: t.indexNames, language }}
+                                        t={{
+                                            ytd: t.ytd,
+                                            range: "Day Range",
+                                            indexNames: t.indexNames,
+                                            language,
+                                            activeRange: timeRange,
+                                            rangeLabels: t.rangeLabels
+                                        }}
                                         chartMode={chartMode}
                                     />
                                 </div>
