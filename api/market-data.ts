@@ -169,9 +169,9 @@ async function fetchAllIndices(range: string) {
     const quote = quotes.find((q: any) => q.symbol === index.symbol);
     if (!quote) continue;
 
-    const price = quote.regularMarketPrice || 0;
-    const change = quote.regularMarketChange || 0;
-    const changePercent = quote.regularMarketChangePercent || 0;
+    let price = quote.regularMarketPrice || 0;
+    let change = quote.regularMarketChange || 0;
+    let changePercent = quote.regularMarketChangePercent || 0;
     const open = quote.regularMarketOpen || price;
     const high = quote.regularMarketDayHigh || price;
     const low = quote.regularMarketDayLow || price;
@@ -192,9 +192,22 @@ async function fetchAllIndices(range: string) {
       const firstClose = chartData[0].close;
       const lastClose = chartData[chartData.length - 1].close;
 
+      // FOR FUNDS: The quote API 'regularMarketPrice' is often stale by months. 
+      // We overwrite it with the true latest chart close.
+      if (index.category === 'Fund' && lastClose > 0) {
+        price = lastClose;
+        if (chartData.length > 1) {
+          const prevDayClose = chartData[chartData.length - 2].close;
+          change = price - prevDayClose;
+          changePercent = prevDayClose !== 0 ? (change / prevDayClose) * 100 : 0;
+        } else {
+          change = 0; changePercent = 0;
+        }
+      }
+
       // If the current price is available and looks reasonable, use it as the final point
       // Otherwise, the last historical close is the most reliable anchor
-      const finalPrice = (price > 0) ? price : lastClose;
+      const finalPrice = (price > 0 && Math.abs((price - lastClose) / lastClose) < 0.2) ? price : lastClose;
 
       ytdChange = finalPrice - firstClose;
       ytdChangePercent = firstClose !== 0 ? (ytdChange / firstClose) * 100 : 0;
