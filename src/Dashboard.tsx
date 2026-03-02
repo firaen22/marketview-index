@@ -7,8 +7,9 @@
  * Ensure Tailwind CSS is configured.
  */
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert, Newspaper } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert, Newspaper, Wallet } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
+import { Link } from 'react-router-dom';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -78,7 +79,8 @@ const DICTIONARY: Record<string, any> = {
       "Ethereum": "Ethereum",
       "Crude Oil": "Crude Oil",
       "Gold": "Gold"
-    }
+    },
+    funds: "My Funds"
   },
   'zh-TW': {
     title: "市場動向",
@@ -139,7 +141,8 @@ const DICTIONARY: Record<string, any> = {
       "Ethereum": "乙太幣",
       "Crude Oil": "原油期貨",
       "Gold": "黃金期貨"
-    }
+    },
+    funds: "基金持倉"
   }
 };
 
@@ -301,7 +304,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t: any }> = ({ item, chartHeight = "h-16", t }) => {
+export const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t: any }> = ({ item, chartHeight = "h-16", t }) => {
   const isPositive = item.change >= 0;
   const isYtdPositive = item.ytdChange >= 0;
 
@@ -680,6 +683,14 @@ export default function Dashboard() {
                 <Settings className="w-4 h-4" />
                 {geminiKey && <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-blue-500 rounded-full border border-zinc-950" />}
               </button>
+              <div className="h-3 w-px bg-zinc-800"></div>
+              <Link
+                to="/funds"
+                className="p-1 hover:bg-zinc-800 rounded-full transition-all text-zinc-400 hover:text-zinc-100"
+                title={t.funds}
+              >
+                <Wallet className="w-4 h-4" />
+              </Link>
             </div>
             <button
               onClick={() => {

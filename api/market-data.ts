@@ -35,8 +35,14 @@ const INDICES_TO_FETCH = [
   { symbol: '^GDAXI', category: 'Europe', name: 'DAX Performance' },
   { symbol: 'BTC-USD', category: 'Crypto', name: 'Bitcoin' },
   { symbol: 'ETH-USD', category: 'Crypto', name: 'Ethereum' },
-  { symbol: 'CL=F', category: 'Commodity', name: 'Crude Oil' },
-  { symbol: 'GC=F', category: 'Commodity', name: 'Gold' },
+  { symbol: 'CL=F', category: 'Commodity', name: '原油' },
+  { symbol: 'GC=F', category: 'Commodity', name: '黃金' },
+  {
+    symbol: '0P00000EBQ.HK',
+    category: 'Fund',
+    name: '駿利亨德森遠見基金 - 環球科技領先基金',
+    nameEn: 'Janus Henderson Horizon Fund - Global Technology Leaders Fund'
+  },
 ];
 
 export default async function handler(req: any, res: any) {
@@ -147,7 +153,7 @@ async function fetchAllIndices(range: string) {
 
   const results = [];
   for (let idx = 0; idx < INDICES_TO_FETCH.length; idx++) {
-    const index = INDICES_TO_FETCH[idx];
+    const index = INDICES_TO_FETCH[idx] as any;
     const quote = quotes.find((q: any) => q.symbol === index.symbol);
     if (!quote) continue;
 
@@ -191,6 +197,7 @@ async function fetchAllIndices(range: string) {
     results.push({
       symbol: index.symbol,
       name: index.name,
+      nameEn: index.nameEn,
       category: index.category,
       price,
       change,
