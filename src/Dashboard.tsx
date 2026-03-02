@@ -341,7 +341,13 @@ export const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t
             />
             <XAxis dataKey="date" hide />
             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#3f3f46', strokeWidth: 1, strokeDasharray: '4 4' }} />
-            <YAxis domain={['dataMin', 'dataMax']} hide />
+            <YAxis
+              domain={[
+                (dataMin: number) => dataMin - (Math.abs(dataMin) * 0.05),
+                (dataMax: number) => dataMax + (Math.abs(dataMax) * 0.05)
+              ]}
+              hide
+            />
           </LineChart>
         </ResponsiveContainer>
       </div>

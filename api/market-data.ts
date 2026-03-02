@@ -176,24 +176,31 @@ async function fetchAllIndices(range: string) {
     const high = quote.regularMarketDayHigh || price;
     const low = quote.regularMarketDayLow || price;
 
-    const chartData = rawHistories[idx].quotes || [];
+    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt && pt.close !== null && pt.close !== 0);
     let history = [];
     let ytdChange = 0;
     let ytdChangePercent = 0;
 
     if (chartData.length > 0) {
-      // Authentic YTD Calculation:
-      const firstClose = chartData[0].close || price;
-      ytdChange = price - firstClose;
-      ytdChangePercent = firstClose !== 0 ? (ytdChange / firstClose) * 100 : 0;
-
-      // Parse authentic graph points (fill with close, or last known if missing)
+      // Use authentic history points
       history = chartData.map((pt: any) => ({
-        value: pt.close || price,
+        value: pt.close,
         date: pt.date ? new Date(pt.date).toISOString() : new Date().toISOString()
       }));
-      // Ensure the graph always mathematically ends perfectly on the live price
-      history.push({ value: price, date: new Date().toISOString() });
+
+      // Calculate change based on the authentic history span
+      const firstClose = chartData[0].close;
+      const lastClose = chartData[chartData.length - 1].close;
+
+      // If the current price is available and looks reasonable, use it as the final point
+      // Otherwise, the last historical close is the most reliable anchor
+      const finalPrice = (price > 0) ? price : lastClose;
+
+      ytdChange = finalPrice - firstClose;
+      ytdChangePercent = firstClose !== 0 ? (ytdChange / firstClose) * 100 : 0;
+
+      // Always end the graph on the current price for live effect
+      history.push({ value: finalPrice, date: new Date().toISOString() });
     } else {
       // Fallback if Yahoo Chart API fails for a specific obscure ticker
       const fiftyTwoWeekLow = quote.fiftyTwoWeekLow || price * 0.9;
