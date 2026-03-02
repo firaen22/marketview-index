@@ -36,7 +36,6 @@ export default function FundsPage() {
 
     const t = {
         title: language === 'en' ? 'Wealth Management' : '財富管理基金',
-        subtitle: language === 'en' ? 'Track Global Technology Leaders' : '追蹤全球科技領先基金動向',
         back: language === 'en' ? 'Back to Market' : '回到市場大盤',
         ytd: language === 'en' ? 'YTD Change' : '年初至今',
         loading: language === 'en' ? 'Loading funds...' : '正在讀取基金數據...',
@@ -55,7 +54,6 @@ export default function FundsPage() {
                             {t.title}
                         </span>
                     </h1>
-                    <p className="text-sm text-zinc-500 mt-2 font-medium">{t.subtitle}</p>
                 </div>
 
                 <div className="flex items-center gap-4">
