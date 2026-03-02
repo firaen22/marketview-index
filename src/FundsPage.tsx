@@ -11,6 +11,11 @@ export default function FundsPage() {
         return (saved === 'en' || saved === 'zh-TW') ? saved : 'zh-TW';
     });
 
+    const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(() => {
+        const saved = localStorage.getItem('marketflow_chart_mode');
+        return (saved === 'nominal' || saved === 'percent') ? saved : 'nominal';
+    });
+
     useEffect(() => {
         const fetchFunds = async () => {
             try {
@@ -39,6 +44,8 @@ export default function FundsPage() {
         back: language === 'en' ? 'Back to Market' : '回到市場大盤',
         ytd: language === 'en' ? 'YTD Change' : '年初至今',
         loading: language === 'en' ? 'Loading funds...' : '正在讀取基金數據...',
+        nominal: language === 'en' ? 'Nominal' : '數值模式',
+        percent: language === 'en' ? 'Percent' : '百分比模式',
         indexNames
     };
 
@@ -57,6 +64,16 @@ export default function FundsPage() {
                 </div>
 
                 <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => {
+                            const nextMode = chartMode === 'nominal' ? 'percent' : 'nominal';
+                            setChartMode(nextMode);
+                            localStorage.setItem('marketflow_chart_mode', nextMode);
+                        }}
+                        className="px-4 py-2.5 text-sm font-bold bg-zinc-900/50 backdrop-blur-md rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all text-zinc-300 hover:text-white"
+                    >
+                        {chartMode === 'nominal' ? t.nominal : t.percent}
+                    </button>
                     <button
                         onClick={() => {
                             const nextLang = language === 'en' ? 'zh-TW' : 'en';
@@ -91,7 +108,8 @@ export default function FundsPage() {
                                     <MarketStatCard
                                         item={fund}
                                         chartHeight="h-40"
-                                        t={{ ytd: t.ytd, range: "Day Range", indexNames: t.indexNames }}
+                                        t={{ ytd: t.ytd, range: "Day Range", indexNames: t.indexNames, language }}
+                                        chartMode={chartMode}
                                     />
                                 </div>
                             </div>

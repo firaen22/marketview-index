@@ -80,7 +80,10 @@ const DICTIONARY: Record<string, any> = {
       "Crude Oil": "Crude Oil",
       "Gold": "Gold"
     },
-    funds: "My Funds"
+    funds: "My Funds",
+    nominal: "Nominal",
+    percent: "Percent",
+    chartModeLabel: "Chart Mode"
   },
   'zh-TW': {
     title: "市場動向",
@@ -142,7 +145,10 @@ const DICTIONARY: Record<string, any> = {
       "Crude Oil": "原油期貨",
       "Gold": "黃金期貨"
     },
-    funds: "基金持倉"
+    funds: "基金持倉",
+    nominal: "數值模式",
+    percent: "百分比模式",
+    chartModeLabel: "圖表顯示模式"
   }
 };
 
@@ -305,9 +311,27 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-export const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t: any }> = ({ item, chartHeight = "h-16", t }) => {
+export const MarketStatCard: React.FC<{
+  item: IndexData;
+  chartHeight?: string;
+  t: any;
+  chartMode?: 'nominal' | 'percent';
+}> = ({ item, chartHeight = "h-16", t, chartMode = 'nominal' }) => {
   const isPositive = item.change >= 0;
   const isYtdPositive = item.ytdChange >= 0;
+
+  // Transform data if in percent mode
+  const chartData = React.useMemo(() => {
+    if (chartMode === 'percent' && item.history.length > 0) {
+      const baseValue = item.history[0].value;
+      if (baseValue === 0) return item.history;
+      return item.history.map(pt => ({
+        ...pt,
+        value: ((pt.value - baseValue) / baseValue) * 100
+      }));
+    }
+    return item.history;
+  }, [item.history, chartMode]);
 
   return (
     <Card className="p-4 flex flex-col justify-between h-full border-zinc-800/60 transition-all duration-300 hover:border-zinc-700/50">
@@ -330,7 +354,7 @@ export const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t
 
       <div className={cn("w-full mb-5 transition-all", chartHeight)}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={item.history}>
+          <LineChart data={chartData}>
             <Line
               type="monotone"
               dataKey="value"
@@ -340,11 +364,18 @@ export const MarketStatCard: React.FC<{ item: IndexData; chartHeight?: string; t
               activeDot={{ r: 4, fill: isPositive ? "#34d399" : "#fb7185", stroke: "#18181b", strokeWidth: 2 }}
             />
             <XAxis dataKey="date" hide />
-            <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#3f3f46', strokeWidth: 1, strokeDasharray: '4 4' }} />
+            <Tooltip
+              content={<CustomTooltip />}
+              cursor={{ stroke: '#3f3f46', strokeWidth: 1, strokeDasharray: '4 4' }}
+              formatter={(val: number) => [
+                chartMode === 'percent' ? `${val > 0 ? '+' : ''}${val.toFixed(2)}%` : val.toLocaleString(undefined, { minimumFractionDigits: 2 }),
+                "Value"
+              ]}
+            />
             <YAxis
               domain={[
-                (dataMin: number) => dataMin - (Math.abs(dataMin) * 0.05),
-                (dataMax: number) => dataMax + (Math.abs(dataMax) * 0.05)
+                (dataMin: number) => dataMin - (Math.abs(dataMin) * 0.1),
+                (dataMax: number) => dataMax + (Math.abs(dataMax) * 0.1)
               ]}
               hide
             />
@@ -446,7 +477,15 @@ export default function Dashboard() {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [timeRange, setTimeRange] = useState<string>('YTD');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-  const [language, setLanguage] = useState<'en' | 'zh-TW'>('en'); // Default to 'en' for SSR hydration
+  const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => {
+    const saved = localStorage.getItem('marketflow_lang');
+    return (saved === 'en' || saved === 'zh-TW') ? saved : 'en';
+  });
+
+  const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(() => {
+    const saved = localStorage.getItem('marketflow_chart_mode');
+    return (saved === 'nominal' || saved === 'percent') ? saved : 'nominal';
+  });
 
   // Hydrate language from localStorage on client mount
   useEffect(() => {
@@ -692,6 +731,28 @@ export default function Dashboard() {
                 {geminiKey && <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-blue-500 rounded-full border border-zinc-950" />}
               </button>
               <div className="h-3 w-px bg-zinc-800"></div>
+              <button
+                onClick={() => {
+                  const nextMode = chartMode === 'nominal' ? 'percent' : 'nominal';
+                  setChartMode(nextMode);
+                  localStorage.setItem('marketflow_chart_mode', nextMode);
+                }}
+                className="p-1 px-2.5 hover:bg-zinc-800 rounded-full transition-all text-[10px] font-bold text-zinc-300 hover:text-white flex items-center gap-1.5"
+                title={t.chartModeLabel}
+              >
+                {chartMode === 'nominal' ? (
+                  <>
+                    <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{t.nominal}</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{t.percent}</span>
+                  </>
+                )}
+              </button>
+              <div className="h-3 w-px bg-zinc-800"></div>
               <Link
                 to="/funds"
                 className="p-1 hover:bg-zinc-800 rounded-full transition-all text-zinc-400 hover:text-zinc-100"
@@ -904,6 +965,7 @@ export default function Dashboard() {
                         item={index}
                         chartHeight={isPresentationMode ? "h-32" : "h-16"}
                         t={t}
+                        chartMode={chartMode}
                       />
                     ))}
                   </div>
