@@ -4,5 +4,15 @@
             "path": "/api/cron/update-market-data",
             "schedule": "30 1 * * *"
         }
+    ],
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": "/api/$1"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
     ]
 }

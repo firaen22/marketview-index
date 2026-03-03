@@ -57,7 +57,8 @@ const DICTIONARY: Record<string, any> = {
       Commodity: "Commodities",
       Crypto: "Crypto",
       Currency: "Currencies",
-      Volatility: "Volatility"
+      Volatility: "Volatility",
+      Fund: "Funds"
     },
     noAiWarning: "AI translation unavailable. Set your Gemini API Key in Settings.",
     dailyPulse: "Daily Market Pulse",
@@ -122,7 +123,8 @@ const DICTIONARY: Record<string, any> = {
       Commodity: "大宗商品",
       Crypto: "加密貨幣",
       Currency: "全球匯率",
-      Volatility: "波動率"
+      Volatility: "波動率",
+      Fund: "熱門基金"
     },
     noAiWarning: "AI 翻譯暫時無法使用。請在「系統設定」中提供您的 Gemini API 金鑰。",
     dailyPulse: "今日市場脈動",
@@ -655,7 +657,7 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const categoriesOrder = ['All', 'US', 'Europe', 'Asia', 'Commodity', 'Crypto', 'Currency', 'Volatility'];
+  const categoriesOrder = ['All', 'US', 'Europe', 'Asia', 'Fund', 'Commodity', 'Crypto', 'Currency', 'Volatility'];
   const categories = categoriesOrder.filter(c => c === 'All' || marketData.some(item => item.category === c));
 
   const filteredIndices = (selectedCategory === 'All'

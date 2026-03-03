@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, LayoutDashboard, Loader2 } from 'lucide-react';
+import { Wallet, LayoutDashboard, Loader2, RefreshCcw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './Dashboard';
 import { clsx, type ClassValue } from 'clsx';
@@ -24,23 +24,24 @@ export default function FundsPage() {
         return (saved === 'nominal' || saved === 'percent') ? saved : 'nominal';
     });
 
-    useEffect(() => {
-        const fetchFunds = async (currentRange = timeRange) => {
-            setIsLoading(true);
-            try {
-                const response = await fetch(`/api/market-data?range=${currentRange}`);
-                const result = await response.json();
-                if (result.success) {
-                    // 只過濾類別為 'Fund' 的資料
-                    setMarketData(result.data.filter((item: any) => item.category === 'Fund'));
-                }
-            } catch (err) {
-                console.error('Failed to fetch funds:', err);
-            } finally {
-                setIsLoading(false);
+    const fetchFunds = async (currentRange = timeRange, force = false) => {
+        setIsLoading(true);
+        try {
+            const url = `/api/market-data?range=${currentRange}${force ? '&refresh=true' : ''}`;
+            const response = await fetch(url);
+            const result = await response.json();
+            if (result.success) {
+                setMarketData(result.data.filter((item: any) => item.category === 'Fund'));
             }
-        };
-        fetchFunds();
+        } catch (err) {
+            console.error('Failed to fetch funds:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchFunds(timeRange);
     }, [timeRange]);
 
     const indexNames = marketData.reduce((acc: any, fund: any) => {
@@ -114,6 +115,16 @@ export default function FundsPage() {
                         className="px-4 py-2.5 text-sm font-bold bg-zinc-900/50 backdrop-blur-md rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all text-zinc-300 hover:text-white"
                     >
                         {language === 'en' ? 'EN' : '中文'}
+                    </button>
+                    <button
+                        onClick={() => fetchFunds(timeRange, true)}
+                        className={cn(
+                            "p-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all",
+                            isLoading && "animate-spin"
+                        )}
+                        disabled={isLoading}
+                    >
+                        <RefreshCcw size={18} />
                     </button>
                     <Link
                         to="/"
