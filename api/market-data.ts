@@ -72,6 +72,12 @@ const INDICES_TO_FETCH = [
     category: 'Fund',
     name: '柏瑞環球基金 - 柏瑞美國研究加強核心股票基金 A',
     nameEn: 'PineBridge US Research Enhanced Core Equity Fund Class A'
+  },
+  {
+    symbol: '0P00000B0I',
+    category: 'Fund',
+    name: '貝萊德世界黃金基金 A2',
+    nameEn: 'BlackRock Global Funds - World Gold Fund A2'
   }
 ];
 
