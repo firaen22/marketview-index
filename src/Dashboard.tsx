@@ -12,6 +12,7 @@ import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'rec
 import { Link } from 'react-router-dom';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import MarketHeatmap from './MarketHeatmap';
 
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
@@ -845,6 +846,16 @@ export default function Dashboard() {
                   ) : (
                     <>
                       <DailyPulse summary={marketSummary} t={t} isFocusMode={isNewsOnly} />
+
+                      {/* Market Heatmap */}
+                      <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-100">
+                        <h3 className="text-lg font-bold mb-3 flex items-center text-zinc-200">
+                          <LayoutDashboard className="w-4 h-4 mr-2 text-blue-400" />
+                          {language === 'en' ? 'Global Market Heatmap' : '全球市場熱圖'}
+                        </h3>
+                        <MarketHeatmap rawData={marketData} groupBy="category" />
+                      </div>
+
                       <div className={cn(
                         "grid gap-x-6",
                         isNewsOnly ? "grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3" : "grid-cols-1"

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { MarketStatCard } from './Dashboard';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import MarketHeatmap from './MarketHeatmap';
 
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
@@ -143,6 +144,15 @@ export default function FundsPage() {
                         <p className="font-medium animate-pulse">{t.loading}</p>
                     </div>
                 ) : (
+                    <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                        <h3 className="text-xl font-bold mb-4 flex items-center text-zinc-200">
+                            <LayoutDashboard className="w-5 h-5 mr-2 text-indigo-400" />
+                            {language === 'en' ? 'Asset Allocation Heatmap' : '資產配置熱圖'}
+                        </h3>
+                        <MarketHeatmap rawData={marketData} groupBy="subCategory" />
+                    </div>
+                )}
+                {!isLoading && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                         {marketData.map((fund) => (
                             <div key={fund.symbol} className="relative group">

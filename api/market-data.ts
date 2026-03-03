@@ -23,59 +23,66 @@ if (hasUpstash) {
 }
 
 const INDICES_TO_FETCH = [
-  { symbol: '^GSPC', category: 'US', name: 'S&P 500' },
-  { symbol: '^IXIC', category: 'US', name: 'Nasdaq Composite' },
-  { symbol: '^DJI', category: 'US', name: 'Dow Jones' },
-  { symbol: '^VIX', category: 'Volatility', name: 'VIX' },
-  { symbol: 'DX-Y.NYB', category: 'Currency', name: 'US Dollar Index' },
-  { symbol: '^HSI', category: 'Asia', name: 'Hang Seng Index' },
-  { symbol: '^N225', category: 'Asia', name: 'Nikkei 225' },
-  { symbol: '^BSESN', category: 'Asia', name: 'BSE SENSEX' },
-  { symbol: '^FTSE', category: 'Europe', name: 'FTSE 100' },
-  { symbol: '^GDAXI', category: 'Europe', name: 'DAX Performance' },
-  { symbol: 'BTC-USD', category: 'Crypto', name: 'Bitcoin' },
-  { symbol: 'ETH-USD', category: 'Crypto', name: 'Ethereum' },
-  { symbol: 'CL=F', category: 'Commodity', name: 'Crude Oil' },
-  { symbol: 'GC=F', category: 'Commodity', name: 'Gold' },
+  { symbol: '^GSPC', category: 'US', subCategory: 'Large Cap', name: 'S&P 500' },
+  { symbol: '^IXIC', category: 'US', subCategory: 'Tech', name: 'Nasdaq Composite' },
+  { symbol: '^DJI', category: 'US', subCategory: 'Blue Chip', name: 'Dow Jones' },
+  { symbol: '^VIX', category: 'Volatility', subCategory: 'Index', name: 'VIX' },
+  { symbol: 'DX-Y.NYB', category: 'Currency', subCategory: 'Index', name: 'US Dollar Index' },
+  { symbol: '^HSI', category: 'Asia', subCategory: 'Hong Kong', name: 'Hang Seng Index' },
+  { symbol: '^N225', category: 'Asia', subCategory: 'Japan', name: 'Nikkei 225' },
+  { symbol: '^BSESN', category: 'Asia', subCategory: 'India', name: 'BSE SENSEX' },
+  { symbol: '^FTSE', category: 'Europe', subCategory: 'UK', name: 'FTSE 100' },
+  { symbol: '^GDAXI', category: 'Europe', subCategory: 'Germany', name: 'DAX Performance' },
+  { symbol: 'BTC-USD', category: 'Crypto', subCategory: 'Currency', name: 'Bitcoin' },
+  { symbol: 'ETH-USD', category: 'Crypto', subCategory: 'Currency', name: 'Ethereum' },
+  { symbol: 'CL=F', category: 'Commodity', subCategory: 'Energy', name: 'Crude Oil' },
+  { symbol: 'GC=F', category: 'Commodity', subCategory: 'Metals', name: 'Gold' },
   {
     symbol: '0P00000EBQ',
     category: 'Fund',
+    subCategory: 'Technology',
     name: '駿利亨德森遠見基金 - 環球科技領先基金',
     nameEn: 'Janus Henderson Horizon Fund - Global Technology Leaders Fund'
   },
   {
     symbol: '0P00001EVH',
     category: 'Fund',
+    subCategory: 'India',
     name: '柏瑞環球基金 - 柏瑞印度股票基金"A"',
     nameEn: 'PineBridge Global Funds - PineBridge Japan Equity Fund "A"'
   },
   {
     symbol: '0P00000LV1',
     category: 'Fund',
+    subCategory: 'Japan',
     name: 'JPM 日本股票（美元） - J股（分派）',
     nameEn: 'JPM Japan Equity J (dist) USD'
   },
   {
     symbol: '0P00010NVQ',
     category: 'Fund',
+    subCategory: 'Europe',
     name: '摩根歐洲動力基金 A股（累計）- 美元避險',
     nameEn: 'JPM Europe Dynamic A (acc) USDH'
   },
   {
     symbol: '0P00000B5V.T',
     category: 'Fund',
+    subCategory: 'Japan',
     name: '安本標準 - 日本可持續發展股票基金 A 累積 日圓',
     nameEn: 'abrdn SICAV I - Japanese Sustainable Equity Fund A Acc JPY'
   },
   {
     symbol: '0P000019NI',
     category: 'Fund',
+    subCategory: 'US Core',
     name: '柏瑞環球基金 - 柏瑞美國研究加強核心股票基金 A',
     nameEn: 'PineBridge US Research Enhanced Core Equity Fund Class A'
   },
   {
     symbol: '0P00000B0I',
     category: 'Fund',
+    subCategory: 'Commodity',
     name: '貝萊德世界黃金基金 A2',
     nameEn: 'BlackRock Global Funds - World Gold Fund A2'
   }
@@ -255,6 +262,7 @@ async function fetchAllIndices(range: string) {
       name: index.name,
       nameEn: index.nameEn,
       category: index.category,
+      subCategory: index.subCategory,
       price,
       change,
       changePercent,
