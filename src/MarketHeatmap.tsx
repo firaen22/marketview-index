@@ -2,7 +2,7 @@ import React from 'react';
 import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
 
 export const transformToTreemap = (data: any[], groupBy: 'category' | 'subCategory' = 'category') => {
-    const categories = data.reduce((acc: any, item: any) => {
+    const categories = data.filter(item => item.symbol !== '^VIX').reduce((acc: any, item: any) => {
         const cat = item[groupBy] || 'Other';
         if (!acc[cat]) acc[cat] = { name: cat, children: [] };
 
