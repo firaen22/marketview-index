@@ -54,6 +54,12 @@ const INDICES_TO_FETCH = [
     category: 'Fund',
     name: 'JPM 日本股票（美元） - J股（分派）',
     nameEn: 'JPM Japan Equity J (dist) USD'
+  },
+  {
+    symbol: '0P00010NVQ',
+    category: 'Fund',
+    name: '摩根歐洲動力基金 A股（累計）- 美元避險',
+    nameEn: 'JPM Europe Dynamic A (acc) USDH'
   }
 ];
 
