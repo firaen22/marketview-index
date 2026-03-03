@@ -40,6 +40,7 @@ const DICTIONARY: Record<string, any> = {
     noNews: "No recent news available.",
     showAll: "View All",
     goBack: "Go Back",
+    showFunds: "Show Funds in Dashboard",
     apiKey: "Gemini API Key",
     apiKeyPlaceholder: "Enter your Google Gemini API Key",
     saveConfig: "Save Configuration",
@@ -106,6 +107,7 @@ const DICTIONARY: Record<string, any> = {
     noNews: "目前無最新新聞。",
     showAll: "查看全部",
     goBack: "退出全屏",
+    showFunds: "在主畫面顯示熱門基金",
     apiKey: "Gemini API 金鑰",
     apiKeyPlaceholder: "請輸入您的 Google Gemini API Key",
     saveConfig: "儲存設定",
@@ -525,6 +527,11 @@ export default function Dashboard() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState<{ success: boolean; models?: any[]; recommended?: string; message?: string } | null>(null);
 
+  const [showFundsInDashboard, setShowFundsInDashboard] = useState(() => {
+    const saved = localStorage.getItem('marketflow_show_funds');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
   const handleVerifyKey = async () => {
     if (!geminiKey) return;
     setIsVerifying(true);
@@ -658,11 +665,12 @@ export default function Dashboard() {
   }, []);
 
   const categoriesOrder = ['All', 'US', 'Europe', 'Asia', 'Fund', 'Commodity', 'Crypto', 'Currency', 'Volatility'];
-  const categories = categoriesOrder.filter(c => c === 'All' || marketData.some(item => item.category === c));
+  const displayMarketData = showFundsInDashboard ? marketData : marketData.filter(item => item.category !== 'Fund');
+  const categories = categoriesOrder.filter(c => c === 'All' || displayMarketData.some(item => item.category === c));
 
   const filteredIndices = (selectedCategory === 'All'
-    ? marketData
-    : marketData.filter(item => item.category === selectedCategory)
+    ? displayMarketData
+    : displayMarketData.filter(item => item.category === selectedCategory)
   ).sort((a, b) => sortOrder === 'desc' ? b.ytdChangePercent - a.ytdChangePercent : a.ytdChangePercent - b.ytdChangePercent);
 
   // Rendering...
@@ -783,16 +791,16 @@ export default function Dashboard() {
             <div className="w-full flex items-center justify-center text-xs text-zinc-500">
               <Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t.loading}
             </div>
-          ) : isError && marketData.length === 0 ? (
+          ) : isError && displayMarketData.length === 0 ? (
             <div className="w-full flex items-center justify-center text-xs text-rose-500">
               <AlertCircle className="w-4 h-4 mr-2" /> {t.error}
             </div>
           ) : (
             <div className="inline-flex animate-ticker">
-              {marketData.map((index) => (
+              {displayMarketData.map((index) => (
                 <TickerItem key={index.symbol} item={index} t={t} />
               ))}
-              {marketData.map((index) => (
+              {displayMarketData.map((index) => (
                 <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
               ))}
             </div>
@@ -1041,6 +1049,31 @@ export default function Dashboard() {
                       </div>
                     </div>
                   )}
+
+                  <div className="flex items-center justify-between pt-4 pb-2 border-b border-zinc-800/50">
+                    <label className="text-sm font-medium text-zinc-300 flex items-center">
+                      <Wallet className="w-4 h-4 mr-2 text-indigo-400" />
+                      {t.showFunds}
+                    </label>
+                    <button
+                      onClick={() => {
+                        const newVal = !showFundsInDashboard;
+                        setShowFundsInDashboard(newVal);
+                        localStorage.setItem('marketflow_show_funds', JSON.stringify(newVal));
+                      }}
+                      className={cn(
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-900",
+                        showFundsInDashboard ? "bg-blue-600" : "bg-zinc-700"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                          showFundsInDashboard ? "translate-x-6" : "translate-x-1"
+                        )}
+                      />
+                    </button>
+                  </div>
                   <p className="text-[11px] text-zinc-500 leading-relaxed">
                     {t.apiKeyNote}
                   </p>
