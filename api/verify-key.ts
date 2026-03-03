@@ -6,9 +6,20 @@ export default async function handler(req: any, res: any) {
     }
 
     try {
-        const { apiKey } = req.body;
-        if (!apiKey) {
+        const { apiKey: rawApiKey } = req.body;
+        if (!rawApiKey) {
             return res.status(400).json({ success: false, message: 'API Key is required' });
+        }
+
+        const apiKey = rawApiKey.trim();
+
+        // 檢查是否含有非 ASCII 字元 (例如貼上時不小心混入了全形空白或怪異字元)
+        // 否則 @google/genai 底層的 Header 會拋出 ByteString 錯誤
+        if (/[^\x00-\x7F]/.test(apiKey)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid characters in API Key. Please make sure there are no spaces or hidden characters.'
+            });
         }
 
         const genAI = new GoogleGenAI({ apiKey });
