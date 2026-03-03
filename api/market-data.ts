@@ -60,6 +60,12 @@ const INDICES_TO_FETCH = [
     category: 'Fund',
     name: '摩根歐洲動力基金 A股（累計）- 美元避險',
     nameEn: 'JPM Europe Dynamic A (acc) USDH'
+  },
+  {
+    symbol: '0P00000B5V.T',
+    category: 'Fund',
+    name: '安本標準 - 日本可持續發展股票基金 A 累積 日圓',
+    nameEn: 'abrdn SICAV I - Japanese Sustainable Equity Fund A Acc JPY'
   }
 ];
 
