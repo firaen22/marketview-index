@@ -86,7 +86,8 @@ const DICTIONARY: Record<string, any> = {
     funds: "My Funds",
     nominal: "Nominal",
     percent: "Percent",
-    chartModeLabel: "Chart Mode"
+    chartModeLabel: "Chart Mode",
+    heatmap: "Full Heatmap"
   },
   'zh-TW': {
     title: "市場動向",
@@ -153,7 +154,8 @@ const DICTIONARY: Record<string, any> = {
     funds: "基金持倉",
     nominal: "數值模式",
     percent: "百分比模式",
-    chartModeLabel: "圖表顯示模式"
+    chartModeLabel: "圖表顯示模式",
+    heatmap: "全螢幕熱圖"
   }
 };
 
@@ -770,6 +772,14 @@ export default function Dashboard() {
                 title={t.funds}
               >
                 <Wallet className="w-4 h-4" />
+              </Link>
+              <div className="h-3 w-px bg-zinc-800"></div>
+              <Link
+                to="/heatmap"
+                className="p-1 hover:bg-zinc-800 rounded-full transition-all text-zinc-400 hover:text-zinc-100"
+                title={t.heatmap}
+              >
+                <LayoutDashboard className="w-4 h-4" />
               </Link>
             </div>
             <button

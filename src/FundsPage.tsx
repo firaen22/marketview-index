@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, LayoutDashboard, Loader2, RefreshCcw } from 'lucide-react';
+import { Wallet, LayoutDashboard, Loader2, RefreshCcw, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './Dashboard';
 import { clsx, type ClassValue } from 'clsx';
@@ -128,10 +128,17 @@ export default function FundsPage() {
                         <RefreshCcw size={18} />
                     </button>
                     <Link
+                        to="/heatmap"
+                        className="p-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all"
+                        title="Heatmap Explorer"
+                    >
+                        <LayoutDashboard size={18} />
+                    </Link>
+                    <Link
                         to="/"
                         className="group flex items-center gap-2.5 text-sm bg-zinc-900/50 backdrop-blur-md px-5 py-2.5 rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all shadow-xl"
                     >
-                        <LayoutDashboard size={18} className="text-blue-400 group-hover:scale-110 transition-transform" />
+                        <ArrowLeft size={18} className="text-blue-400 group-hover:scale-110 transition-transform" />
                         <span className="font-bold">{t.back}</span>
                     </Link>
                 </div>
