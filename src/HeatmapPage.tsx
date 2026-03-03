@@ -13,6 +13,7 @@ export default function HeatmapPage() {
     const [marketData, setMarketData] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [viewMode, setViewMode] = useState<'category' | 'subCategory'>('category');
+    const [viewSource, setViewSource] = useState<'market' | 'funds'>('market');
     const [timeRange, setTimeRange] = useState<string>('YTD');
     const [language] = useState<'en' | 'zh-TW'>(() => {
         const saved = localStorage.getItem('marketflow_lang');
@@ -39,6 +40,22 @@ export default function HeatmapPage() {
         fetchData(timeRange);
     }, [timeRange]);
 
+    // Handle initial view source sync
+    useEffect(() => {
+        if (viewSource === 'funds') {
+            setViewMode('subCategory');
+        } else {
+            setViewMode('category');
+        }
+    }, [viewSource]);
+
+    const filteredData = React.useMemo(() => {
+        if (viewSource === 'market') {
+            return marketData.filter(item => item.category !== 'Fund');
+        }
+        return marketData.filter(item => item.category === 'Fund');
+    }, [marketData, viewSource]);
+
     const t = {
         title: language === 'en' ? 'Market Heatmap Explorer' : '市場熱圖探測器',
         back: language === 'en' ? 'Back to Dashboard' : '回到儀表板',
@@ -46,6 +63,8 @@ export default function HeatmapPage() {
         refresh: language === 'en' ? 'Refresh' : '重新整理',
         category: language === 'en' ? 'By Category' : '按類別分組',
         subCategory: language === 'en' ? 'By Sub-Category' : '按子類別分組',
+        sourceMarket: language === 'en' ? 'Global Markets' : '全球市場',
+        sourceFunds: language === 'en' ? 'Personal Portfolio' : '個人基金配置',
     };
 
     return (
@@ -60,10 +79,16 @@ export default function HeatmapPage() {
                     </Link>
                     <div>
                         <h1 className="text-3xl font-black tracking-tighter flex items-center gap-3">
-                            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-900/20">
+                            <div className={cn(
+                                "w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transition-colors duration-500",
+                                viewSource === 'market' ? "bg-emerald-600 shadow-emerald-900/20" : "bg-indigo-600 shadow-indigo-900/20"
+                            )}>
                                 <LayoutDashboard className="text-white w-6 h-6" />
                             </div>
-                            <span className="bg-gradient-to-br from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+                            <span className={cn(
+                                "bg-gradient-to-br bg-clip-text text-transparent transition-all duration-500",
+                                viewSource === 'market' ? "from-emerald-400 to-cyan-400" : "from-indigo-400 to-purple-400"
+                            )}>
                                 {t.title}
                             </span>
                         </h1>
@@ -71,14 +96,42 @@ export default function HeatmapPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
+                    {/* View Source Toggle */}
+                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 backdrop-blur-md">
+                        <button
+                            onClick={() => setViewSource('market')}
+                            className={cn(
+                                "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300",
+                                viewSource === 'market'
+                                    ? "bg-emerald-600 text-white shadow-lg"
+                                    : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                            )}
+                        >
+                            {t.sourceMarket}
+                        </button>
+                        <button
+                            onClick={() => setViewSource('funds')}
+                            className={cn(
+                                "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300",
+                                viewSource === 'funds'
+                                    ? "bg-indigo-600 text-white shadow-lg"
+                                    : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                            )}
+                        >
+                            {t.sourceFunds}
+                        </button>
+                    </div>
+
+                    <div className="h-6 w-px bg-zinc-800 hidden sm:block"></div>
+
                     <div className="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 backdrop-blur-md">
                         <button
                             onClick={() => setViewMode('category')}
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200",
                                 viewMode === 'category'
-                                    ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20"
-                                    : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                                    ? "bg-zinc-100 text-zinc-900"
+                                    : "text-zinc-500 hover:text-zinc-300"
                             )}
                         >
                             {t.category}
@@ -88,8 +141,8 @@ export default function HeatmapPage() {
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200",
                                 viewMode === 'subCategory'
-                                    ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20"
-                                    : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                                    ? "bg-zinc-100 text-zinc-900"
+                                    : "text-zinc-500 hover:text-zinc-300"
                             )}
                         >
                             {t.subCategory}
@@ -104,7 +157,7 @@ export default function HeatmapPage() {
                                 className={cn(
                                     "px-3 py-1.5 text-xs font-mono font-bold rounded-lg transition-all duration-200",
                                     timeRange === range
-                                        ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20"
+                                        ? "bg-zinc-800 text-zinc-100 shadow-sm"
                                         : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
                                 )}
                             >
@@ -134,24 +187,30 @@ export default function HeatmapPage() {
                     </div>
                 ) : (
                     <div className="animate-in fade-in zoom-in duration-500">
-                        <div className="bg-zinc-900/20 border border-zinc-800/60 rounded-3xl p-6 backdrop-blur-sm relative overflow-hidden">
+                        <div className="bg-zinc-900/20 border border-zinc-800/60 rounded-3xl p-6 backdrop-blur-sm relative overflow-hidden min-h-[750px] transition-all duration-500">
                             {/* Decorative glow */}
-                            <div className="absolute -top-24 -left-24 w-64 h-64 bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none" />
-                            <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none" />
+                            <div className={cn(
+                                "absolute -top-24 -left-24 w-64 h-64 rounded-full blur-[100px] pointer-events-none transition-colors duration-500",
+                                viewSource === 'market' ? "bg-emerald-500/10" : "bg-indigo-500/10"
+                            )} />
+                            <div className={cn(
+                                "absolute -bottom-24 -right-24 w-64 h-64 rounded-full blur-[100px] pointer-events-none transition-colors duration-500",
+                                viewSource === 'market' ? "bg-cyan-500/10" : "bg-purple-500/10"
+                            )} />
 
                             <div className="h-[650px] w-full">
-                                <MarketHeatmap rawData={marketData} groupBy={viewMode} />
+                                <MarketHeatmap rawData={filteredData} groupBy={viewMode} />
                             </div>
 
-                            <div className="mt-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                {marketData.slice(0, 10).map((item) => (
-                                    <div key={item.symbol} className="bg-zinc-900/40 border border-zinc-800 p-3 rounded-xl flex items-center justify-between">
-                                        <div className="flex flex-col">
-                                            <span className="text-[10px] text-zinc-500 font-bold uppercase">{item.symbol}</span>
-                                            <span className="text-xs font-semibold truncate max-w-[80px]">{item.name}</span>
+                            <div className="mt-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                                {filteredData.map((item) => (
+                                    <div key={item.symbol} className="bg-zinc-900/40 border border-zinc-800/50 p-3 rounded-xl flex items-center justify-between hover:border-zinc-700 transition-colors">
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter truncate">{item.symbol}</span>
+                                            <span className="text-[11px] font-semibold truncate text-zinc-200" title={item.name}>{item.name}</span>
                                         </div>
                                         <div className={cn(
-                                            "text-xs font-mono font-bold px-1.5 py-0.5 rounded",
+                                            "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ml-2 shrink-0",
                                             item.changePercent >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
                                         )}>
                                             {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
