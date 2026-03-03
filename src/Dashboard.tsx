@@ -486,7 +486,7 @@ export default function Dashboard() {
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => {
     const saved = localStorage.getItem('marketflow_lang');
-    return (saved === 'en' || saved === 'zh-TW') ? saved : 'en';
+    return (saved === 'en' || saved === 'zh-TW') ? saved : 'zh-TW';
   });
 
   const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(() => {
@@ -500,6 +500,15 @@ export default function Dashboard() {
     if (savedLang && (savedLang === 'en' || savedLang === 'zh-TW')) {
       setLanguage(savedLang);
     }
+
+    // Cross-tab synchronization
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'marketflow_lang' && (e.newValue === 'en' || e.newValue === 'zh-TW')) {
+        setLanguage(e.newValue);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const baseT = DICTIONARY[language] || DICTIONARY.en;

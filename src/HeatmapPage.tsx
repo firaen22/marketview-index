@@ -25,10 +25,20 @@ export default function HeatmapPage() {
     const [viewMode, setViewMode] = useState<'category' | 'subCategory'>('category');
     const [viewSource, setViewSource] = useState<'market' | 'funds'>('market');
     const [timeRange, setTimeRange] = useState<string>('YTD');
-    const [language] = useState<'en' | 'zh-TW'>(() => {
+    const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => {
         const saved = localStorage.getItem('marketflow_lang');
         return (saved === 'en' || saved === 'zh-TW') ? saved : 'zh-TW';
     });
+
+    useEffect(() => {
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === 'marketflow_lang' && (e.newValue === 'en' || e.newValue === 'zh-TW')) {
+                setLanguage(e.newValue);
+            }
+        };
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
+    }, []);
 
     const fetchData = async (currentRange = timeRange, force = false) => {
         setIsLoading(true);
@@ -175,6 +185,17 @@ export default function HeatmapPage() {
                             </button>
                         ))}
                     </div>
+
+                    <button
+                        onClick={() => {
+                            const nextLang = language === 'en' ? 'zh-TW' : 'en';
+                            setLanguage(nextLang);
+                            localStorage.setItem('marketflow_lang', nextLang);
+                        }}
+                        className="p-1 px-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-[10px] font-bold text-zinc-300 hover:text-white transition-all flex items-center justify-center min-w-[40px]"
+                    >
+                        {language === 'en' ? 'EN' : '中文'}
+                    </button>
 
                     <button
                         onClick={() => fetchData(timeRange, true)}

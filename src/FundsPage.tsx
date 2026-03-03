@@ -45,6 +45,16 @@ export default function FundsPage() {
         fetchFunds(timeRange);
     }, [timeRange]);
 
+    useEffect(() => {
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === 'marketflow_lang' && (e.newValue === 'en' || e.newValue === 'zh-TW')) {
+                setLanguage(e.newValue);
+            }
+        };
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
+    }, []);
+
     const indexNames = marketData.reduce((acc: any, fund: any) => {
         acc[fund.name] = language === 'en' ? (fund.nameEn || fund.name) : fund.name;
         return acc;
