@@ -9,7 +9,7 @@ export const transformToTreemap = (data: any[], groupBy: 'category' | 'subCatego
         acc[cat].children.push({
             name: item.name,
             symbol: item.symbol,
-            size: Math.abs(item.price) || 100, // Using price for size
+            size: item.category === 'Crypto' ? Math.log10(item.price) * 10 : 100, // Balanced sizes
             change: item.changePercent,
             isPositive: item.changePercent >= 0,
         });
@@ -38,13 +38,14 @@ const CustomTooltip = ({ active, payload }: any) => {
 const CustomizedContent = (props: any) => {
     const { x, y, width, height, name, change } = props;
 
-    // Finviz style colors
     const getBgColor = (val: number) => {
-        if (val >= 2) return '#065f46';   // Deep Green
-        if (val > 0) return '#059669';    // Light Green
-        if (val <= -2) return '#9f1239';  // Deep Red
-        if (val < 0) return '#e11d48';    // Light Red
-        return '#27272a';                 // Gray (Neutral)
+        if (val >= 3) return '#059669';      // Deep Green
+        if (val >= 1.5) return '#10b981';    // Strong Green
+        if (val > 0) return '#34d399';       // Light Green
+        if (val <= -3) return '#b91c1c';     // Deep Red
+        if (val <= -1.5) return '#ef4444';   // Strong Red
+        if (val < 0) return '#fb7185';       // Light Red
+        return '#27272a';                    // Gray (Neutral)
     };
 
     return (
@@ -57,13 +58,15 @@ const CustomizedContent = (props: any) => {
                 style={{
                     fill: getBgColor(change),
                     stroke: '#09090b',
-                    strokeWidth: 2,
+                    strokeWidth: width > 100 ? 3 : 1,
                 }}
             />
-            {width > 50 && height > 30 && (
-                <text x={x + width / 2} y={y + height / 2} textAnchor="middle" fill="white" fontSize={12} className="font-bold">
-                    {name}
-                    <tspan x={x + width / 2} dy="1.2em" fontSize={10} fillOpacity={0.8}>
+            {width > 60 && height > 40 && (
+                <text x={x + width / 2} y={y + height / 2} textAnchor="middle" fill="white" className="select-none">
+                    <tspan x={x + width / 2} dy="-0.2em" fontSize={width > 120 ? 16 : 12} fontWeight="900">
+                        {name.split(' ')[0]}
+                    </tspan>
+                    <tspan x={x + width / 2} dy="1.4em" fontSize={10} fontWeight="600" fillOpacity={0.9}>
                         {change > 0 ? '+' : ''}{change?.toFixed(2)}%
                     </tspan>
                 </text>

@@ -9,6 +9,16 @@ function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
+const HeatmapLegend = () => (
+    <div className="flex items-center gap-1 mt-6 justify-center bg-zinc-950/50 py-2 px-4 rounded-full border border-zinc-800/80 w-max mx-auto shadow-lg">
+        <span className="text-[10px] text-zinc-500 mr-2 font-mono font-bold">-3%</span>
+        {['#b91c1c', '#ef4444', '#fb7185', '#27272a', '#34d399', '#10b981', '#059669'].map(c => (
+            <div key={c} className="w-8 h-2.5 rounded-[2px]" style={{ backgroundColor: c }} />
+        ))}
+        <span className="text-[10px] text-zinc-500 ml-2 font-mono font-bold">+3%</span>
+    </div>
+);
+
 export default function HeatmapPage() {
     const [marketData, setMarketData] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -201,6 +211,8 @@ export default function HeatmapPage() {
                             <div className="h-[650px] w-full">
                                 <MarketHeatmap rawData={filteredData} groupBy={viewMode} />
                             </div>
+
+                            <HeatmapLegend />
 
                             <div className="mt-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                                 {filteredData.map((item) => (
