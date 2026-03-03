@@ -66,6 +66,12 @@ const INDICES_TO_FETCH = [
     category: 'Fund',
     name: '安本標準 - 日本可持續發展股票基金 A 累積 日圓',
     nameEn: 'abrdn SICAV I - Japanese Sustainable Equity Fund A Acc JPY'
+  },
+  {
+    symbol: '0P000019NI',
+    category: 'Fund',
+    name: '柏瑞環球基金 - 柏瑞美國研究加強核心股票基金 A',
+    nameEn: 'PineBridge US Research Enhanced Core Equity Fund Class A'
   }
 ];
 
