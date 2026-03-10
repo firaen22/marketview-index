@@ -11,152 +11,14 @@ import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, External
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
 import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
-import { cn } from './utils';
+import { cn, getSettings, setSetting } from './utils';
+import localeEn from './locales/en';
+import localeZhTW from './locales/zh-TW';
 
-// --- Localization ---
+// --- Localization (loaded from src/locales/) ---
 const DICTIONARY: Record<string, any> = {
-  en: {
-    title: "MarketFlow",
-    subtitle: "INDEX",
-    vip: "VIP Portal Login",
-    news: "Core Market News",
-    performance: "Market Performance",
-    viewAll: "View All Grid",
-    poweredBy: "Powered by Gemini AI",
-    liveFeed: "Live Feed",
-    settings: "System Settings",
-    refresh: "Refresh Data",
-    ytd: "YTD Change",
-    range: "Day Range",
-    lastUpdated: "Last Updated",
-    loading: "Loading tickers...",
-    error: "Market data unavailable.",
-    newsLoading: "Gemini is analyzing latest news...",
-    noNews: "No recent news available.",
-    showAll: "View All",
-    goBack: "Go Back",
-    showFunds: "Show Funds in Dashboard",
-    apiKey: "Gemini API Key",
-    apiKeyPlaceholder: "Enter your Google Gemini API Key",
-    saveConfig: "Save Configuration",
-    clear: "Clear",
-    verify: "Verify",
-    verifying: "Verifying...",
-    verifySuccess: "Verification Successful",
-    verifyFailed: "Verification Failed",
-    apiKeyNote: "Provide your own API key to bypass global rate limits and generate real-time AI news summaries. The key is stored locally in your browser.",
-    categories: {
-      All: "All",
-      US: "US",
-      Europe: "Europe",
-      Asia: "Asia",
-      Commodity: "Commodities",
-      Crypto: "Crypto",
-      Currency: "Currencies",
-      Volatility: "Volatility",
-      Fund: "Funds"
-    },
-    noAiWarning: "AI translation unavailable. Set your Gemini API Key in Settings.",
-    dailyPulse: "Daily Market Pulse",
-    marketOutlook: "Market Outlook",
-    newsOnly: "News Focus",
-    allIndices: "All Indices",
-    indexNames: {
-      "S&P 500": "S&P 500",
-      "Nasdaq Composite": "Nasdaq",
-      "Dow Jones": "Dow Jones",
-      "VIX": "VIX",
-      "US Dollar Index": "Dollar Index",
-      "Hang Seng Index": "Hang Seng",
-      "Nikkei 225": "Nikkei 225",
-      "BSE SENSEX": "BSE SENSEX",
-      "FTSE 100": "FTSE 100",
-      "DAX Performance": "DAX Index",
-      "Bitcoin": "Bitcoin",
-      "Ethereum": "Ethereum",
-      "Crude Oil": "Crude Oil",
-      "Gold": "Gold"
-    },
-    funds: "My Funds",
-    nominal: "Nominal",
-    percent: "Percent",
-    chartModeLabel: "Chart Mode",
-    heatmap: "Full Heatmap",
-    globalHeatmap: "Global Market Heatmap",
-    awaitingData: "Awaiting data...",
-    noMarketData: "No market data available."
-  },
-  'zh-TW': {
-    title: "市場動向",
-    subtitle: "指數終端",
-    vip: "VIP 專區登入",
-    news: "核心市場新聞",
-    performance: "市場表現動態",
-    viewAll: "全屏顯示模式",
-    poweredBy: "由 Gemini AI 提供分析",
-    liveFeed: "即時資訊推送",
-    settings: "系統詳細設定",
-    refresh: "手動更新數據",
-    ytd: "年初至今漲跌",
-    range: "當日盤中範圍",
-    lastUpdated: "數據更新時間",
-    loading: "正在讀取市場報價...",
-    error: "市場數據暫時失效",
-    newsLoading: "Gemini 正在分析最新新聞...",
-    noNews: "目前無最新新聞。",
-    showAll: "查看全部",
-    goBack: "退出全屏",
-    showFunds: "在主畫面顯示熱門基金",
-    apiKey: "Gemini API 金鑰",
-    apiKeyPlaceholder: "請輸入您的 Google Gemini API Key",
-    saveConfig: "儲存設定",
-    clear: "清除",
-    verify: "驗證",
-    verifying: "驗證中...",
-    verifySuccess: "驗證成功",
-    verifyFailed: "驗證失敗",
-    apiKeyNote: "提供您自己的 API 金鑰以繞過全域速率限制，並產生即時 AI 新聞摘要。此金鑰僅儲存在您的瀏覽器本地。",
-    categories: {
-      All: "全部",
-      US: "美股",
-      Europe: "歐股",
-      Asia: "亞股",
-      Commodity: "大宗商品",
-      Crypto: "加密貨幣",
-      Currency: "全球匯率",
-      Volatility: "波動率",
-      Fund: "熱門基金"
-    },
-    noAiWarning: "AI 翻譯暫時無法使用。請在「系統設定」中提供您的 Gemini API 金鑰。",
-    dailyPulse: "今日市場脈動",
-    marketOutlook: "市場策略展望",
-    newsOnly: "新聞專注模式",
-    allIndices: "全部指數指標",
-    indexNames: {
-      "S&P 500": "標普 500 指數",
-      "Nasdaq Composite": "納斯達克綜合指數",
-      "Dow Jones": "道瓊工業指數",
-      "VIX": "恐慌指數 VIX",
-      "US Dollar Index": "美元指數",
-      "Hang Seng Index": "恆生指數",
-      "Nikkei 225": "日經 225 指數",
-      "BSE SENSEX": "印度 SENSEX 指數",
-      "FTSE 100": "富時 100 指數",
-      "DAX Performance": "德國 DAX 指數",
-      "Bitcoin": "比特幣",
-      "Ethereum": "乙太幣",
-      "Crude Oil": "原油期貨",
-      "Gold": "黃金期貨"
-    },
-    funds: "基金持倉",
-    nominal: "數值模式",
-    percent: "百分比模式",
-    chartModeLabel: "圖表顯示模式",
-    heatmap: "全螢幕熱圖",
-    globalHeatmap: "全球市場熱圖",
-    awaitingData: "等待資料中...",
-    noMarketData: "市場數據不可用。"
-  }
+  en: localeEn,
+  'zh-TW': localeZhTW
 };
 
 // --- Mock Data ---
@@ -245,7 +107,7 @@ ScrollArea.displayName = "ScrollArea";
 
 // --- Sub-Components ---
 
-const TickerItem: React.FC<{ item: IndexData; t: any }> = ({ item, t }) => {
+const TickerItem: React.FC<{ item: IndexData; t: any }> = React.memo(({ item, t }) => {
   const isPositive = item.change >= 0;
   return (
     <div className="flex items-center space-x-4 px-6 py-2 border-r border-zinc-800 whitespace-nowrap">
@@ -264,7 +126,8 @@ const TickerItem: React.FC<{ item: IndexData; t: any }> = ({ item, t }) => {
       </div>
     </div>
   );
-};
+});
+TickerItem.displayName = 'TickerItem';
 
 const NewsCard: React.FC<{ item: NewsItem; language: string; isFocusMode?: boolean }> = ({ item, language, isFocusMode }) => {
   const sentimentVariant = item.sentiment.toLowerCase() as 'bullish' | 'bearish' | 'neutral';
@@ -484,27 +347,19 @@ export default function Dashboard() {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [timeRange, setTimeRange] = useState<string>('YTD');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-  const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => {
-    const saved = localStorage.getItem('marketflow_lang');
-    return (saved === 'en' || saved === 'zh-TW') ? saved : 'zh-TW';
-  });
+  const initialSettings = React.useMemo(() => getSettings(), []);
+  const [language, setLanguage] = useState<'en' | 'zh-TW'>(initialSettings.lang);
+  const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
 
-  const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(() => {
-    const saved = localStorage.getItem('marketflow_chart_mode');
-    return (saved === 'nominal' || saved === 'percent') ? saved : 'nominal';
-  });
-
-  // Hydrate language from localStorage on client mount
+  // Cross-tab synchronization via consolidated settings key
   useEffect(() => {
-    const savedLang = localStorage.getItem('marketflow_lang') as 'en' | 'zh-TW';
-    if (savedLang && (savedLang === 'en' || savedLang === 'zh-TW')) {
-      setLanguage(savedLang);
-    }
-
-    // Cross-tab synchronization
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'marketflow_lang' && (e.newValue === 'en' || e.newValue === 'zh-TW')) {
-        setLanguage(e.newValue);
+      if (e.key === 'marketflow_settings' && e.newValue) {
+        try {
+          const updated = JSON.parse(e.newValue);
+          if (updated.lang === 'en' || updated.lang === 'zh-TW') setLanguage(updated.lang);
+          if (updated.chartMode === 'nominal' || updated.chartMode === 'percent') setChartMode(updated.chartMode);
+        } catch { /* ignore parse errors */ }
       }
     };
     window.addEventListener('storage', handleStorageChange);
@@ -516,12 +371,6 @@ export default function Dashboard() {
     ...baseT,
     language,
     activeRange: timeRange,
-    rangeLabels: {
-      '1M': language === 'en' ? '1 Month' : '1個月漲跌',
-      '3M': language === 'en' ? '3 Months' : '3個月漲跌',
-      'YTD': language === 'en' ? 'YTD Change' : '今年至今',
-      '1Y': language === 'en' ? '1 Year' : '1年漲跌'
-    }
   };
 
   const [marketData, setMarketData] = useState<IndexData[]>([]);
@@ -535,14 +384,11 @@ export default function Dashboard() {
   const [marketSummary, setMarketSummary] = useState<string>('');
 
   const [showSettings, setShowSettings] = useState(false);
-  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('user_gemini_key') || '');
+  const [geminiKey, setGeminiKey] = useState(initialSettings.geminiKey);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState<{ success: boolean; models?: any[]; recommended?: string; message?: string } | null>(null);
 
-  const [showFundsInDashboard, setShowFundsInDashboard] = useState(() => {
-    const saved = localStorage.getItem('marketflow_show_funds');
-    return saved !== null ? JSON.parse(saved) : true;
-  });
+  const [showFundsInDashboard, setShowFundsInDashboard] = useState(initialSettings.showFunds);
 
   const handleVerifyKey = async () => {
     if (!geminiKey) return;
@@ -564,7 +410,7 @@ export default function Dashboard() {
   };
 
   const saveGeminiKey = (key: string) => {
-    localStorage.setItem('user_gemini_key', key);
+    setSetting('geminiKey', key);
     setGeminiKey(key);
     setShowSettings(false);
     fetchNewsData(language, key, false, true);
@@ -573,7 +419,7 @@ export default function Dashboard() {
   const toggleLanguage = () => {
     const nextLang = language === 'en' ? 'zh-TW' : 'en';
     setLanguage(nextLang);
-    localStorage.setItem('marketflow_lang', nextLang);
+    setSetting('lang', nextLang);
   };
 
   const fetchMarketData = async (rangeStr = timeRange, isBackground = false, forceRefresh = false, overrideLang = language) => {
@@ -757,7 +603,7 @@ export default function Dashboard() {
                 onClick={() => {
                   const nextMode = chartMode === 'nominal' ? 'percent' : 'nominal';
                   setChartMode(nextMode);
-                  localStorage.setItem('marketflow_chart_mode', nextMode);
+                  setSetting('chartMode', nextMode);
                 }}
                 className="p-1 px-2.5 hover:bg-zinc-800 rounded-full transition-all text-[10px] font-bold text-zinc-300 hover:text-white flex items-center gap-1.5"
                 title={t.chartModeLabel}
@@ -816,13 +662,16 @@ export default function Dashboard() {
               <AlertCircle className="w-4 h-4 mr-2" /> {t.error}
             </div>
           ) : (
-            <div className="inline-flex animate-ticker">
+            <div className="inline-flex animate-ticker" aria-label="Market ticker">
               {displayMarketData.map((index) => (
                 <TickerItem key={index.symbol} item={index} t={t} />
               ))}
-              {displayMarketData.map((index) => (
-                <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
-              ))}
+              {/* Duplicate for seamless CSS -50% translate loop — aria-hidden keeps screen readers clean */}
+              <span aria-hidden="true" className="inline-flex">
+                {displayMarketData.map((index) => (
+                  <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
+                ))}
+              </span>
             </div>
           )}
         </div>
@@ -1089,7 +938,7 @@ export default function Dashboard() {
                       onClick={() => {
                         const newVal = !showFundsInDashboard;
                         setShowFundsInDashboard(newVal);
-                        localStorage.setItem('marketflow_show_funds', JSON.stringify(newVal));
+                        setSetting('showFunds', newVal);
                       }}
                       className={cn(
                         "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-900",

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, Loader2, RefreshCcw, ArrowLeft, Maximize2, Minimize2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
-import { cn } from './utils';
+import { cn, getSettings, setSetting } from './utils';
 
 const HeatmapLegend = () => (
     <div className="flex items-center gap-1 mt-6 justify-center bg-zinc-950/50 py-2 px-4 rounded-full border border-zinc-800/80 w-max mx-auto shadow-lg">
@@ -20,15 +20,15 @@ export default function HeatmapPage() {
     const [viewMode, setViewMode] = useState<'category' | 'subCategory'>('category');
     const [viewSource, setViewSource] = useState<'market' | 'funds'>('market');
     const [timeRange, setTimeRange] = useState<string>('YTD');
-    const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => {
-        const saved = localStorage.getItem('marketflow_lang');
-        return (saved === 'en' || saved === 'zh-TW') ? saved : 'zh-TW';
-    });
+    const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => getSettings().lang);
 
     useEffect(() => {
         const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === 'marketflow_lang' && (e.newValue === 'en' || e.newValue === 'zh-TW')) {
-                setLanguage(e.newValue);
+            if (e.key === 'marketflow_settings' && e.newValue) {
+                try {
+                    const updated = JSON.parse(e.newValue);
+                    if (updated.lang === 'en' || updated.lang === 'zh-TW') setLanguage(updated.lang);
+                } catch { /* ignore */ }
             }
         };
         window.addEventListener('storage', handleStorageChange);
@@ -187,7 +187,7 @@ export default function HeatmapPage() {
                         onClick={() => {
                             const nextLang = language === 'en' ? 'zh-TW' : 'en';
                             setLanguage(nextLang);
-                            localStorage.setItem('marketflow_lang', nextLang);
+                            setSetting('lang', nextLang);
                         }}
                         className="p-1 px-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-[10px] font-bold text-zinc-300 hover:text-white transition-all flex items-center justify-center min-w-[40px]"
                     >

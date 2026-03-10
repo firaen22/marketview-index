@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Wallet, LayoutDashboard, Loader2, RefreshCcw, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './components/MarketStatCard';
-import { cn } from './utils';
+import { cn, getSettings, setSetting } from './utils';
 import MarketHeatmap from './MarketHeatmap';
 
 const DICTIONARY: Record<string, any> = {
@@ -43,16 +43,11 @@ const DICTIONARY: Record<string, any> = {
 export default function FundsPage() {
     const [marketData, setMarketData] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => {
-        const saved = localStorage.getItem('marketflow_lang');
-        return (saved === 'en' || saved === 'zh-TW') ? saved : 'zh-TW';
-    });
+    const initialSettings = React.useMemo(() => getSettings(), []);
+    const [language, setLanguage] = useState<'en' | 'zh-TW'>(initialSettings.lang);
     const [timeRange, setTimeRange] = useState<string>('YTD');
 
-    const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(() => {
-        const saved = localStorage.getItem('marketflow_chart_mode');
-        return (saved === 'nominal' || saved === 'percent') ? saved : 'nominal';
-    });
+    const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
 
     const fetchFunds = async (currentRange = timeRange, force = false) => {
         setIsLoading(true);
@@ -76,8 +71,12 @@ export default function FundsPage() {
 
     useEffect(() => {
         const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === 'marketflow_lang' && (e.newValue === 'en' || e.newValue === 'zh-TW')) {
-                setLanguage(e.newValue);
+            if (e.key === 'marketflow_settings' && e.newValue) {
+                try {
+                    const updated = JSON.parse(e.newValue);
+                    if (updated.lang === 'en' || updated.lang === 'zh-TW') setLanguage(updated.lang);
+                    if (updated.chartMode === 'nominal' || updated.chartMode === 'percent') setChartMode(updated.chartMode);
+                } catch { /* ignore */ }
             }
         };
         window.addEventListener('storage', handleStorageChange);
@@ -133,7 +132,7 @@ export default function FundsPage() {
                         onClick={() => {
                             const nextMode = chartMode === 'nominal' ? 'percent' : 'nominal';
                             setChartMode(nextMode);
-                            localStorage.setItem('marketflow_chart_mode', nextMode);
+                            setSetting('chartMode', nextMode);
                         }}
                         className="px-4 py-2.5 text-sm font-bold bg-zinc-900/50 backdrop-blur-md rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all text-zinc-300 hover:text-white"
                     >
@@ -143,7 +142,7 @@ export default function FundsPage() {
                         onClick={() => {
                             const nextLang = language === 'en' ? 'zh-TW' : 'en';
                             setLanguage(nextLang);
-                            localStorage.setItem('marketflow_lang', nextLang);
+                            setSetting('lang', nextLang);
                         }}
                         className="px-4 py-2.5 text-sm font-bold bg-zinc-900/50 backdrop-blur-md rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all text-zinc-300 hover:text-white"
                     >
