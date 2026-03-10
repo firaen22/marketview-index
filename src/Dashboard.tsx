@@ -10,14 +10,8 @@ import React, { useState, useEffect } from 'react';
 import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert, Newspaper, Wallet } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
 import { Link } from 'react-router-dom';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import MarketHeatmap from './MarketHeatmap';
-
-// --- Utility ---
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from './utils';
 
 // --- Localization ---
 const DICTIONARY: Record<string, any> = {
@@ -87,7 +81,10 @@ const DICTIONARY: Record<string, any> = {
     nominal: "Nominal",
     percent: "Percent",
     chartModeLabel: "Chart Mode",
-    heatmap: "Full Heatmap"
+    heatmap: "Full Heatmap",
+    globalHeatmap: "Global Market Heatmap",
+    awaitingData: "Awaiting data...",
+    noMarketData: "No market data available."
   },
   'zh-TW': {
     title: "市場動向",
@@ -155,7 +152,10 @@ const DICTIONARY: Record<string, any> = {
     nominal: "數值模式",
     percent: "百分比模式",
     chartModeLabel: "圖表顯示模式",
-    heatmap: "全螢幕熱圖"
+    heatmap: "全螢幕熱圖",
+    globalHeatmap: "全球市場熱圖",
+    awaitingData: "等待資料中...",
+    noMarketData: "市場數據不可用。"
   }
 };
 
@@ -664,8 +664,8 @@ export default function Dashboard() {
     fetchNewsData(language);
 
     const pollInterval = setInterval(() => {
-      fetchMarketData(timeRange, true, true, language);
-      fetchNewsData(language, undefined, true, true);
+      fetchMarketData(timeRange, true, false, language);
+      fetchNewsData(language, undefined, true, false);
     }, 60 * 60 * 1000);
 
     return () => clearInterval(pollInterval);
@@ -709,7 +709,7 @@ export default function Dashboard() {
                     {lastUpdated.toLocaleString(language === 'zh-TW' ? 'zh-TW' : undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </>
                 ) : (
-                  <span className="opacity-70">Awaiting data...</span>
+                  <span className="opacity-70">{t.awaitingData}</span>
                 )}
               </div>
             </div>
@@ -870,7 +870,7 @@ export default function Dashboard() {
                       <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-100">
                         <h3 className="text-lg font-bold mb-3 flex items-center text-zinc-200">
                           <LayoutDashboard className="w-4 h-4 mr-2 text-blue-400" />
-                          {language === 'en' ? 'Global Market Heatmap' : '全球市場熱圖'}
+                          {t.globalHeatmap}
                         </h3>
                         <MarketHeatmap rawData={marketData} groupBy="category" />
                       </div>

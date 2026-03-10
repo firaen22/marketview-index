@@ -24,6 +24,36 @@ if (hasUpstash) {
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
+// Cache resolved model names to avoid calling models.list() on every request (Issue #16)
+const resolvedModelCache: Map<string, { model: string; ts: number }> = new Map();
+const MODEL_CACHE_TTL = 1000 * 60 * 60; // 1 hour
+
+async function resolveModel(client: any, cacheKey: string): Promise<string> {
+    const cached = resolvedModelCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < MODEL_CACHE_TTL) {
+        return cached.model;
+    }
+    let modelName = 'gemini-1.5-flash';
+    try {
+        const modelListResult: any = await client.models.list();
+        const availableModels: string[] = [];
+        for await (const m of modelListResult) {
+            availableModels.push(m.name.replace('models/', ''));
+        }
+        const preferred = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro'];
+        for (const p of preferred) {
+            if (availableModels.includes(p)) {
+                modelName = p;
+                break;
+            }
+        }
+    } catch (listErr) {
+        console.warn('Fallback to gemini-1.5-flash:', listErr);
+    }
+    resolvedModelCache.set(cacheKey, { model: modelName, ts: Date.now() });
+    return modelName;
+}
+
 export default async function handler(req: any, res: any) {
     try {
         // Disable Vercel Edge caching to rely on Redis
@@ -106,24 +136,9 @@ export default async function handler(req: any, res: any) {
 
         if (activeAi) {
             try {
-                // Determine best model for this key
-                let modelName = 'gemini-1.5-flash';
-                try {
-                    const modelListResult: any = await activeAi.models.list();
-                    const availableModels: string[] = [];
-                    for await (const m of modelListResult) {
-                        availableModels.push(m.name.replace('models/', ''));
-                    }
-                    const preferred = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro'];
-                    for (const p of preferred) {
-                        if (availableModels.includes(p)) {
-                            modelName = p;
-                            break;
-                        }
-                    }
-                } catch (listErr) {
-                    console.warn('Fallback to gemini-1.5-flash:', listErr);
-                }
+                // Determine best model for this key (cached)
+                const modelCacheKey = customApiKey || '_server_';
+                const modelName = await resolveModel(activeAi, modelCacheKey);
 
                 const combinedPrompt = `
 Analyze the following financial news headlines and provide a consolidated response.
@@ -185,7 +200,9 @@ OUTPUT FORMAT (Valid JSON only):
                 }
             } catch (err) {
                 console.error('Consolidated AI processing failed:', err);
-                marketSummary = "AI Summary unavailable due to quota or processing error.";
+                marketSummary = isChinese
+                    ? "AI 摘要因配額或處理錯誤而無法使用。"
+                    : "AI Summary unavailable due to quota or processing error.";
             }
         }
 

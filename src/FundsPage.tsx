@@ -1,15 +1,44 @@
 import React, { useState, useEffect } from 'react';
 import { Wallet, LayoutDashboard, Loader2, RefreshCcw, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { MarketStatCard } from './Dashboard';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { MarketStatCard } from './components/MarketStatCard';
+import { cn } from './utils';
 import MarketHeatmap from './MarketHeatmap';
 
-// --- Utility ---
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+const DICTIONARY: Record<string, any> = {
+    en: {
+        title: 'Wealth Management',
+        back: 'Back to Market',
+        ytd: 'YTD Change',
+        loading: 'Loading funds...',
+        nominal: 'Nominal',
+        percent: 'Percent',
+        range: 'Day Range',
+        heatmapTitle: 'Asset Allocation Heatmap',
+        rangeLabels: {
+            '1M': '1 Month',
+            '3M': '3 Months',
+            'YTD': 'YTD Change',
+            '1Y': '1 Year'
+        },
+    },
+    'zh-TW': {
+        title: '財富管理基金',
+        back: '回到市場大盤',
+        ytd: '年初至今',
+        loading: '正在讀取基金數據...',
+        nominal: '數值模式',
+        percent: '百分比模式',
+        range: '當日盤中範圍',
+        heatmapTitle: '資產配置熱圖',
+        rangeLabels: {
+            '1M': '1個月漲跌',
+            '3M': '3個月漲跌',
+            'YTD': '今年至今',
+            '1Y': '1年漲跌'
+        },
+    }
+};
 
 export default function FundsPage() {
     const [marketData, setMarketData] = useState<any[]>([]);
@@ -55,25 +84,18 @@ export default function FundsPage() {
         return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
+    const baseT = DICTIONARY[language] || DICTIONARY.en;
+
     const indexNames = marketData.reduce((acc: any, fund: any) => {
         acc[fund.name] = language === 'en' ? (fund.nameEn || fund.name) : fund.name;
         return acc;
     }, {});
 
     const t = {
-        title: language === 'en' ? 'Wealth Management' : '財富管理基金',
-        back: language === 'en' ? 'Back to Market' : '回到市場大盤',
-        ytd: language === 'en' ? 'YTD Change' : '年初至今',
-        loading: language === 'en' ? 'Loading funds...' : '正在讀取基金數據...',
-        nominal: language === 'en' ? 'Nominal' : '數值模式',
-        percent: language === 'en' ? 'Percent' : '百分比模式',
-        rangeLabels: {
-            '1M': language === 'en' ? '1 Month' : '1個月漲跌',
-            '3M': language === 'en' ? '3 Months' : '3個月漲跌',
-            'YTD': language === 'en' ? 'YTD Change' : '今年至今',
-            '1Y': language === 'en' ? '1 Year' : '1年漲跌'
-        },
-        indexNames
+        ...baseT,
+        indexNames,
+        language,
+        activeRange: timeRange,
     };
 
     return (
@@ -164,7 +186,7 @@ export default function FundsPage() {
                     <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                         <h3 className="text-xl font-bold mb-4 flex items-center text-zinc-200">
                             <LayoutDashboard className="w-5 h-5 mr-2 text-indigo-400" />
-                            {language === 'en' ? 'Asset Allocation Heatmap' : '資產配置熱圖'}
+                            {t.heatmapTitle}
                         </h3>
                         <MarketHeatmap rawData={marketData} groupBy="subCategory" />
                     </div>
@@ -177,14 +199,7 @@ export default function FundsPage() {
                                     <MarketStatCard
                                         item={fund}
                                         chartHeight="h-40"
-                                        t={{
-                                            ytd: t.ytd,
-                                            range: "Day Range",
-                                            indexNames: t.indexNames,
-                                            language,
-                                            activeRange: timeRange,
-                                            rangeLabels: t.rangeLabels
-                                        }}
+                                        t={t}
                                         chartMode={chartMode}
                                     />
                                 </div>

@@ -49,7 +49,7 @@ const INDICES_TO_FETCH = [
     category: 'Fund',
     subCategory: 'India',
     name: '柏瑞環球基金 - 柏瑞印度股票基金"A"',
-    nameEn: 'PineBridge Global Funds - PineBridge Japan Equity Fund "A"'
+    nameEn: 'PineBridge Global Funds - PineBridge India Equity Fund "A"'
   },
   {
     symbol: '0P00000LV1',

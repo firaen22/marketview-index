@@ -2,12 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, Loader2, RefreshCcw, ArrowLeft, Maximize2, Minimize2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import { cn } from './utils';
 
 const HeatmapLegend = () => (
     <div className="flex items-center gap-1 mt-6 justify-center bg-zinc-950/50 py-2 px-4 rounded-full border border-zinc-800/80 w-max mx-auto shadow-lg">
@@ -147,11 +142,13 @@ export default function HeatmapPage() {
                     <div className="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 backdrop-blur-md">
                         <button
                             onClick={() => setViewMode('category')}
+                            disabled={viewSource === 'funds'}
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200",
                                 viewMode === 'category'
                                     ? "bg-zinc-100 text-zinc-900"
-                                    : "text-zinc-500 hover:text-zinc-300"
+                                    : "text-zinc-500 hover:text-zinc-300",
+                                viewSource === 'funds' && "opacity-40 cursor-not-allowed"
                             )}
                         >
                             {t.category}
@@ -240,7 +237,7 @@ export default function HeatmapPage() {
                                     <div key={item.symbol} className="bg-zinc-900/40 border border-zinc-800/50 p-3 rounded-xl flex items-center justify-between hover:border-zinc-700 transition-colors">
                                         <div className="flex flex-col min-w-0">
                                             <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-tighter truncate">{item.symbol}</span>
-                                            <span className="text-[11px] font-semibold truncate text-zinc-200" title={item.name}>{item.name}</span>
+                                            <span className="text-[11px] font-semibold truncate text-zinc-200" title={item.name}>{language === 'en' ? (item.nameEn || item.name) : item.name}</span>
                                         </div>
                                         <div className={cn(
                                             "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ml-2 shrink-0",
