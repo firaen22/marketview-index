@@ -33,8 +33,10 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData }) => {
         return (
             <iframe
                 key={slide.content}
-                src={`${slide.content.trim()}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
-                className="w-full h-full border-0 rounded-xl bg-zinc-950"
+                src={`${slide.content.trim()}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-fit`}
+                className="absolute inset-0 w-full h-full border-0 bg-zinc-950"
+                width="100%"
+                height="100%"
                 title="PDF Slide"
             />
         );
