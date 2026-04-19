@@ -40,6 +40,7 @@ export const PdfUploader: React.FC<Props> = ({ onUploaded }) => {
     const onDrop = (e: React.DragEvent) => {
         e.preventDefault();
         setDragging(false);
+        if (status === 'uploading') return;
         const file = e.dataTransfer.files[0];
         if (file) handleFile(file);
     };
@@ -47,12 +48,13 @@ export const PdfUploader: React.FC<Props> = ({ onUploaded }) => {
     return (
         <div
             onClick={() => status !== 'uploading' && inputRef.current?.click()}
-            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragOver={e => { e.preventDefault(); if (status !== 'uploading') setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             className={`
                 flex flex-col items-center justify-center gap-2 w-full rounded-lg border-2 border-dashed
-                py-6 cursor-pointer transition-colors
+                py-6 transition-colors
+                ${status === 'uploading' ? 'cursor-wait opacity-70' : 'cursor-pointer'}
                 ${dragging ? 'border-emerald-500 bg-emerald-500/10' : 'border-zinc-700 hover:border-zinc-500 bg-zinc-900/50'}
                 ${status === 'error' ? 'border-rose-500/60' : ''}
             `}

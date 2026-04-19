@@ -1,24 +1,10 @@
-import { Redis } from '@upstash/redis'
 import YahooFinance from 'yahoo-finance2';
-const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 import { GoogleGenAI } from '@google/genai';
+import { redis } from './_redis';
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const CACHE_KEY = 'global_market_news_v1';
 const NEWS_CACHE_TTL = 60 * 15; // 15 minutes in seconds
-
-// 1. Upstash Redis Setup
-const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-const hasUpstash = !!redisUrl && !!redisToken && String(redisUrl).startsWith('https://');
-
-let redis: Redis | null = null;
-if (hasUpstash) {
-    try {
-        redis = new Redis({ url: redisUrl!, token: redisToken! });
-    } catch (e) {
-        console.error('Upstash Redis initialization error:', e);
-    }
-}
 
 // 2. Gemini GenAI Setup
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;

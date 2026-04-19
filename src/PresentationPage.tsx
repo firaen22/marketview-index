@@ -4,9 +4,10 @@ import { SlideRenderer } from './components/SlideRenderer';
 import { getSettings, setSetting, loadRemoteSlide, type PresentSlide, type PresentSlideMode } from './utils';
 import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
+import zhLocale from './locales/zh-TW.ts';
 import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff } from 'lucide-react';
 
-const PINNED_SYMBOLS = ['^GSPC', '^IXIC', '^HSI', 'GC=F'];
+const PINNED_SYMBOLS = ['^GSPC', '^IXIC', '^DJI', '^HSI', '^N225', 'GC=F', 'BTC-USD', 'CL=F'];
 const REFRESH_MS = 10 * 60 * 1000;
 
 type StripMode = 'compact' | 'full' | 'hidden';
@@ -19,10 +20,12 @@ export default function PresentationPage() {
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showHints, setShowHints] = useState(false);
     const [stripMode, setStripMode] = useState<StripMode>('compact');
+    const [pdfZoom, setPdfZoom] = useState(100);
     const [clock, setClock] = useState<string>(() => new Date().toLocaleTimeString());
     const hintsTimerRef = useRef<number | null>(null);
 
-    const t = { ...enLocale, language: 'en', activeRange: 'YTD' };
+    const lang = getSettings().lang;
+    const t = { ...(lang === 'zh-TW' ? zhLocale : enLocale), language: lang, activeRange: 'YTD' };
 
     const fetchData = useCallback(async () => {
         try {
@@ -167,13 +170,13 @@ export default function PresentationPage() {
 
             {/* Pinned live strip */}
             {stripMode === 'full' && (
-                <div className="grid grid-cols-4 gap-4 px-8 py-6 border-b border-zinc-900">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 px-8 py-6 border-b border-zinc-900">
                     {pinned.length > 0
                         ? pinned.map((item: any) => (
-                            <MarketStatCard key={item.symbol} item={item} t={t} chartHeight="h-20" />
+                            <MarketStatCard key={item.symbol} item={item} t={t} chartHeight="h-16" />
                         ))
-                        : Array.from({ length: 4 }).map((_, i) => (
-                            <div key={i} className="h-40 rounded-xl bg-zinc-900/40 animate-pulse" />
+                        : Array.from({ length: PINNED_SYMBOLS.length }).map((_, i) => (
+                            <div key={i} className="h-36 rounded-xl bg-zinc-900/40 animate-pulse" />
                         ))}
                 </div>
             )}
@@ -198,7 +201,27 @@ export default function PresentationPage() {
 
             {/* Slide area */}
             <div className="flex-1 relative overflow-hidden">
-                <SlideRenderer slide={slide} marketData={marketData} />
+                <SlideRenderer slide={slide} marketData={marketData} pdfZoom={pdfZoom} />
+
+                {/* PDF zoom controls — only shown in pdf mode */}
+                {slide.mode === 'pdf' && (
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">
+                        <button
+                            onClick={() => setPdfZoom(z => Math.max(25, z - 25))}
+                            className="w-6 h-6 flex items-center justify-center text-zinc-300 hover:text-white text-lg font-bold"
+                        >−</button>
+                        <span className="text-xs font-mono text-zinc-300 w-10 text-center">{pdfZoom}%</span>
+                        <button
+                            onClick={() => setPdfZoom(z => Math.min(200, z + 25))}
+                            className="w-6 h-6 flex items-center justify-center text-zinc-300 hover:text-white text-lg font-bold"
+                        >+</button>
+                        <div className="w-px h-3 bg-zinc-700 mx-1" />
+                        <button
+                            onClick={() => setPdfZoom(100)}
+                            className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300"
+                        >reset</button>
+                    </div>
+                )}
             </div>
 
             {/* Slide-in editor panel */}

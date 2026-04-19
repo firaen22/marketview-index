@@ -26,7 +26,6 @@ const EXAMPLES: Record<PresentSlideMode, { label: string; content: string }[]> =
 export default function PresentationControl() {
     const [slide, setSlide] = useState<PresentSlide>(() => getSettings().presentSlide);
     const [marketData, setMarketData] = useState<any[]>([]);
-    const [saved, setSaved] = useState(false);
     const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
 
     useEffect(() => {
@@ -60,9 +59,6 @@ export default function PresentationControl() {
     const commit = (next: PresentSlide) => {
         setSlide(next);
         setSetting('presentSlide', next);
-        setSaved(true);
-        window.setTimeout(() => setSaved(false), 1200);
-        // Save to Redis so any device can load it
         setCloudStatus('saving');
         saveRemoteSlide(next).then(() => {
             setCloudStatus('ok');
@@ -102,7 +98,6 @@ export default function PresentationControl() {
                     {cloudStatus === 'saving' && <span className="text-xs text-zinc-400 animate-pulse">☁ saving…</span>}
                     {cloudStatus === 'ok' && <span className="text-xs text-emerald-400">☁ saved to cloud</span>}
                     {cloudStatus === 'error' && <span className="text-xs text-rose-400">☁ save failed</span>}
-                    {saved && cloudStatus === 'idle' && <span className="text-xs text-emerald-400 animate-pulse">✓ synced</span>}
                     <button
                         onClick={() => {
                             const w = screen.availWidth;

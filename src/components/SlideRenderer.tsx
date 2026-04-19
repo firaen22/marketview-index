@@ -6,13 +6,19 @@ import { injectMarketTokens } from '../utils';
 interface Props {
     slide: PresentSlide;
     marketData: Array<{ symbol: string; [k: string]: any }>;
+    pdfZoom?: number;
 }
 
-export const SlideRenderer: React.FC<Props> = ({ slide, marketData }) => {
+export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100 }) => {
     if (!slide.content?.trim()) {
         return (
-            <div className="flex items-center justify-center h-full text-zinc-600 text-2xl">
-                Awaiting slide content…
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+                <div className="text-zinc-600 text-2xl">Awaiting slide content…</div>
+                <div className="text-zinc-700 text-sm flex items-center gap-2">
+                    Press
+                    <kbd className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded font-mono text-emerald-400">E</kbd>
+                    to open the editor
+                </div>
             </div>
         );
     }
@@ -30,13 +36,13 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData }) => {
     }
 
     if (slide.mode === 'pdf') {
+        // When zoom is 100, let the viewer auto-fit the page. Otherwise pass the zoom percentage.
+        const zoomParam = pdfZoom === 100 ? 'page-fit' : String(pdfZoom);
         return (
             <iframe
-                key={slide.content}
-                src={`${slide.content.trim()}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-fit`}
+                key={`${slide.content}-${pdfZoom}`}
+                src={`${slide.content.trim()}#toolbar=0&navpanes=0&scrollbar=1&zoom=${zoomParam}`}
                 className="absolute inset-0 w-full h-full border-0 bg-zinc-950"
-                width="100%"
-                height="100%"
                 title="PDF Slide"
             />
         );

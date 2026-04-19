@@ -1,16 +1,8 @@
 import React from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
 import { cn } from '../utils';
-
-// --- UI Components ---
-const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => (
-    <div
-        ref={ref}
-        className={cn("rounded-xl border border-zinc-800 bg-zinc-900/50 text-zinc-100 shadow-sm", className)}
-        {...props}
-    />
-));
-Card.displayName = "Card";
+import { Card } from './ui';
+import type { IndexData } from '../types';
 
 const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -25,22 +17,6 @@ const CustomTooltip = ({ active, payload }: any) => {
     }
     return null;
 };
-
-interface IndexData {
-    symbol: string;
-    name: string;
-    nameEn?: string;
-    price: number;
-    change: number;
-    changePercent: number;
-    ytdChange: number;
-    ytdChangePercent: number;
-    open: number;
-    high: number;
-    low: number;
-    history: { value: number; date?: string }[];
-    category: 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Volatility' | 'Fund';
-}
 
 export const MarketStatCard: React.FC<{
     item: IndexData;

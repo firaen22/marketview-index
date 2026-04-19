@@ -1,0 +1,26 @@
+import React from 'react';
+import { TrendingUp, TrendingDown } from 'lucide-react';
+import { cn } from '../utils';
+import type { IndexData } from '../types';
+
+export const TickerItem: React.FC<{ item: IndexData; t: any }> = React.memo(({ item, t }) => {
+    const isPositive = item.change >= 0;
+    return (
+        <div className="flex items-center space-x-4 px-6 py-2 border-r border-zinc-800 whitespace-nowrap">
+            <div className="flex flex-col">
+                <span className="text-xs font-bold text-zinc-400">{item.symbol}</span>
+                <span className="text-sm font-semibold text-zinc-100">
+                    {t?.indexNames?.[item.name] || (t?.language === 'en' ? (item.nameEn || item.name) : item.name)}
+                </span>
+            </div>
+            <div className="flex flex-col items-end">
+                <span className="text-sm font-mono font-medium text-zinc-100">{item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <div className={cn("flex items-center text-xs font-mono", isPositive ? "text-emerald-400" : "text-rose-400")}>
+                    {isPositive ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+                    <span>{isPositive ? '+' : ''}{item.change.toFixed(2)} ({isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%)</span>
+                </div>
+            </div>
+        </div>
+    );
+});
+TickerItem.displayName = 'TickerItem';
