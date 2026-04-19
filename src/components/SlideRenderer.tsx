@@ -61,13 +61,18 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
 
     if (slide.mode === 'html') {
         const html = injectMarketTokens(slide.content, marketData);
+        const scale = pdfZoom / 100;
         return (
-            <iframe
-                key={slide.updatedAt}
-                srcDoc={html}
-                sandbox="allow-scripts allow-same-origin"
-                className="w-full h-full border-0 bg-white rounded-xl"
-            />
+            <div className="absolute inset-0 w-full h-full overflow-auto bg-white flex items-start justify-center">
+                <div style={{ width: '100%', height: '100%', transform: `scale(${scale})`, transformOrigin: 'top center', flexShrink: 0 }}>
+                    <iframe
+                        key={slide.updatedAt}
+                        srcDoc={html}
+                        sandbox="allow-scripts allow-same-origin"
+                        className="w-full h-full border-0"
+                    />
+                </div>
+            </div>
         );
     }
 
