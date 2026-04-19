@@ -29,6 +29,17 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData }) => {
         );
     }
 
+    if (slide.mode === 'pdf') {
+        return (
+            <iframe
+                key={slide.content}
+                src={`${slide.content.trim()}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                className="w-full h-full border-0 rounded-xl bg-zinc-950"
+                title="PDF Slide"
+            />
+        );
+    }
+
     if (slide.mode === 'html') {
         const html = injectMarketTokens(slide.content, marketData);
         return (

@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
-import { getSettings, setSetting, type PresentSlide, type PresentSlideMode } from './utils';
+import { getSettings, setSetting, loadRemoteSlide, type PresentSlide, type PresentSlideMode } from './utils';
+import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
 import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff } from 'lucide-react';
 
@@ -39,6 +40,16 @@ export default function PresentationPage() {
         const id = setInterval(fetchData, REFRESH_MS);
         return () => clearInterval(id);
     }, [fetchData]);
+
+    // Load slide from server on mount (overrides localStorage if newer)
+    useEffect(() => {
+        loadRemoteSlide().then(remote => {
+            if (remote && remote.updatedAt > slide.updatedAt) {
+                setSlide(remote);
+                setSetting('presentSlide', remote);
+            }
+        });
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         const id = setInterval(() => setClock(new Date().toLocaleTimeString()), 1000);
@@ -211,7 +222,7 @@ export default function PresentationPage() {
                 <div className="p-4 flex flex-col gap-3 h-[calc(100%-49px)]">
                     {/* Mode tabs */}
                     <div className="flex gap-1">
-                        {(['markdown', 'html', 'url'] as PresentSlideMode[]).map(m => (
+                        {(['markdown', 'html', 'url', 'pdf'] as PresentSlideMode[]).map(m => (
                             <button
                                 key={m}
                                 onClick={() => saveSlide({ mode: m })}
@@ -249,20 +260,29 @@ export default function PresentationPage() {
                         </button>
                     </div>
 
-                    {/* Textarea */}
-                    <textarea
-                        value={slide.content}
-                        onChange={e => saveSlide({ content: e.target.value })}
-                        placeholder={
-                            slide.mode === 'url'
-                                ? 'https://docs.google.com/presentation/d/e/.../embed'
-                                : slide.mode === 'html'
-                                ? '<!DOCTYPE html>...'
-                                : '# Heading\n\nParagraph with **bold** and {{^GSPC.price}} tokens'
-                        }
-                        spellCheck={false}
-                        className="flex-1 w-full bg-zinc-900 border border-zinc-800 rounded p-3 font-mono text-xs text-zinc-200 resize-none focus:outline-none focus:border-emerald-500"
-                    />
+                    {/* PDF uploader or textarea */}
+                    {slide.mode === 'pdf' ? (
+                        <div className="flex flex-col gap-3 flex-1">
+                            <PdfUploader onUploaded={url => saveSlide({ content: url })} />
+                            {slide.content && (
+                                <p className="text-[10px] font-mono text-emerald-400 truncate">{slide.content}</p>
+                            )}
+                        </div>
+                    ) : (
+                        <textarea
+                            value={slide.content}
+                            onChange={e => saveSlide({ content: e.target.value })}
+                            placeholder={
+                                slide.mode === 'url'
+                                    ? 'https://docs.google.com/presentation/d/e/.../embed'
+                                    : slide.mode === 'html'
+                                    ? '<!DOCTYPE html>...'
+                                    : '# Heading\n\nParagraph with **bold** and {{^GSPC.price}} tokens'
+                            }
+                            spellCheck={false}
+                            className="flex-1 w-full bg-zinc-900 border border-zinc-800 rounded p-3 font-mono text-xs text-zinc-200 resize-none focus:outline-none focus:border-emerald-500"
+                        />
+                    )}
 
                     {/* Footer */}
                     <div className="flex items-center justify-between text-[11px] text-zinc-500">

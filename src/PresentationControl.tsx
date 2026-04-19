@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getSettings, setSetting, type PresentSlide, type PresentSlideMode } from './utils';
+import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, type PresentSlide, type PresentSlideMode } from './utils';
 import { SlideRenderer } from './components/SlideRenderer';
+import { PdfUploader } from './components/PdfUploader';
 
 const MODE_HINTS: Record<PresentSlideMode, string> = {
     markdown: '# Heading\n\nParagraph with **bold** and {{SPX.price}} tokens.\n\n- bullet one\n- bullet two',
     html: '<!DOCTYPE html>\n<html><body style="background:#0a0a0a;color:#fff;font-family:system-ui;padding:4rem">\n  <h1 style="color:#34d399;font-size:4rem">Slide Title</h1>\n  <p style="font-size:2rem">Pasted Claude HTML renders sandboxed.</p>\n</body></html>',
     url: 'https://docs.google.com/presentation/d/e/YOUR_PUBLISHED_ID/embed',
+    pdf: '',
 };
 
 const EXAMPLES: Record<PresentSlideMode, { label: string; content: string }[]> = {
@@ -18,18 +20,27 @@ const EXAMPLES: Record<PresentSlideMode, { label: string; content: string }[]> =
     ],
     html: [],
     url: [],
+    pdf: [],
 };
 
 export default function PresentationControl() {
     const [slide, setSlide] = useState<PresentSlide>(() => getSettings().presentSlide);
     const [marketData, setMarketData] = useState<any[]>([]);
     const [saved, setSaved] = useState(false);
+    const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
 
     useEffect(() => {
         fetch(`/api/market-data?t=${Date.now()}&range=YTD&lang=en`)
             .then(r => r.json())
             .then(j => { if (j?.data) setMarketData(j.data); })
             .catch(() => {});
+        // Load cloud slide on mount — use it if newer than local
+        loadRemoteSlide().then(remote => {
+            if (remote && remote.updatedAt > getSettings().presentSlide.updatedAt) {
+                setSlide(remote);
+                setSetting('presentSlide', remote);
+            }
+        });
     }, []);
 
     // Stay in sync if another tab updates (e.g. the /present quick-paste panel)
@@ -51,6 +62,15 @@ export default function PresentationControl() {
         setSetting('presentSlide', next);
         setSaved(true);
         window.setTimeout(() => setSaved(false), 1200);
+        // Save to Redis so any device can load it
+        setCloudStatus('saving');
+        saveRemoteSlide(next).then(() => {
+            setCloudStatus('ok');
+            window.setTimeout(() => setCloudStatus('idle'), 2000);
+        }).catch(() => {
+            setCloudStatus('error');
+            window.setTimeout(() => setCloudStatus('idle'), 3000);
+        });
     };
 
     const updateMode = (mode: PresentSlideMode) => {
@@ -79,7 +99,10 @@ export default function PresentationControl() {
                     <h1 className="text-sm font-mono tracking-widest text-zinc-300">PRESENTATION · CONTROL</h1>
                 </div>
                 <div className="flex items-center gap-3">
-                    {saved && <span className="text-xs text-emerald-400 animate-pulse">✓ synced</span>}
+                    {cloudStatus === 'saving' && <span className="text-xs text-zinc-400 animate-pulse">☁ saving…</span>}
+                    {cloudStatus === 'ok' && <span className="text-xs text-emerald-400">☁ saved to cloud</span>}
+                    {cloudStatus === 'error' && <span className="text-xs text-rose-400">☁ save failed</span>}
+                    {saved && cloudStatus === 'idle' && <span className="text-xs text-emerald-400 animate-pulse">✓ synced</span>}
                     <button
                         onClick={() => {
                             const w = screen.availWidth;
@@ -103,7 +126,7 @@ export default function PresentationControl() {
                 <div className="border-r border-zinc-900 flex flex-col">
                     {/* Mode tabs */}
                     <div className="flex items-center gap-2 px-6 py-3 border-b border-zinc-900">
-                        {(['markdown', 'html', 'url'] as PresentSlideMode[]).map(m => (
+                        {(['markdown', 'html', 'url', 'pdf'] as PresentSlideMode[]).map(m => (
                             <button
                                 key={m}
                                 onClick={() => updateMode(m)}
@@ -131,14 +154,39 @@ export default function PresentationControl() {
                         </button>
                     </div>
 
-                    {/* Textarea */}
-                    <textarea
-                        value={slide.content}
-                        onChange={e => updateContent(e.target.value)}
-                        placeholder={MODE_HINTS[slide.mode]}
-                        className="flex-1 w-full bg-zinc-950 p-6 font-mono text-sm text-zinc-200 resize-none focus:outline-none border-0"
-                        spellCheck={false}
-                    />
+                    {/* PDF uploader or textarea */}
+                    {slide.mode === 'pdf' ? (
+                        <div className="flex-1 flex flex-col gap-4 p-6">
+                            <PdfUploader onUploaded={url => updateContent(url)} />
+                            {slide.content && (
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Current PDF URL</span>
+                                    <a
+                                        href={slide.content}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-xs font-mono text-emerald-400 truncate hover:underline"
+                                    >
+                                        {slide.content}
+                                    </a>
+                                    <button
+                                        onClick={() => updateContent('')}
+                                        className="mt-1 self-start text-xs px-2 py-1 bg-zinc-800 rounded text-zinc-400 hover:bg-zinc-700"
+                                    >
+                                        Replace PDF
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <textarea
+                            value={slide.content}
+                            onChange={e => updateContent(e.target.value)}
+                            placeholder={MODE_HINTS[slide.mode]}
+                            className="flex-1 w-full bg-zinc-950 p-6 font-mono text-sm text-zinc-200 resize-none focus:outline-none border-0"
+                            spellCheck={false}
+                        />
+                    )}
 
                     {/* Footer */}
                     <div className="px-6 py-2 border-t border-zinc-900 flex items-center justify-between text-xs text-zinc-500">
