@@ -7,7 +7,7 @@
  * Ensure Tailwind CSS is configured.
  */
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert, Newspaper, Wallet } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Columns, Loader2, AlertCircle, Settings, X, Cpu, CheckCircle2, ShieldAlert, Newspaper, Wallet, MonitorPlay } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
 import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
@@ -635,6 +635,15 @@ export default function Dashboard() {
                 title={t.heatmap}
               >
                 <LayoutDashboard className="w-4 h-4" />
+              </Link>
+              <div className="h-3 w-px bg-zinc-800"></div>
+              <Link
+                to="/present-control"
+                className="flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-md text-emerald-400 transition-all text-xs font-semibold"
+                title="Open Presentation Mode"
+              >
+                <MonitorPlay className="w-3.5 h-3.5" />
+                <span>Present</span>
               </Link>
             </div>
             <button

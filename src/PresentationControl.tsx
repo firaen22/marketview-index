@@ -80,14 +80,21 @@ export default function PresentationControl() {
                 </div>
                 <div className="flex items-center gap-3">
                     {saved && <span className="text-xs text-emerald-400 animate-pulse">✓ synced</span>}
-                    <a
-                        href="/present"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs px-3 py-1.5 bg-emerald-500 text-black rounded font-bold hover:bg-emerald-400"
+                    <button
+                        onClick={() => {
+                            const w = screen.availWidth;
+                            const h = screen.availHeight;
+                            window.open(
+                                '/present',
+                                'marketflow_present',
+                                `width=${w},height=${h},left=0,top=0,menubar=no,toolbar=no,location=no,status=no`
+                            );
+                        }}
+                        className="text-xs px-3 py-1.5 bg-emerald-500 text-black rounded font-bold hover:bg-emerald-400 flex items-center gap-1.5"
+                        title="Opens /present in a new window — drag it to your projector"
                     >
-                        Open /present ↗
-                    </a>
+                        🎬 Launch Display
+                    </button>
                 </div>
             </header>
 
