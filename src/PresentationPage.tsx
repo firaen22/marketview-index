@@ -5,7 +5,8 @@ import { getSettings, setSetting, loadRemoteSlide, type PresentSlide, type Prese
 import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
 import zhLocale from './locales/zh-TW.ts';
-import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff } from 'lucide-react';
+import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const PINNED_SYMBOLS = ['^GSPC', '^IXIC', '^DJI', '^HSI', '^N225', 'GC=F', 'BTC-USD', 'CL=F'];
 const REFRESH_MS = 10 * 60 * 1000;
@@ -21,6 +22,7 @@ export default function PresentationPage() {
     const [showHints, setShowHints] = useState(false);
     const [stripMode, setStripMode] = useState<StripMode>('compact');
     const [pdfZoom, setPdfZoom] = useState(100);
+    const [mainView, setMainView] = useState<'slide' | 'index'>('slide');
     const [clock, setClock] = useState<string>(() => new Date().toLocaleTimeString());
     const hintsTimerRef = useRef<number | null>(null);
 
@@ -104,6 +106,7 @@ export default function PresentationPage() {
             if (e.key === 's' || e.key === 'S') {
                 setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length]);
             }
+            if (e.key === 'i' || e.key === 'I') setMainView(v => v === 'slide' ? 'index' : 'slide');
             if (e.key === '?' || e.key === '/') setShowHints(s => !s);
             if (e.key === 'Escape') {
                 setEditorOpen(false);
@@ -134,6 +137,21 @@ export default function PresentationPage() {
                 <div className="flex items-center gap-4">
                     <div className="text-sm font-mono text-zinc-400">{clock}</div>
                     <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => setMainView(v => v === 'slide' ? 'index' : 'slide')}
+                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${mainView === 'index' ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
+                            title={`Toggle ${mainView === 'slide' ? 'Index' : 'Slide'} (I)`}
+                        >
+                            {mainView === 'slide' ? <LayoutDashboard className="w-4 h-4" /> : <Presentation className="w-4 h-4" />}
+                        </button>
+                        <Link
+                            to="/"
+                            className="p-1.5 rounded hover:bg-zinc-800 transition text-zinc-400 hover:text-emerald-400"
+                            title="Exit to Dashboard"
+                        >
+                            <ExternalLink className="w-4 h-4" />
+                        </Link>
+                        <div className="h-4 w-px bg-zinc-800 mx-1"></div>
                         <button
                             onClick={() => setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length])}
                             className="p-1.5 rounded hover:bg-zinc-800 transition text-zinc-400"
@@ -201,10 +219,19 @@ export default function PresentationPage() {
 
             {/* Slide area */}
             <div className="flex-1 relative overflow-hidden">
-                <SlideRenderer slide={slide} marketData={marketData} pdfZoom={pdfZoom} />
+                <div className={mainView === 'slide' ? 'w-full h-full' : 'hidden'}>
+                    <SlideRenderer slide={slide} marketData={marketData} pdfZoom={pdfZoom} />
+                </div>
+                {mainView === 'index' && (
+                    <iframe
+                        src="/?embed=1"
+                        className="w-full h-full border-0 bg-black"
+                        title="Market Index"
+                    />
+                )}
 
                 {/* Zoom controls — shown for pdf and html modes */}
-                {(slide.mode === 'pdf' || slide.mode === 'html') && (
+                {mainView === 'slide' && (slide.mode === 'pdf' || slide.mode === 'html') && (
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">
                         <button
                             onClick={() => setPdfZoom(z => Math.max(25, z - 25))}

@@ -27,6 +27,7 @@ const DICTIONARY: Record<string, any> = {
 };
 
 export default function Dashboard() {
+  const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
@@ -223,6 +224,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-blue-500/30 font-sans">
       {/* Header */}
+      {!isEmbed && (
       <header className="border-b border-zinc-800 bg-black/40 backdrop-blur-xl sticky top-0 z-[100]">
         <div className="container mx-auto px-4 lg:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -325,12 +327,19 @@ export default function Dashboard() {
               </Link>
               <div className="h-3 w-px bg-zinc-800"></div>
               <Link
+                to="/present"
+                className="p-1 hover:bg-zinc-800 rounded-full transition-all text-zinc-400 hover:text-emerald-400"
+                title="Presentation View"
+              >
+                <MonitorPlay className="w-4 h-4" />
+              </Link>
+              <div className="h-3 w-px bg-zinc-800"></div>
+              <Link
                 to="/present-control"
                 className="flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-md text-emerald-400 transition-all text-xs font-semibold"
-                title="Open Presentation Mode"
+                title="Open Presentation Control"
               >
-                <MonitorPlay className="w-3.5 h-3.5" />
-                <span>Present</span>
+                <span>Control</span>
               </Link>
             </div>
             <button
@@ -372,6 +381,7 @@ export default function Dashboard() {
           )}
         </div>
       </header>
+      )}
 
       {/* Main Content */}
       <main className="container mx-auto p-4 lg:p-6 max-w-7xl">
