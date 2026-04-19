@@ -3,10 +3,13 @@ import { MarketStatCard } from './components/MarketStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
 import { getSettings, setSetting, type PresentSlide, type PresentSlideMode } from './utils';
 import enLocale from './locales/en.ts';
-import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard } from 'lucide-react';
+import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff } from 'lucide-react';
 
 const PINNED_SYMBOLS = ['^GSPC', '^IXIC', '^HSI', 'GC=F'];
 const REFRESH_MS = 10 * 60 * 1000;
+
+type StripMode = 'compact' | 'full' | 'hidden';
+const STRIP_MODES: StripMode[] = ['compact', 'full', 'hidden'];
 
 export default function PresentationPage() {
     const [marketData, setMarketData] = useState<any[]>([]);
@@ -14,6 +17,7 @@ export default function PresentationPage() {
     const [editorOpen, setEditorOpen] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showHints, setShowHints] = useState(false);
+    const [stripMode, setStripMode] = useState<StripMode>('compact');
     const [clock, setClock] = useState<string>(() => new Date().toLocaleTimeString());
     const hintsTimerRef = useRef<number | null>(null);
 
@@ -83,6 +87,9 @@ export default function PresentationPage() {
 
             if (e.key === 'e' || e.key === 'E') setEditorOpen(o => !o);
             if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+            if (e.key === 's' || e.key === 'S') {
+                setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length]);
+            }
             if (e.key === '?' || e.key === '/') setShowHints(s => !s);
             if (e.key === 'Escape') {
                 setEditorOpen(false);
@@ -114,6 +121,15 @@ export default function PresentationPage() {
                     <div className="text-sm font-mono text-zinc-400">{clock}</div>
                     <div className="flex items-center gap-1">
                         <button
+                            onClick={() => setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length])}
+                            className="p-1.5 rounded hover:bg-zinc-800 transition text-zinc-400"
+                            title={`Strip: ${stripMode} (S)`}
+                        >
+                            {stripMode === 'full' ? <LayoutGrid className="w-4 h-4" />
+                                : stripMode === 'compact' ? <Rows3 className="w-4 h-4" />
+                                : <EyeOff className="w-4 h-4" />}
+                        </button>
+                        <button
                             onClick={() => setEditorOpen(o => !o)}
                             className={`p-1.5 rounded hover:bg-zinc-800 transition ${editorOpen ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
                             title="Edit slide (E)"
@@ -139,15 +155,35 @@ export default function PresentationPage() {
             </div>
 
             {/* Pinned live strip */}
-            <div className="grid grid-cols-4 gap-4 px-8 py-6 border-b border-zinc-900">
-                {pinned.length > 0
-                    ? pinned.map((item: any) => (
-                        <MarketStatCard key={item.symbol} item={item} t={t} chartHeight="h-20" />
-                    ))
-                    : Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} className="h-40 rounded-xl bg-zinc-900/40 animate-pulse" />
-                    ))}
-            </div>
+            {stripMode === 'full' && (
+                <div className="grid grid-cols-4 gap-4 px-8 py-6 border-b border-zinc-900">
+                    {pinned.length > 0
+                        ? pinned.map((item: any) => (
+                            <MarketStatCard key={item.symbol} item={item} t={t} chartHeight="h-20" />
+                        ))
+                        : Array.from({ length: 4 }).map((_, i) => (
+                            <div key={i} className="h-40 rounded-xl bg-zinc-900/40 animate-pulse" />
+                        ))}
+                </div>
+            )}
+            {stripMode === 'compact' && (
+                <div className="flex items-center gap-6 px-8 py-2 border-b border-zinc-900 bg-zinc-950/50 overflow-x-auto">
+                    {pinned.length > 0 ? pinned.map((item: any) => {
+                        const pos = item.change >= 0;
+                        return (
+                            <div key={item.symbol} className="flex items-baseline gap-2 whitespace-nowrap">
+                                <span className="text-[11px] font-mono text-zinc-500 tracking-wider">{item.symbol}</span>
+                                <span className="text-sm font-mono font-bold text-zinc-100">
+                                    {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                                <span className={`text-xs font-mono ${pos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {pos ? '+' : ''}{item.changePercent.toFixed(2)}%
+                                </span>
+                            </div>
+                        );
+                    }) : <span className="text-xs text-zinc-600">Loading…</span>}
+                </div>
+            )}
 
             {/* Slide area */}
             <div className="flex-1 relative overflow-hidden">
@@ -252,6 +288,8 @@ export default function PresentationPage() {
                         <span className="text-zinc-400">edit</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">F</kbd>
                         <span className="text-zinc-400">fullscreen</span>
+                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">S</kbd>
+                        <span className="text-zinc-400">strip size</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">?</kbd>
                         <span className="text-zinc-400">toggle this</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">Esc</kbd>
