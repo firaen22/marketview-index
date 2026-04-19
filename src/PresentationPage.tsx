@@ -232,7 +232,7 @@ export default function PresentationPage() {
 
                 {/* Zoom controls — shown for pdf and html modes */}
                 {mainView === 'slide' && (slide.mode === 'pdf' || slide.mode === 'html') && (
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">
+                    <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">
                         <button
                             onClick={() => setPdfZoom(z => Math.max(25, z - 25))}
                             className="w-6 h-6 flex items-center justify-center text-zinc-300 hover:text-white text-lg font-bold"
