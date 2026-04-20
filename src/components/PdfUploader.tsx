@@ -12,7 +12,7 @@ export const PdfUploader: React.FC<Props> = ({ onUploaded }) => {
     const [dragging, setDragging] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    const MAX_BYTES = 4 * 1024 * 1024; // 4 MB — under Vercel's 4.5 MB limit
+    const MAX_BYTES = 50 * 1024 * 1024; // 50 MB — uses Vercel Blob direct upload, bypasses 4.5 MB function limit
 
     const handleFile = async (file: File) => {
         if (!file.type.includes('pdf')) {

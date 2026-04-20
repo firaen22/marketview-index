@@ -1,6 +1,10 @@
 import type { PresentSlide } from './settings';
+import { upload } from '@vercel/blob/client';
 
 const API_KEY = (import.meta as any).env?.VITE_PRESENT_API_KEY as string | undefined;
+
+// Max payload size for slide content (HTML/markdown). PDFs use separate blob upload path.
+export const MAX_CONTENT_BYTES = 256 * 1024;
 
 function authHeaders(): Record<string, string> {
     return API_KEY ? { 'x-api-key': API_KEY } : {};
@@ -11,7 +15,8 @@ export async function loadRemoteSlide(): Promise<PresentSlide | null> {
         const res = await fetch('/api/present-slide');
         if (!res.ok) return null;
         const json = await res.json();
-        if (json?.slide) return typeof json.slide === 'string' ? JSON.parse(json.slide) : json.slide;
+        // Upstash Redis auto-parses stored JSON values, so json.slide is always an object (or null).
+        if (json?.slide && typeof json.slide === 'object') return json.slide as PresentSlide;
     } catch {}
     return null;
 }
@@ -29,21 +34,16 @@ export async function deletePdf(url: string): Promise<void> {
 }
 
 export async function uploadPdf(file: File): Promise<string> {
-    const res = await fetch('/api/present-pdf', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/pdf',
-            'x-filename': encodeURIComponent(file.name),
-            ...authHeaders(),
-        },
-        body: file,
+    // Direct client → Vercel Blob upload. Bypasses Vercel's 4.5 MB function
+    // payload limit — our function only signs the upload token.
+    // Auth key is passed via clientPayload since upload() doesn't support custom headers.
+    const blob = await upload(file.name, file, {
+        access: 'public',
+        handleUploadUrl: '/api/present-pdf',
+        contentType: 'application/pdf',
+        clientPayload: API_KEY ?? null,
     });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || 'Upload failed');
-    }
-    const json = await res.json();
-    return json.url as string;
+    return blob.url;
 }
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];

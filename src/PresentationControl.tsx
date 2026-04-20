@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, deletePdf, StaleSaveError, type PresentSlide, type PresentSlideMode } from './utils';
+import { deletePdf, type PresentSlideMode } from './utils';
+import { useSlideSync } from './hooks/useSlideSync';
 import { SlideRenderer } from './components/SlideRenderer';
 import { PdfUploader } from './components/PdfUploader';
 
@@ -24,102 +25,22 @@ const EXAMPLES: Record<PresentSlideMode, { label: string; content: string }[]> =
 };
 
 export default function PresentationControl() {
-    const [slide, setSlide] = useState<PresentSlide>(() => getSettings().presentSlide);
+    const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning, formatRelativeTime } = useSlideSync();
     const [marketData, setMarketData] = useState<any[]>([]);
-    const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
-    const [sizeWarning, setSizeWarning] = useState<string | null>(null);
-    const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
-    const [, setTick] = useState(0);
-    const saveTimerRef = useRef<number | null>(null);
-
-    const MAX_CONTENT_BYTES = 256 * 1024;
-    const SAVE_DEBOUNCE_MS = 800;
-
-    const formatRelativeTime = (ts: number): string => {
-        const diff = Math.floor((Date.now() - ts) / 1000);
-        if (diff < 5) return 'just now';
-        if (diff < 60) return `${diff}s ago`;
-        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-        return `${Math.floor(diff / 3600)}h ago`;
-    };
-
-    useEffect(() => {
-        const id = setInterval(() => setTick(t => t + 1), 15000);
-        return () => clearInterval(id);
-    }, []);
 
     useEffect(() => {
         fetch(`/api/market-data?t=${Date.now()}&range=YTD&lang=en`)
             .then(r => r.json())
             .then(j => { if (j?.data) setMarketData(j.data); })
             .catch(() => {});
-        // Load cloud slide on mount — use it if newer than local
-        loadRemoteSlide().then(remote => {
-            if (remote && remote.updatedAt > getSettings().presentSlide.updatedAt) {
-                setSlide(remote);
-                setSetting('presentSlide', remote);
-            }
-        });
-    }, []);
-
-    // Stay in sync if another tab updates (e.g. the /present quick-paste panel)
-    useEffect(() => {
-        const handler = (e: StorageEvent) => {
-            if (e.key === 'marketflow_settings' && e.newValue) {
-                try {
-                    const parsed = JSON.parse(e.newValue);
-                    if (parsed?.presentSlide) setSlide(parsed.presentSlide);
-                } catch {}
-            }
-        };
-        window.addEventListener('storage', handler);
-        return () => window.removeEventListener('storage', handler);
-    }, []);
-
-    const commit = (next: PresentSlide) => {
-        setSlide(next);
-        setSetting('presentSlide', next);
-
-        const byteSize = new Blob([next.content]).size;
-        if (byteSize > MAX_CONTENT_BYTES) {
-            setSizeWarning(`Content is ${(byteSize / 1024).toFixed(0)} KB — max ${MAX_CONTENT_BYTES / 1024} KB. Not synced to cloud.`);
-            setCloudStatus('error');
-            return;
-        }
-        setSizeWarning(null);
-
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        setCloudStatus('saving');
-        saveTimerRef.current = window.setTimeout(() => {
-            doRemoteSave(next);
-        }, SAVE_DEBOUNCE_MS);
-    };
-
-    const doRemoteSave = (s: PresentSlide) => {
-        if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
-        setCloudStatus('saving');
-        saveRemoteSlide(s).then(() => {
-            setCloudStatus('ok');
-            setLastSavedAt(Date.now());
-            window.setTimeout(() => setCloudStatus('idle'), 2000);
-        }).catch((e) => {
-            // Superseded by newer save — not a real failure, let the newer one drive UI state
-            if (e instanceof StaleSaveError) return;
-            setCloudStatus('error');
-            window.setTimeout(() => setCloudStatus('idle'), 3000);
-        });
-    };
-
-    useEffect(() => () => {
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     }, []);
 
     const updateMode = (mode: PresentSlideMode) => {
-        commit({ ...slide, mode, updatedAt: Date.now() });
+        saveSlide({ mode });
     };
 
     const updateContent = (content: string) => {
-        commit({ ...slide, content, updatedAt: Date.now() });
+        saveSlide({ content });
     };
 
     const pasteFromClipboard = async () => {
@@ -141,7 +62,7 @@ export default function PresentationControl() {
                 </div>
                 <div className="flex items-center gap-3">
                     <button
-                        onClick={() => doRemoteSave(slide)}
+                        onClick={() => doRemoteSave()}
                         disabled={cloudStatus === 'saving'}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition
                             ${cloudStatus === 'saving' ? 'bg-zinc-700 text-zinc-400 cursor-wait'
