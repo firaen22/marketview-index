@@ -4,6 +4,7 @@ import { SlideRenderer } from './components/SlideRenderer';
 import { getSettings, deletePdf, type PresentSlideMode } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
+import { useClock } from './hooks/useClock';
 import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
 import zhLocale from './locales/zh-TW.ts';
@@ -11,8 +12,7 @@ import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Ro
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
 import type { IndexData } from './types';
-
-const REFRESH_MS = 10 * 60 * 1000;
+import { useMarketData } from './hooks/useMarketData';
 
 type StripMode = 'compact' | 'full' | 'hidden';
 const STRIP_MODES: StripMode[] = ['compact', 'full', 'hidden'];
@@ -20,7 +20,6 @@ const STRIP_MODES: StripMode[] = ['compact', 'full', 'hidden'];
 export default function PresentationPage() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning, formatRelativeTime } = useSlideSync();
     const initialSettings = React.useMemo(() => getSettings(), []);
-    const [marketData, setMarketData] = useState<IndexData[]>([]);
     const [editorOpen, setEditorOpen] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showHints, setShowHints] = useState(false);
@@ -29,7 +28,7 @@ export default function PresentationPage() {
     const [mainView, setMainView] = useState<'slide' | 'index'>('slide');
     const [quoteOpen, setQuoteOpen] = useState(false);
     const [pinnedQuotes, setPinnedQuotes] = useState<IndexData[]>([]);
-    const [clock, setClock] = useState<string>(() => new Date().toLocaleTimeString());
+    const clock = useClock();
     const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
     const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
     const hintsTimerRef = useRef<number | null>(null);
@@ -41,26 +40,7 @@ export default function PresentationPage() {
 
     const t = { ...(lang === 'zh-TW' ? zhLocale : enLocale), language: lang, activeRange: 'YTD' };
 
-    const fetchData = useCallback(async () => {
-        try {
-            const res = await fetch(`/api/market-data?t=${Date.now()}&range=YTD&lang=${lang}`);
-            const json = await res.json();
-            if (json?.data && Array.isArray(json.data)) setMarketData(json.data);
-        } catch (err) {
-            console.error('Presentation fetch failed', err);
-        }
-    }, [lang]);
-
-    useEffect(() => {
-        fetchData();
-        const id = setInterval(fetchData, REFRESH_MS);
-        return () => clearInterval(id);
-    }, [fetchData]);
-
-    useEffect(() => {
-        const id = setInterval(() => setClock(new Date().toLocaleTimeString()), 1000);
-        return () => clearInterval(id);
-    }, []);
+    const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
 
     // Auto-show hints overlay briefly on first mount, then auto-hide
     useEffect(() => {

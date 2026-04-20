@@ -4,6 +4,8 @@ import type { IndexData, MarketDataResponse } from '../types';
 interface Options {
     range: string;
     filter?: (item: IndexData) => boolean;
+    lang?: 'en' | 'zh-TW';
+    refreshMs?: number;
 }
 
 interface Result {
@@ -19,14 +21,17 @@ interface Result {
  * For the full-featured version (localStorage cache, stale-cache detection,
  * background polling, bilingual error messages) see Dashboard.tsx.
  */
-export function useMarketData({ range, filter }: Options): Result {
+export function useMarketData({ range, filter, lang, refreshMs }: Options): Result {
     const [data, setData] = useState<IndexData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     const refresh = useCallback(async (force = false) => {
         setIsLoading(true);
         try {
-            const url = `/api/market-data?range=${range}${force ? '&refresh=true' : ''}`;
+            const params = new URLSearchParams({ range });
+            if (lang) params.set('lang', lang);
+            if (force) params.set('refresh', 'true');
+            const url = `/api/market-data?${params.toString()}`;
             const response = await fetch(url);
             const result: MarketDataResponse = await response.json();
             if (result.success) {
@@ -37,9 +42,15 @@ export function useMarketData({ range, filter }: Options): Result {
         } finally {
             setIsLoading(false);
         }
-    }, [range, filter]);
+    }, [range, filter, lang]);
 
-    useEffect(() => { refresh(); }, [refresh]);
+    useEffect(() => {
+        refresh();
+        if (refreshMs && refreshMs > 0) {
+            const id = setInterval(() => { refresh(); }, refreshMs);
+            return () => clearInterval(id);
+        }
+    }, [refresh, refreshMs]);
 
     return { data, isLoading, refresh };
 }
