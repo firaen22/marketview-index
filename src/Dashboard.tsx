@@ -7,13 +7,14 @@
  * Ensure Tailwind CSS is configured.
  */
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Loader2, AlertCircle, Settings, Newspaper, Wallet, MonitorPlay } from 'lucide-react';
+import { TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Loader2, AlertCircle, Settings, Newspaper, Wallet, MonitorPlay, ListChecks } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './components/MarketStatCard';
 import { ScrollArea } from './components/ui';
 import { TickerItem } from './components/TickerItem';
 import { NewsSection } from './components/NewsSection';
 import { SettingsModal } from './components/SettingsModal';
+import { TickerConfigModal } from './components/TickerConfigModal';
 import type { IndexData, NewsItem } from './types';
 import { cn, getSettings, setSetting } from './utils';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -40,9 +41,10 @@ export default function Dashboard() {
   const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
 
   // Cross-tab synchronization via consolidated settings key
-  useSettingsSync(({ lang, chartMode }) => {
+  useSettingsSync(({ lang, chartMode, tickerSymbols }) => {
     if (lang) setLanguage(lang);
     if (chartMode) setChartMode(chartMode);
+    if (tickerSymbols !== undefined) setTickerSymbols(tickerSymbols);
   });
 
   const baseT = DICTIONARY[language] || DICTIONARY.en;
@@ -66,6 +68,8 @@ export default function Dashboard() {
   const [geminiKey, setGeminiKey] = useState(initialSettings.geminiKey);
 
   const [showFundsInDashboard, setShowFundsInDashboard] = useState(initialSettings.showFunds);
+  const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
+  const [showTickerConfig, setShowTickerConfig] = useState(false);
 
   const saveGeminiKey = (key: string) => {
     setSetting('geminiKey', key);
@@ -182,6 +186,10 @@ export default function Dashboard() {
 
   const categoriesOrder = ['All', 'US', 'Europe', 'Asia', 'Fund', 'Commodity', 'Crypto', 'Currency', 'Volatility'];
   const displayMarketData = showFundsInDashboard ? marketData : marketData.filter(item => item.category !== 'Fund');
+  const tickerData = tickerSymbols === null
+    ? marketData
+    : marketData.filter(item => tickerSymbols.includes(item.symbol));
+  const tickerDisplay = tickerData.length > 0 ? tickerData : marketData;
   const categories = categoriesOrder.filter(c => c === 'All' || displayMarketData.some(item => item.category === c));
 
   const filteredIndices = (selectedCategory === 'All'
@@ -330,28 +338,35 @@ export default function Dashboard() {
         </div>
 
         {/* Ticker Tape */}
-        <div className="overflow-hidden whitespace-nowrap border-b border-zinc-800 bg-zinc-950 flex items-center h-12">
+        <div className="relative overflow-hidden whitespace-nowrap border-b border-zinc-800 bg-zinc-950 flex items-center h-12">
           {isLoading ? (
             <div className="w-full flex items-center justify-center text-xs text-zinc-500">
               <Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t.loading}
             </div>
-          ) : isError && displayMarketData.length === 0 ? (
+          ) : isError && tickerDisplay.length === 0 ? (
             <div className="w-full flex items-center justify-center text-xs text-rose-500">
               <AlertCircle className="w-4 h-4 mr-2" /> {t.error}
             </div>
           ) : (
             <div className="inline-flex animate-ticker" aria-label="Market ticker">
-              {displayMarketData.map((index) => (
+              {tickerDisplay.map((index) => (
                 <TickerItem key={index.symbol} item={index} t={t} />
               ))}
               {/* Duplicate for seamless CSS -50% translate loop — aria-hidden keeps screen readers clean */}
               <span aria-hidden="true" className="inline-flex">
-                {displayMarketData.map((index) => (
+                {tickerDisplay.map((index) => (
                   <TickerItem key={`${index.symbol}-dup`} item={index} t={t} />
                 ))}
               </span>
             </div>
           )}
+          <button
+            onClick={() => setShowTickerConfig(true)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800 text-zinc-500 hover:text-emerald-400 transition"
+            title={t.tickerConfig?.open || 'Configure ticker'}
+          >
+            <ListChecks className="w-3.5 h-3.5" />
+          </button>
         </div>
       </header>
       )}
@@ -495,6 +510,16 @@ export default function Dashboard() {
         </div>
       </main>
 
+      {showTickerConfig && (
+        <TickerConfigModal
+          allSymbols={marketData}
+          selected={tickerSymbols}
+          language={language}
+          t={t}
+          onClose={() => setShowTickerConfig(false)}
+          onSave={setTickerSymbols}
+        />
+      )}
       {showSettings && (
         <SettingsModal
           initialKey={geminiKey}

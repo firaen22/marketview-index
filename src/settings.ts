@@ -14,6 +14,7 @@ interface MarketFlowSettings {
     showFunds: boolean;
     geminiKey: string;
     presentSlide: PresentSlide;
+    tickerSymbols: string[] | null;
 }
 
 const DEFAULT_SLIDE: PresentSlide = {
@@ -28,6 +29,7 @@ const DEFAULTS: MarketFlowSettings = {
     showFunds: true,
     geminiKey: '',
     presentSlide: DEFAULT_SLIDE,
+    tickerSymbols: null,
 };
 
 /**
@@ -52,6 +54,7 @@ export function getSettings(): MarketFlowSettings {
         })(),
         geminiKey: localStorage.getItem('user_gemini_key') || DEFAULTS.geminiKey,
         presentSlide: DEFAULTS.presentSlide,
+        tickerSymbols: DEFAULTS.tickerSymbols,
     };
     if (migrated.lang !== 'en' && migrated.lang !== 'zh-TW') migrated.lang = DEFAULTS.lang;
     if (migrated.chartMode !== 'nominal' && migrated.chartMode !== 'percent') migrated.chartMode = DEFAULTS.chartMode;

@@ -94,5 +94,14 @@ export default {
         toggle: '切換排序方式',
         highToLow: '高至低排序',
         lowToHigh: '低至高排序'
+    },
+    tickerConfig: {
+        title: '頂部報價條',
+        open: '設定頂部報價條',
+        showingAll: '顯示全部指標',
+        selected: '已選擇',
+        selectAll: '全選',
+        clear: '清除',
+        cancel: '取消'
     }
 };

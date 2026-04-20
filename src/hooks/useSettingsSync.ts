@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 type SettingsPayload = Partial<{
   lang: 'en' | 'zh-TW';
   chartMode: 'nominal' | 'percent';
+  tickerSymbols: string[] | null;
 }>;
 
 /**
@@ -33,6 +34,9 @@ export function useSettingsSync(
         }
         if (updated.chartMode === 'nominal' || updated.chartMode === 'percent') {
           payload.chartMode = updated.chartMode;
+        }
+        if (updated.tickerSymbols === null || Array.isArray(updated.tickerSymbols)) {
+          payload.tickerSymbols = updated.tickerSymbols;
         }
         callbackRef.current(payload);
       } catch {

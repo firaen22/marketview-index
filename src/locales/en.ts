@@ -94,5 +94,14 @@ export default {
         toggle: 'Toggle sort order',
         highToLow: 'High to Low',
         lowToHigh: 'Low to High'
+    },
+    tickerConfig: {
+        title: 'Header Ticker',
+        open: 'Configure header ticker',
+        showingAll: 'Showing all symbols',
+        selected: 'selected',
+        selectAll: 'Select all',
+        clear: 'Clear',
+        cancel: 'Cancel'
     }
 };
