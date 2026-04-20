@@ -15,6 +15,7 @@ import { TickerItem } from './components/TickerItem';
 import { NewsSection } from './components/NewsSection';
 import { SettingsModal } from './components/SettingsModal';
 import { TickerConfigModal } from './components/TickerConfigModal';
+import { TimeRangeSelector } from './components/TimeRangeSelector';
 import { cn, getSettings, setSetting } from './utils';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useDashboardData } from './hooks/useDashboardData';
@@ -342,22 +343,7 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                <div className="flex items-center bg-zinc-900/80 p-1 rounded-lg border border-zinc-800/80 backdrop-blur-md">
-                  {['1M', '3M', 'YTD', '1Y'].map(range => (
-                    <button
-                      key={range}
-                      onClick={() => setTimeRange(range)}
-                      className={cn(
-                        "px-3 py-1 text-xs font-mono font-medium rounded-md transition-all duration-200 relative",
-                        timeRange === range
-                          ? "bg-zinc-800 text-zinc-100 shadow-sm"
-                          : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
-                      )}
-                    >
-                      {range}
-                    </button>
-                  ))}
-                </div>
+                <TimeRangeSelector value={timeRange} onChange={setTimeRange} variant="subtle" />
               </div>
 
               {fallbackMessage && (

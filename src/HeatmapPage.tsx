@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, Loader2, RefreshCcw, ArrowLeft, Maximize2, Minimize2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
+import { TimeRangeSelector } from './components/TimeRangeSelector';
 import { cn, getSettings, setSetting } from './utils';
 import type { IndexData } from './types';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -132,22 +133,7 @@ export default function HeatmapPage() {
                         </button>
                     </div>
 
-                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 backdrop-blur-md">
-                        {['1M', '3M', 'YTD', '1Y'].map(range => (
-                            <button
-                                key={range}
-                                onClick={() => setTimeRange(range)}
-                                className={cn(
-                                    "px-3 py-1.5 text-xs font-mono font-bold rounded-lg transition-all duration-200",
-                                    timeRange === range
-                                        ? "bg-zinc-800 text-zinc-100 shadow-sm"
-                                        : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
-                                )}
-                            >
-                                {range}
-                            </button>
-                        ))}
-                    </div>
+                    <TimeRangeSelector value={timeRange} onChange={setTimeRange} variant="default" />
 
                     <button
                         onClick={() => {

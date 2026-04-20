@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { Wallet, LayoutDashboard, Loader2, RefreshCcw, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './components/MarketStatCard';
+import { TimeRangeSelector } from './components/TimeRangeSelector';
 import { cn, getSettings, setSetting } from './utils';
 import MarketHeatmap from './MarketHeatmap';
 import type { IndexData } from './types';
@@ -55,22 +56,7 @@ export default function FundsPage() {
                 </div>
 
                 <div className="flex items-center gap-4">
-                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 backdrop-blur-md mr-2">
-                        {['1M', '3M', 'YTD', '1Y'].map(range => (
-                            <button
-                                key={range}
-                                onClick={() => setTimeRange(range)}
-                                className={cn(
-                                    "px-3 py-1.5 text-xs font-mono font-bold rounded-lg transition-all duration-200",
-                                    timeRange === range
-                                        ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20"
-                                        : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
-                                )}
-                            >
-                                {range}
-                            </button>
-                        ))}
-                    </div>
+                    <TimeRangeSelector value={timeRange} onChange={setTimeRange} variant="blue" className="mr-2" />
                     <button
                         onClick={() => {
                             const nextMode = chartMode === 'nominal' ? 'percent' : 'nominal';
