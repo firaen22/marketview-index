@@ -1,4 +1,13 @@
 const SETTINGS_KEY = 'marketflow_settings';
+const LEGACY_KEYS = ['marketflow_lang', 'marketflow_chart_mode', 'marketflow_show_funds', 'user_gemini_key'] as const;
+
+/**
+ * localStorage key builder for per-(range,lang) market-data cache entries
+ * consumed by `useDashboardData`. Keeping the format in one place so the
+ * cache layout stays consistent across readers/writers.
+ */
+export const marketCacheKey = (range: string, lang: 'en' | 'zh-TW') =>
+    `marketflow_cache_${range}_${lang}`;
 
 export type PresentSlideMode = 'markdown' | 'html' | 'url' | 'pdf';
 
@@ -60,9 +69,7 @@ export function getSettings(): MarketFlowSettings {
     if (migrated.chartMode !== 'nominal' && migrated.chartMode !== 'percent') migrated.chartMode = DEFAULTS.chartMode;
 
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(migrated));
-    ['marketflow_lang', 'marketflow_chart_mode', 'marketflow_show_funds', 'user_gemini_key'].forEach(k =>
-        localStorage.removeItem(k)
-    );
+    LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
     return migrated;
 }
 

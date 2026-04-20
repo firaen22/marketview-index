@@ -7,13 +7,7 @@ import MarketHeatmap from './MarketHeatmap';
 import type { IndexData } from './types';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useMarketData } from './hooks/useMarketData';
-import localeEn from './locales/en';
-import localeZhTW from './locales/zh-TW';
-
-const DICTIONARY: Record<string, any> = {
-    en: localeEn,
-    'zh-TW': localeZhTW,
-};
+import { getLocale } from './locales';
 
 export default function FundsPage() {
     const initialSettings = React.useMemo(() => getSettings(), []);
@@ -32,7 +26,7 @@ export default function FundsPage() {
         if (chartMode) setChartMode(chartMode);
     });
 
-    const baseT = DICTIONARY[language] || DICTIONARY.en;
+    const baseT = getLocale(language);
 
     const indexNames = marketData.reduce<Record<string, string>>((acc, fund) => {
         acc[fund.name] = language === 'en' ? (fund.nameEn || fund.name) : fund.name;

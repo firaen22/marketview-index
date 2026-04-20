@@ -5,8 +5,7 @@ import { getSettings } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
-import enLocale from './locales/en.ts';
-import zhLocale from './locales/zh-TW.ts';
+import { getLocale } from './locales';
 import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
@@ -39,7 +38,7 @@ export default function PresentationPage() {
         if (nextSymbols !== undefined) setTickerSymbols(nextSymbols);
     });
 
-    const t = { ...(lang === 'zh-TW' ? zhLocale : enLocale), language: lang, activeRange: 'YTD' };
+    const t = { ...getLocale(lang), language: lang, activeRange: 'YTD' };
 
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
 

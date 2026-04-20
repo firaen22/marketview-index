@@ -18,14 +18,7 @@ import { TickerConfigModal } from './components/TickerConfigModal';
 import { cn, getSettings, setSetting } from './utils';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useDashboardData } from './hooks/useDashboardData';
-import localeEn from './locales/en';
-import localeZhTW from './locales/zh-TW';
-
-// --- Localization (loaded from src/locales/) ---
-const DICTIONARY: Record<'en' | 'zh-TW', typeof localeEn> = {
-  en: localeEn,
-  'zh-TW': localeZhTW
-};
+import { getLocale } from './locales';
 
 export default function Dashboard() {
   const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
@@ -46,9 +39,8 @@ export default function Dashboard() {
     if (tickerSymbols !== undefined) setTickerSymbols(tickerSymbols);
   });
 
-  const baseT = DICTIONARY[language] || DICTIONARY.en;
   const t = {
-    ...baseT,
+    ...getLocale(language),
     language,
     activeRange: timeRange,
   };

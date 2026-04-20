@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { IndexData, NewsItem } from '../types';
+import { marketCacheKey } from '../settings';
 
 interface Options {
     timeRange: string;
@@ -70,7 +71,7 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
         forceRefresh: boolean,
         overrideLang: 'en' | 'zh-TW'
     ) => {
-        const CACHE_KEY = `marketflow_cache_${rangeStr}_${overrideLang}`;
+        const CACHE_KEY = marketCacheKey(rangeStr, overrideLang);
         if (!isBackground) {
             setIsLoading(true);
             setIsError(false);
