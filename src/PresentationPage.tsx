@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
-import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, deletePdf, type PresentSlide, type PresentSlideMode } from './utils';
+import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, deletePdf, StaleSaveError, type PresentSlide, type PresentSlideMode } from './utils';
 import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
 import zhLocale from './locales/zh-TW.ts';
@@ -156,15 +156,23 @@ export default function PresentationPage() {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         setCloudStatus('saving');
         saveTimerRef.current = window.setTimeout(() => {
-            saveRemoteSlide(merged).then(() => {
-                setCloudStatus('ok');
-                setLastSavedAt(Date.now());
-                window.setTimeout(() => setCloudStatus('idle'), 2000);
-            }).catch(() => {
-                setCloudStatus('error');
-                window.setTimeout(() => setCloudStatus('idle'), 3000);
-            });
+            doRemoteSave(merged);
         }, SAVE_DEBOUNCE_MS);
+    };
+
+    const doRemoteSave = (s: PresentSlide) => {
+        if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+        setCloudStatus('saving');
+        saveRemoteSlide(s).then(() => {
+            setCloudStatus('ok');
+            setLastSavedAt(Date.now());
+            window.setTimeout(() => setCloudStatus('idle'), 2000);
+        }).catch((e) => {
+            // Superseded by newer save — not a real failure, let the newer one drive UI state
+            if (e instanceof StaleSaveError) return;
+            setCloudStatus('error');
+            window.setTimeout(() => setCloudStatus('idle'), 3000);
+        });
     };
 
     useEffect(() => () => {
@@ -313,9 +321,20 @@ export default function PresentationPage() {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
                     <h2 className="text-sm font-mono tracking-widest text-zinc-300">SLIDE EDITOR</h2>
                     <div className="flex items-center gap-2">
-                        {cloudStatus === 'saving' && <span className="text-xs text-zinc-400 animate-pulse">☁ saving…</span>}
-                        {cloudStatus === 'ok' && <span className="text-xs text-emerald-400">☁ saved</span>}
-                        {cloudStatus === 'error' && <span className="text-xs text-rose-400">☁ failed</span>}
+                        <button
+                            onClick={() => doRemoteSave(slide)}
+                            disabled={cloudStatus === 'saving'}
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition
+                                ${cloudStatus === 'saving' ? 'bg-zinc-700 text-zinc-400 cursor-wait'
+                                : cloudStatus === 'ok' ? 'bg-emerald-600 text-white'
+                                : cloudStatus === 'error' ? 'bg-rose-600 text-white hover:bg-rose-500'
+                                : 'bg-zinc-700 text-zinc-200 hover:bg-zinc-600'}`}
+                        >
+                            {cloudStatus === 'saving' ? '↑ Saving…'
+                                : cloudStatus === 'ok' ? '✓ Saved'
+                                : cloudStatus === 'error' ? '✕ Retry'
+                                : '↑ Save'}
+                        </button>
                         <button
                             onClick={() => setEditorOpen(false)}
                             className="p-1 rounded hover:bg-zinc-800 text-zinc-500"

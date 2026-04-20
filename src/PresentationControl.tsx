@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, deletePdf, type PresentSlide, type PresentSlideMode } from './utils';
+import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, deletePdf, StaleSaveError, type PresentSlide, type PresentSlideMode } from './utils';
 import { SlideRenderer } from './components/SlideRenderer';
 import { PdfUploader } from './components/PdfUploader';
 
@@ -91,15 +91,23 @@ export default function PresentationControl() {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         setCloudStatus('saving');
         saveTimerRef.current = window.setTimeout(() => {
-            saveRemoteSlide(next).then(() => {
-                setCloudStatus('ok');
-                setLastSavedAt(Date.now());
-                window.setTimeout(() => setCloudStatus('idle'), 2000);
-            }).catch(() => {
-                setCloudStatus('error');
-                window.setTimeout(() => setCloudStatus('idle'), 3000);
-            });
+            doRemoteSave(next);
         }, SAVE_DEBOUNCE_MS);
+    };
+
+    const doRemoteSave = (s: PresentSlide) => {
+        if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+        setCloudStatus('saving');
+        saveRemoteSlide(s).then(() => {
+            setCloudStatus('ok');
+            setLastSavedAt(Date.now());
+            window.setTimeout(() => setCloudStatus('idle'), 2000);
+        }).catch((e) => {
+            // Superseded by newer save — not a real failure, let the newer one drive UI state
+            if (e instanceof StaleSaveError) return;
+            setCloudStatus('error');
+            window.setTimeout(() => setCloudStatus('idle'), 3000);
+        });
     };
 
     useEffect(() => () => {
@@ -132,9 +140,20 @@ export default function PresentationControl() {
                     <h1 className="text-sm font-mono tracking-widest text-zinc-300">PRESENTATION · CONTROL</h1>
                 </div>
                 <div className="flex items-center gap-3">
-                    {cloudStatus === 'saving' && <span className="text-xs text-zinc-400 animate-pulse">☁ saving…</span>}
-                    {cloudStatus === 'ok' && <span className="text-xs text-emerald-400">☁ saved to cloud</span>}
-                    {cloudStatus === 'error' && <span className="text-xs text-rose-400">☁ save failed</span>}
+                    <button
+                        onClick={() => doRemoteSave(slide)}
+                        disabled={cloudStatus === 'saving'}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition
+                            ${cloudStatus === 'saving' ? 'bg-zinc-700 text-zinc-400 cursor-wait'
+                            : cloudStatus === 'ok' ? 'bg-emerald-600 text-white'
+                            : cloudStatus === 'error' ? 'bg-rose-600 text-white hover:bg-rose-500'
+                            : 'bg-zinc-700 text-zinc-200 hover:bg-zinc-600'}`}
+                    >
+                        {cloudStatus === 'saving' ? '↑ Saving…'
+                            : cloudStatus === 'ok' ? '✓ Saved to cloud'
+                            : cloudStatus === 'error' ? '✕ Retry save'
+                            : '↑ Save to cloud'}
+                    </button>
                     <button
                         onClick={() => {
                             const w = screen.availWidth;
