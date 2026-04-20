@@ -1,0 +1,40 @@
+import { useEffect } from 'react';
+
+interface Handlers {
+    onEdit: () => void;
+    onFullscreen: () => void;
+    onCycleStrip: () => void;
+    onToggleView: () => void;
+    onToggleQuote: () => void;
+    onToggleHints: () => void;
+    onEscape: () => void;
+}
+
+export function useKeyboardShortcuts(handlers: Handlers) {
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement;
+            if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return;
+
+            if (e.key === 'e' || e.key === 'E') handlers.onEdit();
+            if (e.key === 'f' || e.key === 'F') handlers.onFullscreen();
+            if (e.key === 's' || e.key === 'S') handlers.onCycleStrip();
+            if (e.key === 'i' || e.key === 'I') handlers.onToggleView();
+            if (e.key === 'q' || e.key === 'Q') handlers.onToggleQuote();
+            if (e.key === '?' || e.key === '/') handlers.onToggleHints();
+            if (e.key === 'Escape') handlers.onEscape();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    // handlers object is re-created each render; stable via the deps below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        handlers.onEdit,
+        handlers.onFullscreen,
+        handlers.onCycleStrip,
+        handlers.onToggleView,
+        handlers.onToggleQuote,
+        handlers.onToggleHints,
+        handlers.onEscape,
+    ]);
+}

@@ -6,14 +6,16 @@ import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
 import { getLocale } from './locales';
-import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
+import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
 import type { IndexData } from './types';
 import { STRIP_MODES, type StripMode } from './constants';
 import { useMarketData } from './hooks/useMarketData';
 import { QuotePanel } from './components/QuotePanel';
+import { QuotePickerModal } from './components/QuotePickerModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 
 export default function PresentationPage() {
@@ -61,30 +63,15 @@ export default function PresentationPage() {
         return () => document.removeEventListener('fullscreenchange', onFs);
     }, []);
 
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            // Ignore shortcuts while typing in textarea/input
-            const target = e.target as HTMLElement;
-            if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return;
-
-            if (e.key === 'e' || e.key === 'E') setEditorOpen(o => !o);
-            if (e.key === 'f' || e.key === 'F') toggleFullscreen();
-            if (e.key === 's' || e.key === 'S') {
-                setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length]);
-            }
-            if (e.key === 'i' || e.key === 'I') setMainView(v => v === 'slide' ? 'index' : 'slide');
-            if (e.key === 'q' || e.key === 'Q') setQuoteOpen(o => !o);
-            if (e.key === '?' || e.key === '/') setShowHints(s => !s);
-            if (e.key === 'Escape') {
-                setEditorOpen(false);
-                setShowHints(false);
-                setQuoteOpen(false);
-                setPinnedQuotes([]);
-            }
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [toggleFullscreen]);
+    useKeyboardShortcuts({
+        onEdit: useCallback(() => setEditorOpen(o => !o), []),
+        onFullscreen: toggleFullscreen,
+        onCycleStrip: useCallback(() => setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length]), []),
+        onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
+        onToggleQuote: useCallback(() => setQuoteOpen(o => !o), []),
+        onToggleHints: useCallback(() => setShowHints(s => !s), []),
+        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); setQuoteOpen(false); setPinnedQuotes([]); }, []),
+    });
 
     const pinnedRaw = tickerSymbols !== null
         ? marketData.filter(d => tickerSymbols.includes(d.symbol))
@@ -255,51 +242,17 @@ export default function PresentationPage() {
 
             {/* Quote picker overlay */}
             {quoteOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                    <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-[460px] p-4 max-h-[80vh] flex flex-col">
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-xs font-mono tracking-widest text-zinc-400">QUICK QUOTES</span>
-                                <span className="text-[10px] text-zinc-600">{pinnedQuotes.length} pinned</span>
-                            </div>
-                            <button onClick={() => setQuoteOpen(false)} className="p-1 rounded hover:bg-zinc-800 text-zinc-500"><X className="w-3.5 h-3.5" /></button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-1">
-                            {marketData.map(d => {
-                                const up = d.changePercent >= 0;
-                                const isPinned = pinnedQuotes.some(p => p.symbol === d.symbol);
-                                return (
-                                    <button
-                                        key={d.symbol}
-                                        onClick={() => setPinnedQuotes(prev =>
-                                            prev.some(p => p.symbol === d.symbol)
-                                                ? prev.filter(p => p.symbol !== d.symbol)
-                                                : [...prev, d]
-                                        )}
-                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border transition text-left ${
-                                            isPinned
-                                                ? 'bg-emerald-500/15 border-emerald-500/40 hover:bg-emerald-500/20'
-                                                : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700'
-                                        }`}
-                                    >
-                                        <div>
-                                            <div className="text-xs font-semibold text-zinc-200 truncate max-w-[120px]">{d.name}</div>
-                                            <div className="text-[10px] text-zinc-500 font-mono">{d.symbol}</div>
-                                        </div>
-                                        <div className={`text-xs font-mono font-bold ${up ? 'text-emerald-400' : 'text-red-400'}`}>
-                                            {up ? '+' : ''}{d.changePercent?.toFixed(2)}%
-                                        </div>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        {pinnedQuotes.length > 0 && (
-                            <button onClick={() => setPinnedQuotes([])} className="mt-3 w-full text-xs text-zinc-600 hover:text-zinc-400 text-center">
-                                Clear all pinned ({pinnedQuotes.length})
-                            </button>
-                        )}
-                    </div>
-                </div>
+                <QuotePickerModal
+                    marketData={marketData}
+                    pinnedQuotes={pinnedQuotes}
+                    onToggle={d => setPinnedQuotes(prev =>
+                        prev.some(p => p.symbol === d.symbol)
+                            ? prev.filter(p => p.symbol !== d.symbol)
+                            : [...prev, d]
+                    )}
+                    onClearAll={() => setPinnedQuotes([])}
+                    onClose={() => setQuoteOpen(false)}
+                />
             )}
 
 
