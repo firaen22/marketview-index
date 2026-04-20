@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
 import { cn, getSettings, setSetting } from './utils';
 import type { IndexData, MarketDataResponse } from './types';
+import { useSettingsSync } from './hooks/useSettingsSync';
 
 const HeatmapLegend = () => (
     <div className="flex items-center gap-1 mt-6 justify-center bg-zinc-950/50 py-2 px-4 rounded-full border border-zinc-800/80 w-max mx-auto shadow-lg">
@@ -23,18 +24,9 @@ export default function HeatmapPage() {
     const [timeRange, setTimeRange] = useState<string>('YTD');
     const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => getSettings().lang);
 
-    useEffect(() => {
-        const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === 'marketflow_settings' && e.newValue) {
-                try {
-                    const updated = JSON.parse(e.newValue);
-                    if (updated.lang === 'en' || updated.lang === 'zh-TW') setLanguage(updated.lang);
-                } catch { /* ignore */ }
-            }
-        };
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
+    useSettingsSync(({ lang }) => {
+        if (lang) setLanguage(lang);
+    });
 
     const fetchData = async (currentRange = timeRange, force = false) => {
         setIsLoading(true);

@@ -17,6 +17,7 @@ import { NewsCard } from './components/NewsCard';
 import { DailyPulse } from './components/DailyPulse';
 import type { IndexData, NewsItem } from './types';
 import { cn, getSettings, setSetting } from './utils';
+import { useSettingsSync } from './hooks/useSettingsSync';
 import localeEn from './locales/en';
 import localeZhTW from './locales/zh-TW';
 
@@ -40,19 +41,10 @@ export default function Dashboard() {
   const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
 
   // Cross-tab synchronization via consolidated settings key
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'marketflow_settings' && e.newValue) {
-        try {
-          const updated = JSON.parse(e.newValue);
-          if (updated.lang === 'en' || updated.lang === 'zh-TW') setLanguage(updated.lang);
-          if (updated.chartMode === 'nominal' || updated.chartMode === 'percent') setChartMode(updated.chartMode);
-        } catch { /* ignore parse errors */ }
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+  useSettingsSync(({ lang, chartMode }) => {
+    if (lang) setLanguage(lang);
+    if (chartMode) setChartMode(chartMode);
+  });
 
   const baseT = DICTIONARY[language] || DICTIONARY.en;
   const t = {

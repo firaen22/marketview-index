@@ -5,6 +5,7 @@ import { MarketStatCard } from './components/MarketStatCard';
 import { cn, getSettings, setSetting } from './utils';
 import MarketHeatmap from './MarketHeatmap';
 import type { IndexData, MarketDataResponse } from './types';
+import { useSettingsSync } from './hooks/useSettingsSync';
 
 const DICTIONARY: Record<string, any> = {
     en: {
@@ -70,19 +71,10 @@ export default function FundsPage() {
         fetchFunds(timeRange);
     }, [timeRange]);
 
-    useEffect(() => {
-        const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === 'marketflow_settings' && e.newValue) {
-                try {
-                    const updated = JSON.parse(e.newValue);
-                    if (updated.lang === 'en' || updated.lang === 'zh-TW') setLanguage(updated.lang);
-                    if (updated.chartMode === 'nominal' || updated.chartMode === 'percent') setChartMode(updated.chartMode);
-                } catch { /* ignore */ }
-            }
-        };
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
+    useSettingsSync(({ lang, chartMode }) => {
+        if (lang) setLanguage(lang);
+        if (chartMode) setChartMode(chartMode);
+    });
 
     const baseT = DICTIONARY[language] || DICTIONARY.en;
 
