@@ -15,9 +15,9 @@ import { TickerItem } from './components/TickerItem';
 import { NewsSection } from './components/NewsSection';
 import { SettingsModal } from './components/SettingsModal';
 import { TickerConfigModal } from './components/TickerConfigModal';
-import type { IndexData, NewsItem } from './types';
 import { cn, getSettings, setSetting } from './utils';
 import { useSettingsSync } from './hooks/useSettingsSync';
+import { useDashboardData } from './hooks/useDashboardData';
 import localeEn from './locales/en';
 import localeZhTW from './locales/zh-TW';
 
@@ -30,7 +30,6 @@ const DICTIONARY: Record<'en' | 'zh-TW', typeof localeEn> = {
 export default function Dashboard() {
   const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [isNewsOnly, setIsNewsOnly] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -54,16 +53,6 @@ export default function Dashboard() {
     activeRange: timeRange,
   };
 
-  const [marketData, setMarketData] = useState<IndexData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isError, setIsError] = useState(false);
-  const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
-
-  const [newsData, setNewsData] = useState<NewsItem[]>([]);
-  const [isNewsLoading, setIsNewsLoading] = useState(true);
-  const [isAiTranslated, setIsAiTranslated] = useState(true);
-  const [marketSummary, setMarketSummary] = useState<string>('');
-
   const [showSettings, setShowSettings] = useState(false);
   const [geminiKey, setGeminiKey] = useState(initialSettings.geminiKey);
 
@@ -71,11 +60,17 @@ export default function Dashboard() {
   const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
   const [showTickerConfig, setShowTickerConfig] = useState(false);
 
+  const {
+    marketData, isLoading, isError, fallbackMessage, lastUpdated,
+    newsData, isNewsLoading, isAiTranslated, marketSummary,
+    refresh, refreshNewsWithKey,
+  } = useDashboardData({ timeRange, language, geminiKey, lastUpdatedLabel: t.lastUpdated });
+
   const saveGeminiKey = (key: string) => {
     setSetting('geminiKey', key);
     setGeminiKey(key);
     setShowSettings(false);
-    fetchNewsData(language, key, false, true);
+    refreshNewsWithKey(key);
   };
 
   const toggleLanguage = () => {
@@ -83,101 +78,6 @@ export default function Dashboard() {
     setLanguage(nextLang);
     setSetting('lang', nextLang);
   };
-
-  const fetchMarketData = async (rangeStr = timeRange, isBackground = false, forceRefresh = false, overrideLang = language) => {
-    const CACHE_KEY = `marketflow_cache_${rangeStr}_${overrideLang}`;
-
-    if (!isBackground) {
-      setIsLoading(true);
-      setIsError(false);
-      setFallbackMessage(null);
-    }
-
-    try {
-      const url = `/api/market-data?t=${new Date().getTime()}&range=${rangeStr}&lang=${overrideLang}${forceRefresh ? '&refresh=true' : ''}`;
-      const response = await fetch(url);
-      const result = await response.json();
-
-      if (result.data && Array.isArray(result.data)) {
-        setMarketData(result.data);
-
-        if (!result.success || result.source === 'server_stale_cache') {
-          const timeStr = new Date(result.timestamp).toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined);
-          setFallbackMessage(language === 'en'
-            ? `Could not get latest data, showing backend last updated: ${timeStr} (Global data frozen)`
-            : `無法取得最新資料，顯示後端最後更新時間：${timeStr} (全局資料已凍結)`);
-        } else {
-          setLastUpdated(new Date(result.timestamp));
-          localStorage.setItem(CACHE_KEY, JSON.stringify({
-            timestamp: new Date().getTime(),
-            data: result.data
-          }));
-        }
-      } else {
-        throw new Error(result.error || "Failed to fetch data");
-      }
-    } catch (err: any) {
-      console.error('Failed to fetch market data:', err);
-      handleFallback(CACHE_KEY, language === 'en' ? 'Server connection failed. Showing device local cache.' : '伺服器連線失敗。顯示裝置本地快取。');
-    } finally {
-      if (!isBackground) setIsLoading(false);
-    }
-  };
-
-  const handleFallback = (cacheKey: string, message: string) => {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      try {
-        const { data, timestamp } = JSON.parse(cached);
-        const timeStr = new Date(timestamp).toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined);
-        setMarketData(data);
-        setLastUpdated(new Date(timestamp));
-        setFallbackMessage(`${message} (${t.lastUpdated}: ${timeStr})`);
-      } catch (e) {
-        setIsError(true);
-        setMarketData([]);
-      }
-    } else {
-      setIsError(true);
-      setMarketData([]);
-    }
-  }
-
-  const fetchNewsData = async (langStr = language, overrideKey?: string, isBackground = false, forceRefresh = false) => {
-    if (!isBackground) setIsNewsLoading(true);
-    const activeKey = overrideKey !== undefined ? overrideKey : geminiKey;
-
-    try {
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (activeKey) headers['Authorization'] = `Bearer ${activeKey}`;
-
-      const url = `/api/market-news?t=${new Date().getTime()}&lang=${langStr}${forceRefresh ? '&refresh=true' : ''}`;
-      const response = await fetch(url, { headers });
-      const result = await response.json();
-      setIsAiTranslated(result.isAiTranslated !== false);
-      setMarketSummary(result.marketSummary || '');
-
-      if (result.data && Array.isArray(result.data)) {
-        setNewsData(result.data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch news data:', err);
-    } finally {
-      if (!isBackground) setIsNewsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchMarketData(timeRange, false, false, language);
-    fetchNewsData(language);
-
-    const pollInterval = setInterval(() => {
-      fetchMarketData(timeRange, true, false, language);
-      fetchNewsData(language, undefined, true, false);
-    }, 60 * 60 * 1000);
-
-    return () => clearInterval(pollInterval);
-  }, [timeRange, language]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -324,10 +224,7 @@ export default function Dashboard() {
               </Link>
             </div>
             <button
-              onClick={() => {
-                fetchMarketData(timeRange, false, true);
-                fetchNewsData(language, undefined, false, true);
-              }}
+              onClick={refresh}
               className={cn("p-2 hover:bg-zinc-900 rounded-full transition-all text-zinc-400 hover:text-zinc-100", (isLoading || isNewsLoading) && "animate-spin")}
               disabled={isLoading || isNewsLoading}
               title={t.refresh}
