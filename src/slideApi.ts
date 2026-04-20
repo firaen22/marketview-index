@@ -1,5 +1,4 @@
 import type { PresentSlide } from './settings';
-import { upload } from '@vercel/blob/client';
 
 const API_KEY = (import.meta as any).env?.VITE_PRESENT_API_KEY as string | undefined;
 
@@ -22,11 +21,16 @@ export async function loadRemoteSlide(): Promise<PresentSlide | null> {
 }
 
 export async function deletePdf(url: string): Promise<void> {
-    if (!url || !/^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\//i.test(url)) return;
+    // url is /api/pdf-proxy?key=<key> — extract the key
+    if (!url) return;
     try {
+        const key = url.startsWith('/api/pdf-proxy')
+            ? new URL(url, 'http://localhost').searchParams.get('key')
+            : null;
+        if (!key) return;
         await fetch('/api/present-pdf', {
             method: 'DELETE',
-            headers: { 'x-blob-url': url, ...authHeaders() },
+            headers: { 'x-r2-key': key, ...authHeaders() },
         });
     } catch {
         // Best-effort cleanup — don't block UX on failure
@@ -34,16 +38,27 @@ export async function deletePdf(url: string): Promise<void> {
 }
 
 export async function uploadPdf(file: File): Promise<string> {
-    // Direct client → Vercel Blob upload. Bypasses Vercel's 4.5 MB function
-    // payload limit — our function only signs the upload token.
-    // Auth key is passed via clientPayload since upload() doesn't support custom headers.
-    const blob = await upload(file.name, file, {
-        access: 'public',
-        handleUploadUrl: '/api/present-pdf',
-        contentType: 'application/pdf',
-        clientPayload: API_KEY ?? null,
+    // Step 1: get a presigned PUT URL from our server
+    const tokenRes = await fetch('/api/present-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ filename: file.name, size: file.size }),
     });
-    return blob.url;
+    if (!tokenRes.ok) {
+        const err = await tokenRes.json().catch(() => ({ error: tokenRes.statusText }));
+        throw new Error(err.error || 'Failed to get upload URL');
+    }
+    const { uploadUrl, proxyUrl } = await tokenRes.json();
+
+    // Step 2: PUT directly to R2 — bypasses Vercel's 4.5 MB function limit
+    const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/pdf' },
+        body: file,
+    });
+    if (!uploadRes.ok) throw new Error(`R2 upload failed (${uploadRes.status})`);
+
+    return proxyUrl;
 }
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];

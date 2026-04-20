@@ -1,77 +1,107 @@
-import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
-import { del } from '@vercel/blob';
+import { S3Client, DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import crypto from 'crypto';
 
-// Hard cap on uploaded PDF size — Vercel Blob supports much larger, but we
-// keep slides reasonable. Bump if you need bigger.
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+const PRESIGN_TTL_SECONDS = 300; // 5 min window to complete the upload
 
-type AuthResult = { ok: true } | { ok: false; code: number; error: string };
+function getR2Client() {
+    return new S3Client({
+        region: 'auto',
+        endpoint: process.env.CLOUDFLARE_R2_ENDPOINT!,
+        credentials: {
+            accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID!,
+            secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY!,
+        },
+    });
+}
 
-function authorize(req: any): AuthResult {
+function isR2Configured(): boolean {
+    return !!(
+        process.env.CLOUDFLARE_R2_ENDPOINT &&
+        process.env.CLOUDFLARE_R2_ACCESS_KEY_ID &&
+        process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY &&
+        process.env.CLOUDFLARE_R2_BUCKET_NAME
+    );
+}
+
+function authorize(req: any): boolean {
     const requiredKey = process.env.PRESENT_API_KEY;
-    if (!requiredKey) return { ok: true };
-    const providedKey = req.headers['x-api-key'];
-    if (providedKey !== requiredKey) return { ok: false, code: 401, error: 'Unauthorized' };
-    return { ok: true };
+    if (!requiredKey) return true;
+    return req.headers['x-api-key'] === requiredKey;
+}
+
+function sanitizeFilename(name: string): string {
+    const stripped = name.replace(/^.*[\\/]/, '');
+    const cleaned = stripped.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 128);
+    return cleaned || `slide-${Date.now()}.pdf`;
 }
 
 export default async function handler(req: any, res: any) {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-        return res.status(503).json({ error: 'Blob storage not configured (BLOB_READ_WRITE_TOKEN missing)' });
+    if (!isR2Configured()) {
+        return res.status(503).json({ error: 'R2 storage not configured' });
     }
 
-    // DELETE — remove an old blob when replacing
-    if (req.method === 'DELETE') {
-        const auth = authorize(req);
-        if (auth.ok === false) return res.status(auth.code).json({ error: auth.error });
+    if (!authorize(req)) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
 
-        const url = req.headers['x-blob-url'];
-        if (!url || typeof url !== 'string') {
-            return res.status(400).json({ error: 'x-blob-url header required' });
-        }
-        if (!/^https:\/\/[a-z0-9-]+\.public\.blob\.vercel-storage\.com\//i.test(url)) {
-            return res.status(400).json({ error: 'Invalid blob URL' });
+    const bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME!;
+
+    // DELETE — remove object from R2
+    if (req.method === 'DELETE') {
+        const key = req.headers['x-r2-key'];
+        if (!key || typeof key !== 'string') {
+            return res.status(400).json({ error: 'x-r2-key header required' });
         }
         try {
-            await del(url);
+            const client = getR2Client();
+            await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
             return res.status(200).json({ success: true });
         } catch (e: any) {
-            console.error('PDF delete error:', e);
+            console.error('R2 delete error:', e);
             return res.status(500).json({ error: e.message });
         }
     }
 
-    // POST — sign a client-direct upload URL (body bypasses this function entirely)
+    // POST — generate presigned PUT URL for direct client upload
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const body = req.body as HandleUploadBody;
-    const requiredKey = process.env.PRESENT_API_KEY;
+    let body: any;
+    try {
+        body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    } catch {
+        return res.status(400).json({ error: 'Invalid JSON body' });
+    }
+
+    const rawName = body?.filename || `slide-${Date.now()}.pdf`;
+    const filename = sanitizeFilename(rawName);
+    const suffix = crypto.randomBytes(6).toString('hex');
+    const key = `${Date.now()}-${suffix}-${filename}`;
+
+    const contentLength = Number(body?.size || 0);
+    if (contentLength > MAX_BYTES) {
+        return res.status(413).json({ error: `PDF too large. Max ${MAX_BYTES / 1024 / 1024} MB.` });
+    }
 
     try {
-        const jsonResponse = await handleUpload({
-            body,
-            request: req,
-            onBeforeGenerateToken: async (_pathname, clientPayload) => {
-                // Validate the shared secret passed via clientPayload
-                if (requiredKey && clientPayload !== requiredKey) {
-                    throw new Error('Unauthorized');
-                }
-                return {
-                    allowedContentTypes: ['application/pdf'],
-                    maximumSizeInBytes: MAX_BYTES,
-                    addRandomSuffix: true,
-                };
-            },
-            onUploadCompleted: async ({ blob }) => {
-                console.log('PDF upload completed:', blob.url);
-            },
+        const client = getR2Client();
+        const command = new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            ContentType: 'application/pdf',
+            ...(contentLength > 0 ? { ContentLength: contentLength } : {}),
         });
-        return res.status(200).json(jsonResponse);
+        const uploadUrl = await getSignedUrl(client, command, { expiresIn: PRESIGN_TTL_SECONDS });
+
+        // Proxy URL is what gets stored — never exposes R2 directly
+        const proxyUrl = `/api/pdf-proxy?key=${encodeURIComponent(key)}`;
+
+        return res.status(200).json({ uploadUrl, proxyUrl, key });
     } catch (e: any) {
-        const status = e.message === 'Unauthorized' ? 401 : 400;
-        console.error('PDF upload token error:', e);
-        return res.status(status).json({ error: e.message });
+        console.error('R2 presign error:', e);
+        return res.status(500).json({ error: e.message });
     }
 }
