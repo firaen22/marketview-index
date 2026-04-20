@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Wallet, LayoutDashboard, Loader2, RefreshCcw, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './components/MarketStatCard';
 import { cn, getSettings, setSetting } from './utils';
 import MarketHeatmap from './MarketHeatmap';
-import type { IndexData, MarketDataResponse } from './types';
+import type { IndexData } from './types';
 import { useSettingsSync } from './hooks/useSettingsSync';
+import { useMarketData } from './hooks/useMarketData';
 
 const DICTIONARY: Record<string, any> = {
     en: {
@@ -43,33 +44,16 @@ const DICTIONARY: Record<string, any> = {
 };
 
 export default function FundsPage() {
-    const [marketData, setMarketData] = useState<IndexData[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
     const initialSettings = React.useMemo(() => getSettings(), []);
     const [language, setLanguage] = useState<'en' | 'zh-TW'>(initialSettings.lang);
     const [timeRange, setTimeRange] = useState<string>('YTD');
-
     const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
 
-    const fetchFunds = async (currentRange = timeRange, force = false) => {
-        setIsLoading(true);
-        try {
-            const url = `/api/market-data?range=${currentRange}${force ? '&refresh=true' : ''}`;
-            const response = await fetch(url);
-            const result: MarketDataResponse = await response.json();
-            if (result.success) {
-                setMarketData(result.data.filter(item => item.category === 'Fund'));
-            }
-        } catch (err) {
-            console.error('Failed to fetch funds:', err);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchFunds(timeRange);
-    }, [timeRange]);
+    const fundFilter = useCallback((item: IndexData) => item.category === 'Fund', []);
+    const { data: marketData, isLoading, refresh: fetchFunds } = useMarketData({
+        range: timeRange,
+        filter: fundFilter,
+    });
 
     useSettingsSync(({ lang, chartMode }) => {
         if (lang) setLanguage(lang);
@@ -142,7 +126,7 @@ export default function FundsPage() {
                         {language === 'en' ? 'EN' : '中文'}
                     </button>
                     <button
-                        onClick={() => fetchFunds(timeRange, true)}
+                        onClick={() => fetchFunds(true)}
                         className={cn(
                             "p-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all",
                             isLoading && "animate-spin"
