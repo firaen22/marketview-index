@@ -9,7 +9,6 @@ import zhLocale from './locales/zh-TW.ts';
 import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const PINNED_SYMBOLS = ['^GSPC', '^IXIC', '^DJI', '^HSI', '^N225', 'GC=F', 'BTC-USD', 'CL=F'];
 const REFRESH_MS = 10 * 60 * 1000;
 
 type StripMode = 'compact' | 'full' | 'hidden';
@@ -99,9 +98,11 @@ export default function PresentationPage() {
         return () => window.removeEventListener('keydown', onKey);
     }, [toggleFullscreen]);
 
-    const pinned = PINNED_SYMBOLS
-        .map(sym => marketData.find(d => d.symbol === sym))
-        .filter(Boolean);
+    const { tickerSymbols } = getSettings();
+    const pinnedRaw = tickerSymbols !== null
+        ? marketData.filter(d => tickerSymbols.includes(d.symbol))
+        : marketData;
+    const pinned = pinnedRaw.length > 0 ? pinnedRaw : marketData;
 
     return (
         <div className="min-h-screen w-full bg-black text-zinc-100 flex flex-col relative">
@@ -176,7 +177,7 @@ export default function PresentationPage() {
                         ? pinned.map((item: any) => (
                             <MarketStatCard key={item.symbol} item={item} t={t} chartHeight="h-16" />
                         ))
-                        : Array.from({ length: PINNED_SYMBOLS.length }).map((_, i) => (
+                        : Array.from({ length: 8 }).map((_, i) => (
                             <div key={i} className="h-36 rounded-xl bg-zinc-900/40 animate-pulse" />
                         ))}
                 </div>
