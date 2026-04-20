@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { deletePdf, getSettings, type PresentSlideMode } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
+import { useMarketData } from './hooks/useMarketData';
 import { SlideRenderer } from './components/SlideRenderer';
 import { PdfUploader } from './components/PdfUploader';
 import { Monitor, Save, RotateCcw, Clipboard, Eye, EyeOff } from 'lucide-react';
@@ -9,16 +10,8 @@ import { MODE_HINTS, EXAMPLES } from './presentationExamples';
 
 export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning, formatRelativeTime } = useSlideSync();
-    const [marketData, setMarketData] = useState<any[]>([]);
+    const { data: marketData } = useMarketData({ range: 'YTD', lang: getSettings().lang });
     const [showPreview, setShowPreview] = useState(false);
-
-    useEffect(() => {
-        const lang = getSettings().lang;
-        fetch(`/api/market-data?t=${Date.now()}&range=YTD&lang=${lang}`)
-            .then(r => r.json())
-            .then(j => { if (j?.data) setMarketData(j.data); })
-            .catch(() => {});
-    }, []);
 
     const updateMode = (mode: PresentSlideMode) => saveSlide({ mode });
     const updateContent = (content: string) => saveSlide({ content });

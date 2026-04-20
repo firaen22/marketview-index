@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { IndexData, NewsItem } from '../types';
+import type { IndexData } from '../types';
 import { marketCacheKey } from '../settings';
+import { useNewsData } from './useNewsData';
 
 interface Options {
     timeRange: string;
@@ -15,7 +16,7 @@ interface Result {
     isError: boolean;
     fallbackMessage: string | null;
     lastUpdated: Date | null;
-    newsData: NewsItem[];
+    newsData: import('../types').NewsItem[];
     isNewsLoading: boolean;
     isAiTranslated: boolean;
     marketSummary: string;
@@ -25,15 +26,6 @@ interface Result {
 
 const POLL_MS = 60 * 60 * 1000;
 
-/**
- * Full-featured dashboard data fetcher: market data + news, with localStorage
- * cache fallback, stale-cache detection, bilingual error messages, and
- * hourly background polling.
- *
- * Not to be confused with `useMarketData` — that's the simpler variant
- * for pages (FundsPage, HeatmapPage, PresentationPage) that only need
- * market data without cache fallback or news.
- */
 export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLabel }: Options): Result {
     const [marketData, setMarketData] = useState<IndexData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -41,10 +33,8 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
     const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-    const [newsData, setNewsData] = useState<NewsItem[]>([]);
-    const [isNewsLoading, setIsNewsLoading] = useState(true);
-    const [isAiTranslated, setIsAiTranslated] = useState(true);
-    const [marketSummary, setMarketSummary] = useState<string>('');
+    const { newsData, isNewsLoading, isAiTranslated, marketSummary, fetchNews, refreshNewsWithKey } =
+        useNewsData({ language, geminiKey });
 
     const handleFallback = useCallback((cacheKey: string, message: string) => {
         const cached = localStorage.getItem(cacheKey);
@@ -108,50 +98,20 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
         }
     }, [handleFallback]);
 
-    const fetchNewsData = useCallback(async (
-        langStr: 'en' | 'zh-TW',
-        overrideKey: string | undefined,
-        isBackground: boolean,
-        forceRefresh: boolean
-    ) => {
-        if (!isBackground) setIsNewsLoading(true);
-        const activeKey = overrideKey !== undefined ? overrideKey : geminiKey;
-        try {
-            const headers: HeadersInit = { 'Content-Type': 'application/json' };
-            if (activeKey) headers['Authorization'] = `Bearer ${activeKey}`;
-            const url = `/api/market-news?t=${Date.now()}&lang=${langStr}${forceRefresh ? '&refresh=true' : ''}`;
-            const response = await fetch(url, { headers });
-            const result = await response.json();
-            setIsAiTranslated(result.isAiTranslated !== false);
-            setMarketSummary(result.marketSummary || '');
-            if (result.data && Array.isArray(result.data)) {
-                setNewsData(result.data);
-            }
-        } catch (err) {
-            console.error('Failed to fetch news data:', err);
-        } finally {
-            if (!isBackground) setIsNewsLoading(false);
-        }
-    }, [geminiKey]);
-
     useEffect(() => {
         fetchMarketData(timeRange, false, false, language);
-        fetchNewsData(language, undefined, false, false);
+        fetchNews(language, undefined, false, false);
         const id = setInterval(() => {
             fetchMarketData(timeRange, true, false, language);
-            fetchNewsData(language, undefined, true, false);
+            fetchNews(language, undefined, true, false);
         }, POLL_MS);
         return () => clearInterval(id);
-    }, [timeRange, language, fetchMarketData, fetchNewsData]);
+    }, [timeRange, language, fetchMarketData, fetchNews]);
 
     const refresh = useCallback(() => {
         fetchMarketData(timeRange, false, true, language);
-        fetchNewsData(language, undefined, false, true);
-    }, [timeRange, language, fetchMarketData, fetchNewsData]);
-
-    const refreshNewsWithKey = useCallback((key: string) => {
-        fetchNewsData(language, key, false, true);
-    }, [language, fetchNewsData]);
+        fetchNews(language, undefined, false, true);
+    }, [timeRange, language, fetchMarketData, fetchNews]);
 
     return {
         marketData, isLoading, isError, fallbackMessage, lastUpdated,
