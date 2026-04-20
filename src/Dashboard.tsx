@@ -222,7 +222,10 @@ export default function Dashboard() {
   // Rendering...
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-blue-500/30 font-sans">
+    <div
+      className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-blue-500/30 font-sans"
+      style={{ ['--dash-offset' as any]: isEmbed ? '48px' : '180px' }}
+    >
       {/* Header */}
       {!isEmbed && (
       <header className="border-b border-zinc-800 bg-black/40 backdrop-blur-xl sticky top-0 z-[100]">
@@ -391,7 +394,7 @@ export default function Dashboard() {
           {(isNewsOnly || !isPresentationMode) && (
             <div className={cn(
               "flex flex-col animate-in fade-in duration-500",
-              isNewsOnly ? "lg:col-span-12" : "lg:col-span-5 xl:col-span-4 lg:order-last h-[calc(100vh-180px)]"
+              isNewsOnly ? "lg:col-span-12" : "lg:col-span-5 xl:col-span-4 lg:order-last h-[calc(100vh-var(--dash-offset,180px))]"
             )}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold flex items-center text-balance">
@@ -454,7 +457,7 @@ export default function Dashboard() {
           {/* Right/Left Column Swapped: Index Performance (Now Primary Left Column) */}
           {!isNewsOnly && (
             <div className={cn(
-              "flex flex-col h-[calc(100vh-180px)] transition-all duration-500 ease-in-out lg:order-first",
+              "flex flex-col h-[calc(100vh-var(--dash-offset,180px))] transition-all duration-500 ease-in-out lg:order-first",
               isPresentationMode ? "col-span-1 lg:col-span-12" : "lg:col-span-7 xl:col-span-8"
             )}>
               <div className="flex items-center justify-between mb-4">

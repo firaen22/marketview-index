@@ -2,6 +2,7 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { PresentSlide } from '../utils';
 import { injectMarketTokens } from '../utils';
+import { PdfViewer } from './PdfViewer';
 
 interface Props {
     slide: PresentSlide;
@@ -36,27 +37,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     if (slide.mode === 'pdf') {
-        const scale = pdfZoom / 100;
-        return (
-            <div className="absolute inset-0 w-full h-full overflow-auto bg-zinc-950 flex items-start justify-center">
-                <div
-                    style={{
-                        width: '100%',
-                        height: '100%',
-                        transform: `scale(${scale})`,
-                        transformOrigin: 'top center',
-                        flexShrink: 0,
-                    }}
-                >
-                    <iframe
-                        key={slide.content}
-                        src={`${slide.content.trim()}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-                        className="w-full h-full border-0"
-                        title="PDF Slide"
-                    />
-                </div>
-            </div>
-        );
+        return <PdfViewer url={slide.content.trim()} zoom={pdfZoom} />;
     }
 
     if (slide.mode === 'html') {
