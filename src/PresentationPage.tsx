@@ -212,6 +212,15 @@ export default function PresentationPage() {
                     />
                 )}
 
+                {/* Index hint — shown on PDF slide to surface the toggle */}
+                {mainView === 'slide' && slide.mode === 'pdf' && slide.content && (
+                    <div className="absolute top-3 left-3 z-20 pointer-events-none">
+                        <span className="text-[10px] font-mono text-zinc-600 bg-black/60 px-2 py-0.5 rounded">
+                            Press <kbd className="text-emerald-500">I</kbd> or click <kbd className="text-emerald-500">⊞</kbd> to toggle index
+                        </span>
+                    </div>
+                )}
+
                 {/* Zoom controls — shown for pdf and html modes */}
                 {mainView === 'slide' && (slide.mode === 'pdf' || slide.mode === 'html') && (
                     <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">
@@ -303,11 +312,12 @@ export default function PresentationPage() {
                         <button
                             onClick={() => {
                                 if (slide.mode === 'pdf' && slide.content) deletePdf(slide.content);
-                                saveSlide({ content: '' });
+                                saveSlide({ mode: 'markdown', content: '' });
                             }}
-                            className="text-xs px-2 py-1.5 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
+                            className="text-xs px-2 py-1.5 bg-rose-900/60 border border-rose-800/50 rounded text-rose-300 hover:bg-rose-800/60"
+                            title="Clear content and reset to Markdown mode"
                         >
-                            Clear
+                            Reset
                         </button>
                     </div>
 

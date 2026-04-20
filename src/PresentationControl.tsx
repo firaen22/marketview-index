@@ -121,11 +121,12 @@ export default function PresentationControl() {
                         <button
                             onClick={() => {
                                 if (slide.mode === 'pdf' && slide.content) deletePdf(slide.content);
-                                updateContent('');
+                                saveSlide({ mode: 'markdown', content: '' });
                             }}
-                            className="text-xs px-2 py-1 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
+                            className="text-xs px-2 py-1 bg-rose-900/60 border border-rose-800/50 rounded text-rose-300 hover:bg-rose-800/60"
+                            title="Clear content and reset to Markdown mode"
                         >
-                            Clear
+                            Reset
                         </button>
                     </div>
 
