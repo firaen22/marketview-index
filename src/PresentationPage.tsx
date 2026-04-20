@@ -424,29 +424,29 @@ export default function PresentationPage() {
                 </div>
             )}
 
-            {/* Pinned quote cards overlay */}
+            {/* Pinned quote bar — horizontal strip below slide, no overlap */}
             {pinnedQuotes.length > 0 && !quoteOpen && (
-                <div className="absolute bottom-14 right-4 z-40 flex flex-wrap justify-end gap-2 max-w-[70%]">
-                    {pinnedQuotes.map(q => (
-                        <div key={q.symbol} className="bg-zinc-950/95 backdrop-blur border border-zinc-800 rounded-xl px-4 py-3 min-w-[200px] shadow-2xl">
-                            <div className="flex items-start justify-between gap-3">
-                                <div>
-                                    <div className="text-xs text-zinc-500 font-mono mb-0.5">{q.symbol}</div>
-                                    <div className="text-sm font-semibold text-zinc-100 leading-tight max-w-[160px]">{q.name}</div>
-                                    <div className="text-2xl font-bold font-mono text-white mt-1">
-                                        {typeof q.price === 'number' ? q.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : q.price}
-                                    </div>
-                                    <div className={`text-sm font-mono font-bold mt-0.5 ${q.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                        {q.changePercent >= 0 ? '▲' : '▼'} {Math.abs(q.changePercent).toFixed(2)}%
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => setPinnedQuotes(prev => prev.filter(p => p.symbol !== q.symbol))}
-                                    className="p-1 rounded hover:bg-zinc-800 text-zinc-600 hover:text-zinc-400 mt-0.5"
-                                >
-                                    <X className="w-3 h-3" />
-                                </button>
+                <div className="flex items-stretch gap-0 border-t border-zinc-900 bg-zinc-950 overflow-x-auto shrink-0">
+                    {pinnedQuotes.map((q, i) => (
+                        <div key={q.symbol} className={`flex items-center gap-4 px-5 py-3 ${i > 0 ? 'border-l border-zinc-900' : ''}`}>
+                            <div>
+                                <div className="text-[10px] text-zinc-500 font-mono leading-none mb-0.5">{q.symbol}</div>
+                                <div className="text-xs text-zinc-400 leading-tight max-w-[140px] truncate">{q.name}</div>
                             </div>
+                            <div className="text-right">
+                                <div className="text-lg font-bold font-mono text-white leading-none">
+                                    {typeof q.price === 'number' ? q.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : q.price}
+                                </div>
+                                <div className={`text-xs font-mono font-bold mt-0.5 ${q.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                    {q.changePercent >= 0 ? '▲' : '▼'} {Math.abs(q.changePercent).toFixed(2)}%
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setPinnedQuotes(prev => prev.filter(p => p.symbol !== q.symbol))}
+                                className="p-1 rounded hover:bg-zinc-800 text-zinc-700 hover:text-zinc-400"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
                         </div>
                     ))}
                 </div>
