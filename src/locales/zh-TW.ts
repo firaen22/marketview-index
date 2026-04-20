@@ -73,5 +73,26 @@ export default {
         '3M': '3個月漲跌',
         'YTD': '今年至今',
         '1Y': '1年漲跌'
+    },
+    fundsPage: {
+        title: '財富管理基金',
+        back: '回到市場大盤',
+        loading: '正在讀取基金數據...',
+        heatmapTitle: '資產配置熱圖'
+    },
+    heatmapPage: {
+        title: '市場熱圖探測器',
+        back: '回到儀表板',
+        loading: '正在讀取市場數據...',
+        refresh: '重新整理',
+        category: '按類別分組',
+        subCategory: '按子類別分組',
+        sourceMarket: '全球市場',
+        sourceFunds: '個人基金配置'
+    },
+    sort: {
+        toggle: '切換排序方式',
+        highToLow: '高至低排序',
+        lowToHigh: '低至高排序'
     }
 };

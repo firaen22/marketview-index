@@ -7,40 +7,12 @@ import MarketHeatmap from './MarketHeatmap';
 import type { IndexData } from './types';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useMarketData } from './hooks/useMarketData';
+import localeEn from './locales/en';
+import localeZhTW from './locales/zh-TW';
 
 const DICTIONARY: Record<string, any> = {
-    en: {
-        title: 'Wealth Management',
-        back: 'Back to Market',
-        ytd: 'YTD Change',
-        loading: 'Loading funds...',
-        nominal: 'Nominal',
-        percent: 'Percent',
-        range: 'Day Range',
-        heatmapTitle: 'Asset Allocation Heatmap',
-        rangeLabels: {
-            '1M': '1 Month',
-            '3M': '3 Months',
-            'YTD': 'YTD Change',
-            '1Y': '1 Year'
-        },
-    },
-    'zh-TW': {
-        title: '財富管理基金',
-        back: '回到市場大盤',
-        ytd: '年初至今',
-        loading: '正在讀取基金數據...',
-        nominal: '數值模式',
-        percent: '百分比模式',
-        range: '當日盤中範圍',
-        heatmapTitle: '資產配置熱圖',
-        rangeLabels: {
-            '1M': '1個月漲跌',
-            '3M': '3個月漲跌',
-            'YTD': '今年至今',
-            '1Y': '1年漲跌'
-        },
-    }
+    en: localeEn,
+    'zh-TW': localeZhTW,
 };
 
 export default function FundsPage() {
@@ -83,7 +55,7 @@ export default function FundsPage() {
                             <Wallet className="text-white w-6 h-6" />
                         </div>
                         <span className="bg-gradient-to-br from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-                            {t.title}
+                            {t.fundsPage.title}
                         </span>
                     </h1>
                 </div>
@@ -147,7 +119,7 @@ export default function FundsPage() {
                         className="group flex items-center gap-2.5 text-sm bg-zinc-900/50 backdrop-blur-md px-5 py-2.5 rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all shadow-xl"
                     >
                         <ArrowLeft size={18} className="text-blue-400 group-hover:scale-110 transition-transform" />
-                        <span className="font-bold">{t.back}</span>
+                        <span className="font-bold">{t.fundsPage.back}</span>
                     </Link>
                 </div>
             </header>
@@ -156,13 +128,13 @@ export default function FundsPage() {
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center h-64 text-zinc-600">
                         <Loader2 className="w-10 h-10 animate-spin mb-4 opacity-50" />
-                        <p className="font-medium animate-pulse">{t.loading}</p>
+                        <p className="font-medium animate-pulse">{t.fundsPage.loading}</p>
                     </div>
                 ) : (
                     <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                         <h3 className="text-xl font-bold mb-4 flex items-center text-zinc-200">
                             <LayoutDashboard className="w-5 h-5 mr-2 text-indigo-400" />
-                            {t.heatmapTitle}
+                            {t.fundsPage.heatmapTitle}
                         </h3>
                         <MarketHeatmap rawData={marketData} groupBy="subCategory" />
                     </div>

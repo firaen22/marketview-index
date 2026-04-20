@@ -73,5 +73,26 @@ export default {
         '3M': '3 Months',
         'YTD': 'YTD Change',
         '1Y': '1 Year'
+    },
+    fundsPage: {
+        title: 'Wealth Management',
+        back: 'Back to Market',
+        loading: 'Loading funds...',
+        heatmapTitle: 'Asset Allocation Heatmap'
+    },
+    heatmapPage: {
+        title: 'Market Heatmap Explorer',
+        back: 'Back to Dashboard',
+        loading: 'Loading market data...',
+        refresh: 'Refresh',
+        category: 'By Category',
+        subCategory: 'By Sub-Category',
+        sourceMarket: 'Global Markets',
+        sourceFunds: 'Personal Portfolio'
+    },
+    sort: {
+        toggle: 'Toggle sort order',
+        highToLow: 'High to Low',
+        lowToHigh: 'Low to High'
     }
 };

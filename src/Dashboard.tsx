@@ -425,7 +425,7 @@ export default function Dashboard() {
                       "hidden sm:flex items-center ml-2 px-2 py-1 bg-zinc-900/30 rounded border transition-colors cursor-pointer",
                       sortOrder === 'desc' ? "border-emerald-500/20 hover:border-emerald-500/40" : "border-rose-500/20 hover:border-rose-500/40"
                     )}
-                    title={language === 'en' ? 'Toggle sort order' : '切換排序方式'}
+                    title={t.sort.toggle}
                   >
                     {sortOrder === 'desc' ? (
                       <TrendingUp className="w-3 h-3 text-emerald-400 mr-1.5" />
@@ -433,9 +433,7 @@ export default function Dashboard() {
                       <TrendingDown className="w-3 h-3 text-rose-400 mr-1.5" />
                     )}
                     <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-bold">
-                      {language === 'en'
-                        ? (sortOrder === 'desc' ? 'High to Low' : 'Low to High')
-                        : (sortOrder === 'desc' ? '高至低排序' : '低至高排序')}
+                      {sortOrder === 'desc' ? t.sort.highToLow : t.sort.lowToHigh}
                     </span>
                   </button>
                 </div>

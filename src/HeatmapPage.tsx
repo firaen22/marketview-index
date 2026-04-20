@@ -6,6 +6,13 @@ import { cn, getSettings, setSetting } from './utils';
 import type { IndexData } from './types';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useMarketData } from './hooks/useMarketData';
+import localeEn from './locales/en';
+import localeZhTW from './locales/zh-TW';
+
+const DICTIONARY: Record<string, any> = {
+    en: localeEn,
+    'zh-TW': localeZhTW,
+};
 
 const HeatmapLegend = () => (
     <div className="flex items-center gap-1 mt-6 justify-center bg-zinc-950/50 py-2 px-4 rounded-full border border-zinc-800/80 w-max mx-auto shadow-lg">
@@ -45,16 +52,7 @@ export default function HeatmapPage() {
         return marketData.filter(item => item.category === 'Fund');
     }, [marketData, viewSource]);
 
-    const t = {
-        title: language === 'en' ? 'Market Heatmap Explorer' : '市場熱圖探測器',
-        back: language === 'en' ? 'Back to Dashboard' : '回到儀表板',
-        loading: language === 'en' ? 'Loading market data...' : '正在讀取市場數據...',
-        refresh: language === 'en' ? 'Refresh' : '重新整理',
-        category: language === 'en' ? 'By Category' : '按類別分組',
-        subCategory: language === 'en' ? 'By Sub-Category' : '按子類別分組',
-        sourceMarket: language === 'en' ? 'Global Markets' : '全球市場',
-        sourceFunds: language === 'en' ? 'Personal Portfolio' : '個人基金配置',
-    };
+    const t = (DICTIONARY[language] || DICTIONARY.en).heatmapPage;
 
     return (
         <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 lg:p-8 font-sans">
