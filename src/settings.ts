@@ -32,6 +32,8 @@ const DEFAULT_SLIDE: PresentSlide = {
     updatedAt: 0,
 };
 
+let _cache: MarketFlowSettings | null = null;
+
 const DEFAULTS: MarketFlowSettings = {
     lang: 'zh-TW',
     chartMode: 'nominal',
@@ -46,10 +48,12 @@ const DEFAULTS: MarketFlowSettings = {
  * Includes automatic migration from the old fragmented keys on first read.
  */
 export function getSettings(): MarketFlowSettings {
+    if (_cache) return _cache;
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) {
         try {
-            return { ...DEFAULTS, ...JSON.parse(raw) };
+            _cache = { ...DEFAULTS, ...JSON.parse(raw) };
+            return _cache;
         } catch {
             // corrupted – fall through to migration
         }
@@ -70,6 +74,7 @@ export function getSettings(): MarketFlowSettings {
 
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(migrated));
     LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
+    _cache = migrated;
     return migrated;
 }
 
@@ -77,6 +82,7 @@ export function setSetting<K extends keyof MarketFlowSettings>(key: K, value: Ma
     const current = getSettings();
     current[key] = value;
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(current));
+    _cache = current;
 }
 
 export function getSetting<K extends keyof MarketFlowSettings>(key: K): MarketFlowSettings[K] {
