@@ -7,6 +7,7 @@ import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
 import zhLocale from './locales/zh-TW.ts';
 import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
+import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
 
 const REFRESH_MS = 10 * 60 * 1000;
@@ -170,7 +171,23 @@ export default function PresentationPage() {
                 </div>
             </div>
 
-            {/* Pinned live strip */}
+            {/* Scrolling ticker strip */}
+            {stripMode === 'compact' && (
+                <div className="border-b border-zinc-900 bg-zinc-950/50 overflow-hidden relative h-9 flex items-center">
+                    {pinned.length > 0 ? (
+                        <div className="inline-flex animate-ticker whitespace-nowrap">
+                            {pinned.map((item: any) => <TickerItem key={item.symbol} item={item} t={t} />)}
+                            <span aria-hidden="true" className="inline-flex">
+                                {pinned.map((item: any) => <TickerItem key={`${item.symbol}-dup`} item={item} t={t} />)}
+                            </span>
+                        </div>
+                    ) : (
+                        <span className="text-xs text-zinc-600 px-8">Loading…</span>
+                    )}
+                </div>
+            )}
+
+            {/* Card grid strip */}
             {stripMode === 'full' && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 px-8 py-6 border-b border-zinc-900">
                     {pinned.length > 0
@@ -180,24 +197,6 @@ export default function PresentationPage() {
                         : Array.from({ length: 8 }).map((_, i) => (
                             <div key={i} className="h-36 rounded-xl bg-zinc-900/40 animate-pulse" />
                         ))}
-                </div>
-            )}
-            {stripMode === 'compact' && (
-                <div className="flex items-center gap-6 px-8 py-2 border-b border-zinc-900 bg-zinc-950/50 overflow-x-auto">
-                    {pinned.length > 0 ? pinned.map((item: any) => {
-                        const pos = item.change >= 0;
-                        return (
-                            <div key={item.symbol} className="flex items-baseline gap-2 whitespace-nowrap">
-                                <span className="text-[11px] font-mono text-zinc-500 tracking-wider">{item.symbol}</span>
-                                <span className="text-sm font-mono font-bold text-zinc-100">
-                                    {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </span>
-                                <span className={`text-xs font-mono ${pos ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {pos ? '+' : ''}{item.changePercent.toFixed(2)}%
-                                </span>
-                            </div>
-                        );
-                    }) : <span className="text-xs text-zinc-600">Loading…</span>}
                 </div>
             )}
 
