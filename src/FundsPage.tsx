@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { MarketStatCard } from './components/MarketStatCard';
 import { cn, getSettings, setSetting } from './utils';
 import MarketHeatmap from './MarketHeatmap';
+import type { IndexData, MarketDataResponse } from './types';
 
 const DICTIONARY: Record<string, any> = {
     en: {
@@ -41,7 +42,7 @@ const DICTIONARY: Record<string, any> = {
 };
 
 export default function FundsPage() {
-    const [marketData, setMarketData] = useState<any[]>([]);
+    const [marketData, setMarketData] = useState<IndexData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const initialSettings = React.useMemo(() => getSettings(), []);
     const [language, setLanguage] = useState<'en' | 'zh-TW'>(initialSettings.lang);
@@ -54,9 +55,9 @@ export default function FundsPage() {
         try {
             const url = `/api/market-data?range=${currentRange}${force ? '&refresh=true' : ''}`;
             const response = await fetch(url);
-            const result = await response.json();
+            const result: MarketDataResponse = await response.json();
             if (result.success) {
-                setMarketData(result.data.filter((item: any) => item.category === 'Fund'));
+                setMarketData(result.data.filter(item => item.category === 'Fund'));
             }
         } catch (err) {
             console.error('Failed to fetch funds:', err);
@@ -85,7 +86,7 @@ export default function FundsPage() {
 
     const baseT = DICTIONARY[language] || DICTIONARY.en;
 
-    const indexNames = marketData.reduce((acc: any, fund: any) => {
+    const indexNames = marketData.reduce<Record<string, string>>((acc, fund) => {
         acc[fund.name] = language === 'en' ? (fund.nameEn || fund.name) : fund.name;
         return acc;
     }, {});

@@ -24,3 +24,20 @@ export interface NewsItem {
     sentimentScore: number;
     url: string;
 }
+
+export interface MarketDataResponse {
+    success: boolean;
+    data: IndexData[];
+    timestamp?: string;
+    source?: 'server_cache' | 'server_stale_cache' | 'live';
+    error?: string;
+}
+
+export interface MarketNewsResponse {
+    success: boolean;
+    data: NewsItem[];
+    marketSummary?: string;
+    isAiTranslated?: boolean;
+    timestamp?: string;
+    error?: string;
+}

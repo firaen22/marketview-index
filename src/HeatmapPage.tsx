@@ -3,6 +3,7 @@ import { LayoutDashboard, Loader2, RefreshCcw, ArrowLeft, Maximize2, Minimize2 }
 import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
 import { cn, getSettings, setSetting } from './utils';
+import type { IndexData, MarketDataResponse } from './types';
 
 const HeatmapLegend = () => (
     <div className="flex items-center gap-1 mt-6 justify-center bg-zinc-950/50 py-2 px-4 rounded-full border border-zinc-800/80 w-max mx-auto shadow-lg">
@@ -15,7 +16,7 @@ const HeatmapLegend = () => (
 );
 
 export default function HeatmapPage() {
-    const [marketData, setMarketData] = useState<any[]>([]);
+    const [marketData, setMarketData] = useState<IndexData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [viewMode, setViewMode] = useState<'category' | 'subCategory'>('category');
     const [viewSource, setViewSource] = useState<'market' | 'funds'>('market');
@@ -40,7 +41,7 @@ export default function HeatmapPage() {
         try {
             const url = `/api/market-data?range=${currentRange}${force ? '&refresh=true' : ''}`;
             const response = await fetch(url);
-            const result = await response.json();
+            const result: MarketDataResponse = await response.json();
             if (result.success) {
                 setMarketData(result.data);
             }
