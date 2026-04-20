@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
-import { getSettings, deletePdf, type PresentSlideMode } from './utils';
+import { getSettings } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
-import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
 import zhLocale from './locales/zh-TW.ts';
 import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
@@ -13,6 +12,8 @@ import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
 import type { IndexData } from './types';
 import { useMarketData } from './hooks/useMarketData';
+import { QuotePanel } from './components/QuotePanel';
+import { SlideEditorPanel } from './components/SlideEditorPanel';
 
 type StripMode = 'compact' | 'full' | 'hidden';
 const STRIP_MODES: StripMode[] = ['compact', 'full', 'hidden'];
@@ -233,162 +234,26 @@ export default function PresentationPage() {
                 </div>
 
                 {/* Pinned quote panel — vertical right column */}
-                {pinnedQuotes.length > 0 && !quoteOpen && (
-                    <div className="w-44 flex flex-col border-l border-zinc-900 bg-zinc-950 overflow-y-auto shrink-0">
-                        {pinnedQuotes.map((q, i) => (
-                            <div key={q.symbol} className={`flex flex-col gap-1 px-3 py-4 ${i > 0 ? 'border-t border-zinc-900' : ''}`}>
-                                <div className="flex items-start justify-between gap-1">
-                                    <div className="text-[10px] text-zinc-500 font-mono leading-none">{q.symbol}</div>
-                                    <button
-                                        onClick={() => setPinnedQuotes(prev => prev.filter(p => p.symbol !== q.symbol))}
-                                        className="p-0.5 rounded hover:bg-zinc-800 text-zinc-700 hover:text-zinc-400 shrink-0"
-                                    >
-                                        <X className="w-2.5 h-2.5" />
-                                    </button>
-                                </div>
-                                <div className="text-[11px] text-zinc-400 leading-tight">{q.name}</div>
-                                <div className="text-xl font-bold font-mono text-white leading-none mt-1">
-                                    {typeof q.price === 'number' ? q.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : q.price}
-                                </div>
-                                <div className={`text-xs font-mono font-bold ${q.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                    {q.changePercent >= 0 ? '▲' : '▼'} {Math.abs(q.changePercent).toFixed(2)}%
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                {!quoteOpen && (
+                    <QuotePanel
+                        quotes={pinnedQuotes}
+                        onRemove={sym => setPinnedQuotes(prev => prev.filter(p => p.symbol !== sym))}
+                    />
                 )}
             </div>
 
             {/* Slide-in editor panel */}
-            <div
-                className={`
-                    fixed top-0 right-0 h-full w-[460px] bg-zinc-950 border-l border-zinc-800
-                    shadow-2xl z-40 transform transition-transform duration-300
-                    ${editorOpen ? 'translate-x-0' : 'translate-x-full'}
-                `}
-            >
-                <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-                    <h2 className="text-sm font-mono tracking-widest text-zinc-300">SLIDE EDITOR</h2>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => doRemoteSave()}
-                            disabled={cloudStatus === 'saving'}
-                            className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition
-                                ${cloudStatus === 'saving' ? 'bg-zinc-700 text-zinc-400 cursor-wait'
-                                : cloudStatus === 'ok' ? 'bg-emerald-600 text-white'
-                                : cloudStatus === 'error' ? 'bg-rose-600 text-white hover:bg-rose-500'
-                                : 'bg-zinc-700 text-zinc-200 hover:bg-zinc-600'}`}
-                        >
-                            {cloudStatus === 'saving' ? '↑ Saving…'
-                                : cloudStatus === 'ok' ? '✓ Saved'
-                                : cloudStatus === 'error' ? '✕ Retry'
-                                : '↑ Save'}
-                        </button>
-                        <button
-                            onClick={() => setEditorOpen(false)}
-                            className="p-1 rounded hover:bg-zinc-800 text-zinc-500"
-                        >
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
-                </div>
-
-                <div className="p-4 flex flex-col gap-3 h-[calc(100%-49px)]">
-                    {/* Mode tabs */}
-                    <div className="flex gap-1">
-                        {(['markdown', 'html', 'url', 'pdf'] as PresentSlideMode[]).map(m => (
-                            <button
-                                key={m}
-                                onClick={() => saveSlide({ mode: m })}
-                                className={`flex-1 px-2 py-1.5 text-xs font-mono uppercase rounded ${
-                                    slide.mode === m
-                                        ? 'bg-emerald-500 text-black font-bold'
-                                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                                }`}
-                            >
-                                {m === 'markdown' ? 'MD' : m.toUpperCase()}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Quick actions */}
-                    <div className="flex gap-2">
-                        <button
-                            onClick={async () => {
-                                try {
-                                    const text = await navigator.clipboard.readText();
-                                    if (text) saveSlide({ content: text });
-                                } catch {
-                                    alert('Clipboard blocked. Paste into the textarea with Cmd+V.');
-                                }
-                            }}
-                            className="flex-1 text-xs px-2 py-1.5 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
-                        >
-                            Paste from clipboard
-                        </button>
-                        <button
-                            onClick={() => {
-                                if (slide.mode === 'pdf' && slide.content) deletePdf(slide.content);
-                                saveSlide({ mode: 'markdown', content: '' });
-                            }}
-                            className="text-xs px-2 py-1.5 bg-rose-900/60 border border-rose-800/50 rounded text-rose-300 hover:bg-rose-800/60"
-                            title="Clear content and reset to Markdown mode"
-                        >
-                            Reset
-                        </button>
-                    </div>
-
-                    {/* PDF uploader or textarea */}
-                    {slide.mode === 'pdf' ? (
-                        <div className="flex flex-col gap-3 flex-1">
-                            <PdfUploader onUploaded={url => {
-                                if (slide.mode === 'pdf' && slide.content && slide.content !== url) {
-                                    deletePdf(slide.content);
-                                }
-                                saveSlide({ content: url });
-                            }} />
-                            {slide.content && (
-                                <p className="text-[10px] font-mono text-emerald-400 truncate">{slide.content}</p>
-                            )}
-                        </div>
-                    ) : (
-                        <textarea
-                            value={slide.content}
-                            onChange={e => saveSlide({ content: e.target.value })}
-                            placeholder={
-                                slide.mode === 'url'
-                                    ? 'https://docs.google.com/presentation/d/e/.../embed'
-                                    : slide.mode === 'html'
-                                    ? '<!DOCTYPE html>...'
-                                    : '# Heading\n\nParagraph with **bold** and {{^GSPC.price}} tokens'
-                            }
-                            spellCheck={false}
-                            className="flex-1 w-full bg-zinc-900 border border-zinc-800 rounded p-3 font-mono text-xs text-zinc-200 resize-none focus:outline-none focus:border-emerald-500"
-                        />
-                    )}
-
-                    {/* Footer */}
-                    {sizeWarning && (
-                        <div className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-1">
-                            {sizeWarning}
-                        </div>
-                    )}
-                    <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>
-                            {slide.content.length} chars
-                            {lastSavedAt ? ` · saved ${formatRelativeTime(lastSavedAt)}` : ' · not yet saved'}
-                        </span>
-                        <a
-                            href="/present-control"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-1 hover:text-emerald-400"
-                        >
-                            Full editor <ExternalLink className="w-3 h-3" />
-                        </a>
-                    </div>
-                </div>
-            </div>
+            <SlideEditorPanel
+                open={editorOpen}
+                onClose={() => setEditorOpen(false)}
+                slide={slide}
+                saveSlide={saveSlide}
+                doRemoteSave={doRemoteSave}
+                cloudStatus={cloudStatus}
+                lastSavedAt={lastSavedAt}
+                sizeWarning={sizeWarning}
+                formatRelativeTime={formatRelativeTime}
+            />
 
             {/* Quote picker overlay */}
             {quoteOpen && (
