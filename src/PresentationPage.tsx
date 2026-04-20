@@ -201,44 +201,73 @@ export default function PresentationPage() {
             )}
 
             {/* Slide area */}
-            <div className="flex-1 relative overflow-hidden">
-                <div className={mainView === 'slide' ? 'w-full h-full' : 'hidden'}>
-                    <SlideRenderer slide={slide} marketData={marketData} pdfZoom={pdfZoom} />
-                </div>
-                {mainView === 'index' && (
-                    <iframe
-                        src="/?embed=1"
-                        className="w-full h-full border-0 bg-black"
-                        title="Market Index"
-                    />
-                )}
-
-                {/* Index hint — shown on PDF slide to surface the toggle */}
-                {mainView === 'slide' && slide.mode === 'pdf' && slide.content && (
-                    <div className="absolute top-3 left-3 z-20 pointer-events-none">
-                        <span className="text-[10px] font-mono text-zinc-600 bg-black/60 px-2 py-0.5 rounded">
-                            Press <kbd className="text-emerald-500">I</kbd> or click <kbd className="text-emerald-500">⊞</kbd> to toggle index
-                        </span>
+            <div className="flex-1 flex min-h-0 overflow-hidden">
+                {/* Main slide / index area */}
+                <div className="flex-1 relative overflow-hidden">
+                    <div className={mainView === 'slide' ? 'w-full h-full' : 'hidden'}>
+                        <SlideRenderer slide={slide} marketData={marketData} pdfZoom={pdfZoom} />
                     </div>
-                )}
+                    {mainView === 'index' && (
+                        <iframe
+                            src="/?embed=1"
+                            className="w-full h-full border-0 bg-black"
+                            title="Market Index"
+                        />
+                    )}
 
-                {/* Zoom controls — shown for pdf and html modes */}
-                {mainView === 'slide' && (slide.mode === 'pdf' || slide.mode === 'html') && (
-                    <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">
-                        <button
-                            onClick={() => setPdfZoom(z => Math.max(25, z - 25))}
-                            className="w-6 h-6 flex items-center justify-center text-zinc-300 hover:text-white text-lg font-bold"
-                        >−</button>
-                        <span className="text-xs font-mono text-zinc-300 w-10 text-center">{pdfZoom}%</span>
-                        <button
-                            onClick={() => setPdfZoom(z => Math.min(200, z + 25))}
-                            className="w-6 h-6 flex items-center justify-center text-zinc-300 hover:text-white text-lg font-bold"
-                        >+</button>
-                        <div className="w-px h-3 bg-zinc-700 mx-1" />
-                        <button
-                            onClick={() => setPdfZoom(100)}
-                            className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300"
-                        >reset</button>
+                    {/* Index hint — shown on PDF slide to surface the toggle */}
+                    {mainView === 'slide' && slide.mode === 'pdf' && slide.content && (
+                        <div className="absolute top-3 left-3 z-20 pointer-events-none">
+                            <span className="text-[10px] font-mono text-zinc-600 bg-black/60 px-2 py-0.5 rounded">
+                                Press <kbd className="text-emerald-500">I</kbd> or click <kbd className="text-emerald-500">⊞</kbd> to toggle index
+                            </span>
+                        </div>
+                    )}
+
+                    {/* Zoom controls — shown for pdf and html modes */}
+                    {mainView === 'slide' && (slide.mode === 'pdf' || slide.mode === 'html') && (
+                        <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">
+                            <button
+                                onClick={() => setPdfZoom(z => Math.max(25, z - 25))}
+                                className="w-6 h-6 flex items-center justify-center text-zinc-300 hover:text-white text-lg font-bold"
+                            >−</button>
+                            <span className="text-xs font-mono text-zinc-300 w-10 text-center">{pdfZoom}%</span>
+                            <button
+                                onClick={() => setPdfZoom(z => Math.min(200, z + 25))}
+                                className="w-6 h-6 flex items-center justify-center text-zinc-300 hover:text-white text-lg font-bold"
+                            >+</button>
+                            <div className="w-px h-3 bg-zinc-700 mx-1" />
+                            <button
+                                onClick={() => setPdfZoom(100)}
+                                className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300"
+                            >reset</button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Pinned quote panel — vertical right column */}
+                {pinnedQuotes.length > 0 && !quoteOpen && (
+                    <div className="w-44 flex flex-col border-l border-zinc-900 bg-zinc-950 overflow-y-auto shrink-0">
+                        {pinnedQuotes.map((q, i) => (
+                            <div key={q.symbol} className={`flex flex-col gap-1 px-3 py-4 ${i > 0 ? 'border-t border-zinc-900' : ''}`}>
+                                <div className="flex items-start justify-between gap-1">
+                                    <div className="text-[10px] text-zinc-500 font-mono leading-none">{q.symbol}</div>
+                                    <button
+                                        onClick={() => setPinnedQuotes(prev => prev.filter(p => p.symbol !== q.symbol))}
+                                        className="p-0.5 rounded hover:bg-zinc-800 text-zinc-700 hover:text-zinc-400 shrink-0"
+                                    >
+                                        <X className="w-2.5 h-2.5" />
+                                    </button>
+                                </div>
+                                <div className="text-[11px] text-zinc-400 leading-tight">{q.name}</div>
+                                <div className="text-xl font-bold font-mono text-white leading-none mt-1">
+                                    {typeof q.price === 'number' ? q.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : q.price}
+                                </div>
+                                <div className={`text-xs font-mono font-bold ${q.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                    {q.changePercent >= 0 ? '▲' : '▼'} {Math.abs(q.changePercent).toFixed(2)}%
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>
@@ -423,33 +452,6 @@ export default function PresentationPage() {
                 </div>
             )}
 
-            {/* Pinned quote bar — horizontal strip below slide, no overlap */}
-            {pinnedQuotes.length > 0 && !quoteOpen && (
-                <div className="flex items-stretch gap-0 border-t border-zinc-900 bg-zinc-950 overflow-x-auto shrink-0">
-                    {pinnedQuotes.map((q, i) => (
-                        <div key={q.symbol} className={`flex items-center gap-4 px-5 py-3 ${i > 0 ? 'border-l border-zinc-900' : ''}`}>
-                            <div>
-                                <div className="text-[10px] text-zinc-500 font-mono leading-none mb-0.5">{q.symbol}</div>
-                                <div className="text-xs text-zinc-400 leading-tight max-w-[140px] truncate">{q.name}</div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-lg font-bold font-mono text-white leading-none">
-                                    {typeof q.price === 'number' ? q.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : q.price}
-                                </div>
-                                <div className={`text-xs font-mono font-bold mt-0.5 ${q.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                    {q.changePercent >= 0 ? '▲' : '▼'} {Math.abs(q.changePercent).toFixed(2)}%
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => setPinnedQuotes(prev => prev.filter(p => p.symbol !== q.symbol))}
-                                className="p-1 rounded hover:bg-zinc-800 text-zinc-700 hover:text-zinc-400"
-                            >
-                                <X className="w-3 h-3" />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
 
             {/* Shortcut hints overlay */}
             {showHints && (
