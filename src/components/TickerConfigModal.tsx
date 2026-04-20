@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ListChecks, Check } from 'lucide-react';
 import { Modal } from './Modal';
-import { cn, setSetting } from '../utils';
+import { cn, setSetting, groupByCategory } from '../utils';
 import type { IndexData } from '../types';
 
 interface Props {
@@ -51,11 +51,7 @@ export function TickerConfigModal({ allSymbols, selected, language, t, onClose, 
         setDraft(new Set());
     };
 
-    const grouped = allSymbols.reduce<Record<string, IndexData[]>>((acc, item) => {
-        const cat = item.category || 'Other';
-        (acc[cat] ??= []).push(item);
-        return acc;
-    }, {});
+    const grouped = groupByCategory(allSymbols);
 
     return (
         <Modal

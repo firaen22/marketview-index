@@ -10,12 +10,11 @@ import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Ro
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
 import type { IndexData } from './types';
+import { STRIP_MODES, type StripMode } from './constants';
 import { useMarketData } from './hooks/useMarketData';
 import { QuotePanel } from './components/QuotePanel';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
 
-type StripMode = 'compact' | 'full' | 'hidden';
-const STRIP_MODES: StripMode[] = ['compact', 'full', 'hidden'];
 
 export default function PresentationPage() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning, formatRelativeTime } = useSlideSync();

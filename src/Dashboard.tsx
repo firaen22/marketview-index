@@ -17,6 +17,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { TickerConfigModal } from './components/TickerConfigModal';
 import { TimeRangeSelector } from './components/TimeRangeSelector';
 import { cn, getSettings, setSetting } from './utils';
+import { CATEGORIES_ORDER } from './constants';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useDashboardData } from './hooks/useDashboardData';
 import { getLocale } from './locales';
@@ -77,7 +78,7 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const categoriesOrder = ['All', 'US', 'Europe', 'Asia', 'Fund', 'Commodity', 'Crypto', 'Currency', 'Volatility'];
+  const categoriesOrder = CATEGORIES_ORDER;
   const displayMarketData = showFundsInDashboard ? marketData : marketData.filter(item => item.category !== 'Fund');
   const tickerData = tickerSymbols === null
     ? marketData

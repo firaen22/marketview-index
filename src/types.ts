@@ -1,3 +1,12 @@
+export type TimeRange = '1M' | '3M' | 'YTD' | '1Y';
+
+export type IndexCategory = 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Volatility' | 'Fund';
+
+export interface HistoryPoint {
+    value: number;
+    date?: string;
+}
+
 export interface IndexData {
     symbol: string;
     name: string;
@@ -10,8 +19,8 @@ export interface IndexData {
     open: number;
     high: number;
     low: number;
-    history: { value: number; date?: string }[];
-    category: 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Volatility' | 'Fund';
+    history: HistoryPoint[];
+    category: IndexCategory;
 }
 
 export interface NewsItem {
