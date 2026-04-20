@@ -7,5 +7,5 @@ export function cn(...inputs: ClassValue[]) {
 
 // Re-exports for backward compatibility
 export { getSettings, setSetting, getSetting, type PresentSlide, type PresentSlideMode } from './settings';
-export { loadRemoteSlide, saveRemoteSlide, uploadPdf } from './slideApi';
+export { loadRemoteSlide, saveRemoteSlide, uploadPdf, deletePdf } from './slideApi';
 export { injectMarketTokens } from './tokenInject';

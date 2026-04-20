@@ -30,8 +30,15 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // POST — save slide
+  // POST — save slide (requires auth if PRESENT_API_KEY is set)
   if (req.method === 'POST') {
+    const requiredKey = process.env.PRESENT_API_KEY;
+    if (requiredKey) {
+      const providedKey = req.headers['x-api-key'];
+      if (providedKey !== requiredKey) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    }
     let body: any;
     if (typeof req.body === 'string') {
       try {

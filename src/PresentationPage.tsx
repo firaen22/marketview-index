@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
-import { getSettings, setSetting, loadRemoteSlide, type PresentSlide, type PresentSlideMode } from './utils';
+import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, deletePdf, type PresentSlide, type PresentSlideMode } from './utils';
 import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
 import zhLocale from './locales/zh-TW.ts';
@@ -26,7 +26,22 @@ export default function PresentationPage() {
     const [quoteOpen, setQuoteOpen] = useState(false);
     const [pinnedQuote, setPinnedQuote] = useState<any | null>(null);
     const [clock, setClock] = useState<string>(() => new Date().toLocaleTimeString());
+    const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
+    const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
     const hintsTimerRef = useRef<number | null>(null);
+    const saveTimerRef = useRef<number | null>(null);
+    const [sizeWarning, setSizeWarning] = useState<string | null>(null);
+
+    const MAX_CONTENT_BYTES = 256 * 1024;
+    const SAVE_DEBOUNCE_MS = 800;
+
+    const formatRelativeTime = (ts: number): string => {
+        const diff = Math.floor((Date.now() - ts) / 1000);
+        if (diff < 5) return 'just now';
+        if (diff < 60) return `${diff}s ago`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        return `${Math.floor(diff / 3600)}h ago`;
+    };
 
     const lang = getSettings().lang;
     const t = { ...(lang === 'zh-TW' ? zhLocale : enLocale), language: lang, activeRange: 'YTD' };
@@ -129,7 +144,32 @@ export default function PresentationPage() {
         const merged: PresentSlide = { ...slide, ...next, updatedAt: Date.now() };
         setSlide(merged);
         setSetting('presentSlide', merged);
+
+        const byteSize = new Blob([merged.content]).size;
+        if (byteSize > MAX_CONTENT_BYTES) {
+            setSizeWarning(`Content is ${(byteSize / 1024).toFixed(0)} KB — max ${MAX_CONTENT_BYTES / 1024} KB. Not synced to cloud.`);
+            setCloudStatus('error');
+            return;
+        }
+        setSizeWarning(null);
+
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        setCloudStatus('saving');
+        saveTimerRef.current = window.setTimeout(() => {
+            saveRemoteSlide(merged).then(() => {
+                setCloudStatus('ok');
+                setLastSavedAt(Date.now());
+                window.setTimeout(() => setCloudStatus('idle'), 2000);
+            }).catch(() => {
+                setCloudStatus('error');
+                window.setTimeout(() => setCloudStatus('idle'), 3000);
+            });
+        }, SAVE_DEBOUNCE_MS);
     };
+
+    useEffect(() => () => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    }, []);
 
     return (
         <div className="min-h-screen w-full bg-black text-zinc-100 flex flex-col relative">
@@ -272,12 +312,17 @@ export default function PresentationPage() {
             >
                 <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
                     <h2 className="text-sm font-mono tracking-widest text-zinc-300">SLIDE EDITOR</h2>
-                    <button
-                        onClick={() => setEditorOpen(false)}
-                        className="p-1 rounded hover:bg-zinc-800 text-zinc-500"
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {cloudStatus === 'saving' && <span className="text-xs text-zinc-400 animate-pulse">☁ saving…</span>}
+                        {cloudStatus === 'ok' && <span className="text-xs text-emerald-400">☁ saved</span>}
+                        {cloudStatus === 'error' && <span className="text-xs text-rose-400">☁ failed</span>}
+                        <button
+                            onClick={() => setEditorOpen(false)}
+                            className="p-1 rounded hover:bg-zinc-800 text-zinc-500"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="p-4 flex flex-col gap-3 h-[calc(100%-49px)]">
@@ -314,7 +359,10 @@ export default function PresentationPage() {
                             Paste from clipboard
                         </button>
                         <button
-                            onClick={() => saveSlide({ content: '' })}
+                            onClick={() => {
+                                if (slide.mode === 'pdf' && slide.content) deletePdf(slide.content);
+                                saveSlide({ content: '' });
+                            }}
                             className="text-xs px-2 py-1.5 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
                         >
                             Clear
@@ -324,7 +372,12 @@ export default function PresentationPage() {
                     {/* PDF uploader or textarea */}
                     {slide.mode === 'pdf' ? (
                         <div className="flex flex-col gap-3 flex-1">
-                            <PdfUploader onUploaded={url => saveSlide({ content: url })} />
+                            <PdfUploader onUploaded={url => {
+                                if (slide.mode === 'pdf' && slide.content && slide.content !== url) {
+                                    deletePdf(slide.content);
+                                }
+                                saveSlide({ content: url });
+                            }} />
                             {slide.content && (
                                 <p className="text-[10px] font-mono text-emerald-400 truncate">{slide.content}</p>
                             )}
@@ -346,8 +399,16 @@ export default function PresentationPage() {
                     )}
 
                     {/* Footer */}
+                    {sizeWarning && (
+                        <div className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-1">
+                            {sizeWarning}
+                        </div>
+                    )}
                     <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>{slide.content.length} chars · autosaved</span>
+                        <span>
+                            {slide.content.length} chars
+                            {lastSavedAt ? ` · saved ${formatRelativeTime(lastSavedAt)}` : ' · not yet saved'}
+                        </span>
                         <a
                             href="/present-control"
                             target="_blank"

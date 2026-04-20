@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, type PresentSlide, type PresentSlideMode } from './utils';
+import { getSettings, setSetting, loadRemoteSlide, saveRemoteSlide, deletePdf, type PresentSlide, type PresentSlideMode } from './utils';
 import { SlideRenderer } from './components/SlideRenderer';
 import { PdfUploader } from './components/PdfUploader';
 
@@ -27,6 +27,26 @@ export default function PresentationControl() {
     const [slide, setSlide] = useState<PresentSlide>(() => getSettings().presentSlide);
     const [marketData, setMarketData] = useState<any[]>([]);
     const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
+    const [sizeWarning, setSizeWarning] = useState<string | null>(null);
+    const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+    const [, setTick] = useState(0);
+    const saveTimerRef = useRef<number | null>(null);
+
+    const MAX_CONTENT_BYTES = 256 * 1024;
+    const SAVE_DEBOUNCE_MS = 800;
+
+    const formatRelativeTime = (ts: number): string => {
+        const diff = Math.floor((Date.now() - ts) / 1000);
+        if (diff < 5) return 'just now';
+        if (diff < 60) return `${diff}s ago`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        return `${Math.floor(diff / 3600)}h ago`;
+    };
+
+    useEffect(() => {
+        const id = setInterval(() => setTick(t => t + 1), 15000);
+        return () => clearInterval(id);
+    }, []);
 
     useEffect(() => {
         fetch(`/api/market-data?t=${Date.now()}&range=YTD&lang=en`)
@@ -59,15 +79,32 @@ export default function PresentationControl() {
     const commit = (next: PresentSlide) => {
         setSlide(next);
         setSetting('presentSlide', next);
-        setCloudStatus('saving');
-        saveRemoteSlide(next).then(() => {
-            setCloudStatus('ok');
-            window.setTimeout(() => setCloudStatus('idle'), 2000);
-        }).catch(() => {
+
+        const byteSize = new Blob([next.content]).size;
+        if (byteSize > MAX_CONTENT_BYTES) {
+            setSizeWarning(`Content is ${(byteSize / 1024).toFixed(0)} KB — max ${MAX_CONTENT_BYTES / 1024} KB. Not synced to cloud.`);
             setCloudStatus('error');
-            window.setTimeout(() => setCloudStatus('idle'), 3000);
-        });
+            return;
+        }
+        setSizeWarning(null);
+
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        setCloudStatus('saving');
+        saveTimerRef.current = window.setTimeout(() => {
+            saveRemoteSlide(next).then(() => {
+                setCloudStatus('ok');
+                setLastSavedAt(Date.now());
+                window.setTimeout(() => setCloudStatus('idle'), 2000);
+            }).catch(() => {
+                setCloudStatus('error');
+                window.setTimeout(() => setCloudStatus('idle'), 3000);
+            });
+        }, SAVE_DEBOUNCE_MS);
     };
+
+    useEffect(() => () => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    }, []);
 
     const updateMode = (mode: PresentSlideMode) => {
         commit({ ...slide, mode, updatedAt: Date.now() });
@@ -142,7 +179,10 @@ export default function PresentationControl() {
                             Paste
                         </button>
                         <button
-                            onClick={() => updateContent('')}
+                            onClick={() => {
+                                if (slide.mode === 'pdf' && slide.content) deletePdf(slide.content);
+                                updateContent('');
+                            }}
                             className="text-xs px-2 py-1 bg-zinc-800 rounded text-zinc-300 hover:bg-zinc-700"
                         >
                             Clear
@@ -152,7 +192,12 @@ export default function PresentationControl() {
                     {/* PDF uploader or textarea */}
                     {slide.mode === 'pdf' ? (
                         <div className="flex-1 flex flex-col gap-4 p-6">
-                            <PdfUploader onUploaded={url => updateContent(url)} />
+                            <PdfUploader onUploaded={url => {
+                                if (slide.mode === 'pdf' && slide.content && slide.content !== url) {
+                                    deletePdf(slide.content);
+                                }
+                                updateContent(url);
+                            }} />
                             {slide.content && (
                                 <div className="flex flex-col gap-1">
                                     <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Current PDF URL</span>
@@ -165,7 +210,10 @@ export default function PresentationControl() {
                                         {slide.content}
                                     </a>
                                     <button
-                                        onClick={() => updateContent('')}
+                                        onClick={() => {
+                                            if (slide.content) deletePdf(slide.content);
+                                            updateContent('');
+                                        }}
                                         className="mt-1 self-start text-xs px-2 py-1 bg-zinc-800 rounded text-zinc-400 hover:bg-zinc-700"
                                     >
                                         Replace PDF
@@ -184,8 +232,16 @@ export default function PresentationControl() {
                     )}
 
                     {/* Footer */}
+                    {sizeWarning && (
+                        <div className="px-6 py-2 text-xs text-rose-400 bg-rose-500/10 border-t border-rose-500/30">
+                            {sizeWarning}
+                        </div>
+                    )}
                     <div className="px-6 py-2 border-t border-zinc-900 flex items-center justify-between text-xs text-zinc-500">
-                        <span>{slide.content.length} chars · syncs instantly</span>
+                        <span>
+                            {slide.content.length} chars
+                            {lastSavedAt ? ` · saved ${formatRelativeTime(lastSavedAt)}` : ' · not yet saved'}
+                        </span>
                         {slide.mode === 'markdown' && (
                             <span className="font-mono">tokens: {'{{^GSPC.price}}'}, {'{{^HSI.changePercent}}'}</span>
                         )}
