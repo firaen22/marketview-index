@@ -22,7 +22,7 @@ import localeEn from './locales/en';
 import localeZhTW from './locales/zh-TW';
 
 // --- Localization (loaded from src/locales/) ---
-const DICTIONARY: Record<string, any> = {
+const DICTIONARY: Record<'en' | 'zh-TW', typeof localeEn> = {
   en: localeEn,
   'zh-TW': localeZhTW
 };

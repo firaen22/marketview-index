@@ -3,12 +3,14 @@ import { MarketStatCard } from './components/MarketStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
 import { getSettings, deletePdf, type PresentSlideMode } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
+import { useSettingsSync } from './hooks/useSettingsSync';
 import { PdfUploader } from './components/PdfUploader';
 import enLocale from './locales/en.ts';
 import zhLocale from './locales/zh-TW.ts';
 import { Pencil, Maximize2, Minimize2, ExternalLink, X, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
+import type { IndexData } from './types';
 
 const REFRESH_MS = 10 * 60 * 1000;
 
@@ -17,7 +19,8 @@ const STRIP_MODES: StripMode[] = ['compact', 'full', 'hidden'];
 
 export default function PresentationPage() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning, formatRelativeTime } = useSlideSync();
-    const [marketData, setMarketData] = useState<any[]>([]);
+    const initialSettings = React.useMemo(() => getSettings(), []);
+    const [marketData, setMarketData] = useState<IndexData[]>([]);
     const [editorOpen, setEditorOpen] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showHints, setShowHints] = useState(false);
@@ -25,23 +28,28 @@ export default function PresentationPage() {
     const [pdfZoom, setPdfZoom] = useState(100);
     const [mainView, setMainView] = useState<'slide' | 'index'>('slide');
     const [quoteOpen, setQuoteOpen] = useState(false);
-    const [pinnedQuotes, setPinnedQuotes] = useState<any[]>([]);
+    const [pinnedQuotes, setPinnedQuotes] = useState<IndexData[]>([]);
     const [clock, setClock] = useState<string>(() => new Date().toLocaleTimeString());
+    const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
+    const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
     const hintsTimerRef = useRef<number | null>(null);
 
-    const lang = getSettings().lang;
+    useSettingsSync(({ lang: nextLang, tickerSymbols: nextSymbols }) => {
+        if (nextLang) setLang(nextLang);
+        if (nextSymbols !== undefined) setTickerSymbols(nextSymbols);
+    });
+
     const t = { ...(lang === 'zh-TW' ? zhLocale : enLocale), language: lang, activeRange: 'YTD' };
 
     const fetchData = useCallback(async () => {
         try {
-            const lang = getSettings().lang;
             const res = await fetch(`/api/market-data?t=${Date.now()}&range=YTD&lang=${lang}`);
             const json = await res.json();
             if (json?.data && Array.isArray(json.data)) setMarketData(json.data);
         } catch (err) {
             console.error('Presentation fetch failed', err);
         }
-    }, []);
+    }, [lang]);
 
     useEffect(() => {
         fetchData();
@@ -99,7 +107,6 @@ export default function PresentationPage() {
         return () => window.removeEventListener('keydown', onKey);
     }, [toggleFullscreen]);
 
-    const { tickerSymbols } = getSettings();
     const pinnedRaw = tickerSymbols !== null
         ? marketData.filter(d => tickerSymbols.includes(d.symbol))
         : marketData;
@@ -176,9 +183,9 @@ export default function PresentationPage() {
                 <div className="border-b border-zinc-900 bg-zinc-950/50 overflow-hidden relative h-9 flex items-center">
                     {pinned.length > 0 ? (
                         <div className="inline-flex animate-ticker whitespace-nowrap">
-                            {pinned.map((item: any) => <TickerItem key={item.symbol} item={item} t={t} />)}
+                            {pinned.map((item) => <TickerItem key={item.symbol} item={item} t={t} />)}
                             <span aria-hidden="true" className="inline-flex">
-                                {pinned.map((item: any) => <TickerItem key={`${item.symbol}-dup`} item={item} t={t} />)}
+                                {pinned.map((item) => <TickerItem key={`${item.symbol}-dup`} item={item} t={t} />)}
                             </span>
                         </div>
                     ) : (
@@ -191,7 +198,7 @@ export default function PresentationPage() {
             {stripMode === 'full' && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 px-8 py-6 border-b border-zinc-900">
                     {pinned.length > 0
-                        ? pinned.map((item: any) => (
+                        ? pinned.map((item) => (
                             <MarketStatCard key={item.symbol} item={item} t={t} chartHeight="h-16" />
                         ))
                         : Array.from({ length: 8 }).map((_, i) => (
