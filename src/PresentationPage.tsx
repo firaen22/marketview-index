@@ -14,6 +14,7 @@ import { STRIP_MODES, type StripMode } from './constants';
 import { useMarketData } from './hooks/useMarketData';
 import { QuotePanel } from './components/QuotePanel';
 import { QuotePickerModal } from './components/QuotePickerModal';
+import { IndexChartModal } from './components/IndexChartModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
@@ -29,6 +30,7 @@ export default function PresentationPage() {
     const [mainView, setMainView] = useState<'slide' | 'index'>('slide');
     const [quoteOpen, setQuoteOpen] = useState(false);
     const [pinnedQuotes, setPinnedQuotes] = useState<IndexData[]>([]);
+    const [chartItem, setChartItem] = useState<IndexData | null>(null);
     const clock = useClock();
     const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
     const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
@@ -70,7 +72,7 @@ export default function PresentationPage() {
         onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
         onToggleQuote: useCallback(() => setQuoteOpen(o => !o), []),
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
-        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); setQuoteOpen(false); setPinnedQuotes([]); }, []),
+        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); setQuoteOpen(false); setPinnedQuotes([]); setChartItem(null); }, []),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -223,6 +225,7 @@ export default function PresentationPage() {
                     <QuotePanel
                         quotes={pinnedQuotes}
                         onRemove={sym => setPinnedQuotes(prev => prev.filter(p => p.symbol !== sym))}
+                        onItemClick={setChartItem}
                     />
                 )}
             </div>
@@ -239,6 +242,16 @@ export default function PresentationPage() {
                 sizeWarning={sizeWarning}
                 formatRelativeTime={formatRelativeTime}
             />
+
+            {/* Index chart modal */}
+            {chartItem && (
+                <IndexChartModal
+                    item={chartItem}
+                    allData={marketData}
+                    onClose={() => setChartItem(null)}
+                    lang={lang}
+                />
+            )}
 
             {/* Quote picker overlay */}
             {quoteOpen && (
