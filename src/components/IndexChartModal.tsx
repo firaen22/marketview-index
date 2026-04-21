@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Search } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import type { IndexData } from '../types';
+import { displayName } from '../utils';
 
 interface Props {
     item: IndexData;
@@ -12,6 +13,12 @@ interface Props {
 
 const PALETTE = ['#4a57f2', '#0d9488', '#db2777', '#ea580c', '#7c3aed'];
 const MAX_COMPARE = 4;
+
+function formatDate(v: unknown, opts: Intl.DateTimeFormatOptions): string {
+    if (typeof v !== 'string' || !v) return '';
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? v : d.toLocaleDateString(undefined, opts);
+}
 
 const LABELS = {
     en: {
@@ -134,7 +141,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                     <div>
                         <div className="text-[10px] font-mono tracking-widest text-zinc-500">{item.symbol}</div>
                         <div className="text-lg font-bold text-zinc-100 mt-0.5">
-                            {lang === 'en' ? (item.nameEn || item.name) : item.name}
+                            {displayName(item, lang)}
                         </div>
                         <div className="flex items-baseline gap-3 mt-1">
                             <span className="text-2xl font-mono font-bold text-white">
@@ -169,11 +176,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                         dataKey="date"
                                         stroke="#52525b"
                                         fontSize={10}
-                                        tickFormatter={(v) => {
-                                            if (typeof v !== 'string' || !v) return '';
-                                            const d = new Date(v);
-                                            return isNaN(d.getTime()) ? v : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-                                        }}
+                                        tickFormatter={(v) => formatDate(v, { month: 'short', day: 'numeric' })}
                                         minTickGap={40}
                                     />
                                     <YAxis
@@ -201,11 +204,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                                 : val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
                                             name,
                                         ]}
-                                        labelFormatter={(v) => {
-                                            if (typeof v !== 'string') return '';
-                                            const d = new Date(v);
-                                            return isNaN(d.getTime()) ? v : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-                                        }}
+                                        labelFormatter={(v) => formatDate(v, { year: 'numeric', month: 'short', day: 'numeric' })}
                                     />
                                     <Legend wrapperStyle={{ fontSize: 11 }} />
                                     {series.map(s => (
@@ -213,7 +212,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                             key={s.item.symbol}
                                             type="monotone"
                                             dataKey={s.item.symbol}
-                                            name={lang === 'en' ? (s.item.nameEn || s.item.name) : s.item.name}
+                                            name={displayName(s.item, lang)}
                                             stroke={s.color}
                                             strokeWidth={s.item.symbol === item.symbol ? 2.5 : 1.8}
                                             dot={false}
@@ -319,7 +318,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                         >
                                             <div className="min-w-0">
                                                 <div className="text-xs font-semibold text-zinc-200 truncate">
-                                                    {lang === 'en' ? (d.nameEn || d.name) : d.name}
+                                                    {displayName(d, lang)}
                                                 </div>
                                                 <div className="text-[10px] text-zinc-500 font-mono">{d.symbol}</div>
                                             </div>

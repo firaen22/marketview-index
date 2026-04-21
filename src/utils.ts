@@ -14,6 +14,10 @@ export function formatRelativeTime(ts: number): string {
     return `${Math.floor(diff / 3600)}h ago`;
 }
 
+export function displayName(item: Pick<IndexData, 'name' | 'nameEn'>, lang: 'en' | 'zh-TW'): string {
+    return lang === 'en' ? (item.nameEn || item.name) : item.name;
+}
+
 export function groupByCategory<T extends Pick<IndexData, 'category'>>(items: T[]): Record<string, T[]> {
     return items.reduce<Record<string, T[]>>((acc, item) => {
         (acc[item.category] ??= []).push(item);

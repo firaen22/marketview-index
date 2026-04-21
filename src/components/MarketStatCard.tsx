@@ -1,6 +1,6 @@
 import React from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
-import { cn } from '../utils';
+import { cn, displayName } from '../utils';
 import { Card } from './ui';
 import type { IndexData } from '../types';
 import type { TDict } from '../locales';
@@ -46,7 +46,7 @@ export const MarketStatCard: React.FC<{
             <div className="grid grid-cols-[1fr_auto] gap-x-2 items-start mb-5">
                 <div className="min-w-0">
                     <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">
-                        {t?.indexNames?.[item.name] || (t?.language === 'en' ? (item.nameEn || item.name) : item.name)}
+                        {t?.indexNames?.[item.name] || displayName(item, t.language)}
                     </h4>
                     <span className="text-[10px] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
                 </div>
