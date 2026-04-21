@@ -2,15 +2,17 @@ import React from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { cn } from '../utils';
 import type { IndexData } from '../types';
+import type { TDict } from '../locales';
 
-export const TickerItem: React.FC<{ item: IndexData; t: any }> = React.memo(({ item, t }) => {
+export const TickerItem: React.FC<{ item: IndexData; t: TDict }> = React.memo(({ item, t }) => {
     const isPositive = item.change >= 0;
+    const translated = t?.indexNames?.[item.name];
     return (
         <div className="flex items-center space-x-4 px-6 py-2 border-r border-zinc-800 whitespace-nowrap">
             <div className="flex flex-col">
                 <span className="text-xs font-bold text-zinc-400">{item.symbol}</span>
                 <span className="text-sm font-semibold text-zinc-100">
-                    {t?.indexNames?.[item.name] || (t?.language === 'en' ? (item.nameEn || item.name) : item.name)}
+                    {translated || item.nameEn || item.name}
                 </span>
             </div>
             <div className="flex flex-col items-end">

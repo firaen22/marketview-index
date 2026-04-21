@@ -5,6 +5,7 @@ import { NewsCard } from './NewsCard';
 import { DailyPulse } from './DailyPulse';
 import { cn } from '../utils';
 import type { IndexData, NewsItem } from '../types';
+import type { TDict } from '../locales';
 
 interface Props {
     isNewsOnly: boolean;
@@ -14,7 +15,7 @@ interface Props {
     marketSummary: string;
     marketData: IndexData[];
     newsData: NewsItem[];
-    t: any;
+    t: TDict;
 }
 
 export function NewsSection({

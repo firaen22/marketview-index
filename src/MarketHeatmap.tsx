@@ -1,20 +1,39 @@
 import React from 'react';
 import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
+import type { IndexData } from './types';
 
-export const transformToTreemap = (data: any[], groupBy: 'category' | 'subCategory' = 'category') => {
-    const categories = data.filter(item => item.symbol !== '^VIX').reduce((acc: any, item: any) => {
-        const cat = item[groupBy] || 'Other';
-        if (!acc[cat]) acc[cat] = { name: cat, children: [] };
+interface TreemapLeaf {
+    name: string;
+    symbol: string;
+    size: number;
+    change: number;
+    isPositive: boolean;
+}
 
-        acc[cat].children.push({
-            name: item.name,
-            symbol: item.symbol,
-            size: item.category === 'Crypto' ? Math.log10(item.price) * 10 : 100, // Balanced sizes
-            change: item.changePercent,
-            isPositive: item.changePercent >= 0,
-        });
-        return acc;
-    }, {});
+interface TreemapNode {
+    name: string;
+    children: TreemapLeaf[];
+}
+
+export const transformToTreemap = (
+    data: IndexData[],
+    groupBy: 'category' | 'subCategory' = 'category'
+): TreemapNode[] => {
+    const categories = data
+        .filter(item => item.symbol !== '^VIX')
+        .reduce<Record<string, TreemapNode>>((acc, item) => {
+            const cat = (groupBy === 'category' ? item.category : item.subCategory) || 'Other';
+            if (!acc[cat]) acc[cat] = { name: cat, children: [] };
+
+            acc[cat].children.push({
+                name: item.name,
+                symbol: item.symbol,
+                size: item.category === 'Crypto' ? Math.log10(item.price) * 10 : 100,
+                change: item.changePercent,
+                isPositive: item.changePercent >= 0,
+            });
+            return acc;
+        }, {});
 
     return Object.values(categories);
 };
@@ -75,7 +94,7 @@ const CustomizedContent = (props: any) => {
     );
 };
 
-export const MarketHeatmap = ({ rawData, groupBy = 'category' }: { rawData: any[], groupBy?: 'category' | 'subCategory' }) => {
+export const MarketHeatmap = ({ rawData, groupBy = 'category' }: { rawData: IndexData[], groupBy?: 'category' | 'subCategory' }) => {
     const data = transformToTreemap(rawData, groupBy);
 
     if (!rawData || rawData.length === 0) {

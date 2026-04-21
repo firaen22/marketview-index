@@ -3,6 +3,7 @@ import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'rec
 import { cn } from '../utils';
 import { Card } from './ui';
 import type { IndexData } from '../types';
+import type { TDict } from '../locales';
 
 const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -21,7 +22,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 export const MarketStatCard: React.FC<{
     item: IndexData;
     chartHeight?: string;
-    t: any;
+    t: TDict;
     chartMode?: 'nominal' | 'percent';
 }> = ({ item, chartHeight = "h-16", t, chartMode = 'nominal' }) => {
     const isPositive = item.change >= 0;

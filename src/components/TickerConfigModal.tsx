@@ -3,12 +3,13 @@ import { ListChecks, Check } from 'lucide-react';
 import { Modal } from './Modal';
 import { cn, setSetting, groupByCategory } from '../utils';
 import type { IndexData } from '../types';
+import type { TDict } from '../locales';
 
 interface Props {
     allSymbols: IndexData[];
     selected: string[] | null;
     language: 'en' | 'zh-TW';
-    t: any;
+    t: TDict;
     onClose: () => void;
     onSave: (next: string[] | null) => void;
 }

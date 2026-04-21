@@ -21,6 +21,7 @@ export interface IndexData {
     low: number;
     history: HistoryPoint[];
     category: IndexCategory;
+    subCategory?: string;
 }
 
 export interface NewsItem {

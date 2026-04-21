@@ -1,7 +1,8 @@
 import { TrendingUp, Cpu } from 'lucide-react';
 import { cn } from '../utils';
+import type { TDict } from '../locales';
 
-export const DailyPulse = ({ summary, t, isFocusMode }: { summary: string; t: any; isFocusMode: boolean }) => {
+export const DailyPulse = ({ summary, t, isFocusMode }: { summary: string; t: TDict; isFocusMode: boolean }) => {
     if (!summary) return null;
 
     let overview = summary;

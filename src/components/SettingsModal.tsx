@@ -3,6 +3,7 @@ import { Settings, Cpu, CheckCircle2, ShieldAlert, Loader2, Wallet } from 'lucid
 import { Modal } from './Modal';
 import { Toggle } from './Toggle';
 import { cn, setSetting } from '../utils';
+import type { TDict } from '../locales';
 
 interface VerificationResult {
     success: boolean;
@@ -14,7 +15,7 @@ interface VerificationResult {
 interface Props {
     initialKey: string;
     initialShowFunds: boolean;
-    t: any;
+    t: TDict;
     onClose: () => void;
     onSave: (key: string) => void;
     onShowFundsChange: (value: boolean) => void;
