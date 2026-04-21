@@ -4,14 +4,14 @@ import { cn } from '../utils';
 import { Card, Badge } from './ui';
 import type { NewsItem } from '../types';
 
+const SENTIMENT_LABELS: Record<string, Record<string, string>> = {
+    en: { Bullish: 'Bullish', Bearish: 'Bearish', Neutral: 'Neutral' },
+    'zh-TW': { Bullish: '看漲', Bearish: '看跌', Neutral: '中立' },
+};
+
 export const NewsCard: React.FC<{ item: NewsItem; language: string; isFocusMode?: boolean }> = ({ item, language, isFocusMode }) => {
     const sentimentVariant = item.sentiment.toLowerCase() as 'bullish' | 'bearish' | 'neutral';
-
-    const sentimentLabels: Record<string, any> = {
-        en: { Bullish: 'Bullish', Bearish: 'Bearish', Neutral: 'Neutral' },
-        'zh-TW': { Bullish: '看漲', Bearish: '看跌', Neutral: '中立' }
-    };
-    const label = sentimentLabels[language]?.[item.sentiment] || item.sentiment;
+    const label = SENTIMENT_LABELS[language]?.[item.sentiment] || item.sentiment;
 
     return (
         <a href={item.url || '#'} target="_blank" rel="noopener noreferrer" className="block outline-none mb-4">

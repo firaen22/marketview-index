@@ -39,7 +39,7 @@ export default function PresentationPage() {
         if (nextSymbols !== undefined) setTickerSymbols(nextSymbols);
     });
 
-    const t = { ...getLocale(lang), language: lang, activeRange: 'YTD' };
+    const t = React.useMemo(() => ({ ...getLocale(lang), language: lang, activeRange: 'YTD' as const }), [lang]);
 
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
 

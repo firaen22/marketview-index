@@ -27,19 +27,14 @@ export default function FundsPage() {
         if (chartMode) setChartMode(chartMode);
     });
 
-    const baseT = getLocale(language);
-
-    const indexNames = marketData.reduce<Record<string, string>>((acc, fund) => {
-        acc[fund.name] = language === 'en' ? (fund.nameEn || fund.name) : fund.name;
-        return acc;
-    }, {});
-
-    const t = {
-        ...baseT,
-        indexNames,
-        language,
-        activeRange: timeRange,
-    };
+    const t = React.useMemo(() => {
+        const baseT = getLocale(language);
+        const indexNames = marketData.reduce<Record<string, string>>((acc, fund) => {
+            acc[fund.name] = language === 'en' ? (fund.nameEn || fund.name) : fund.name;
+            return acc;
+        }, {});
+        return { ...baseT, indexNames, language, activeRange: timeRange };
+    }, [language, timeRange, marketData]);
 
     return (
         <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 lg:p-8 font-sans">

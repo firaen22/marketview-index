@@ -11,6 +11,11 @@ interface Props {
 }
 
 export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100 }) => {
+    const injected = React.useMemo(() => {
+        if (slide.mode !== 'markdown' && slide.mode !== 'html') return '';
+        return injectMarketTokens(slide.content, marketData);
+    }, [slide.content, slide.mode, marketData]);
+
     if (!slide.content?.trim()) {
         return (
             <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -41,7 +46,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     if (slide.mode === 'html') {
-        const html = injectMarketTokens(slide.content, marketData);
+        const html = injected;
         const scale = pdfZoom / 100;
         return (
             <div className="absolute inset-0 w-full h-full overflow-auto bg-white flex items-start justify-center">
@@ -58,7 +63,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     // markdown mode
-    const md = injectMarketTokens(slide.content, marketData);
+    const md = injected;
     return (
         <div className="w-full h-full overflow-auto px-12 py-10">
             <article

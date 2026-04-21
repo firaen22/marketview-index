@@ -41,11 +41,11 @@ export default function Dashboard() {
     if (tickerSymbols !== undefined) setTickerSymbols(tickerSymbols);
   });
 
-  const t = {
+  const t = React.useMemo(() => ({
     ...getLocale(language),
     language,
     activeRange: timeRange,
-  };
+  }), [language, timeRange]);
 
   const [showSettings, setShowSettings] = useState(false);
   const [geminiKey, setGeminiKey] = useState(initialSettings.geminiKey);
