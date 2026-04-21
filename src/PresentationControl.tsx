@@ -5,7 +5,8 @@ import { useSlideSync } from './hooks/useSlideSync';
 import { useMarketData } from './hooks/useMarketData';
 import { SlideRenderer } from './components/SlideRenderer';
 import { PdfUploader } from './components/PdfUploader';
-import { Monitor, Save, RotateCcw, Clipboard, Eye, EyeOff } from 'lucide-react';
+import { Monitor, RotateCcw, Clipboard, Eye, EyeOff } from 'lucide-react';
+import { SaveButton } from './components/SaveButton';
 import { MODE_HINTS, EXAMPLES } from './presentationExamples';
 
 export default function PresentationControl() {
@@ -25,25 +26,7 @@ export default function PresentationControl() {
         }
     };
 
-    const saveBtn = (
-        <button
-            onClick={() => doRemoteSave()}
-            disabled={cloudStatus === 'saving'}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition
-                ${cloudStatus === 'saving' ? 'bg-zinc-700 text-zinc-400 cursor-wait'
-                : cloudStatus === 'ok' ? 'bg-emerald-600 text-white'
-                : cloudStatus === 'error' ? 'bg-rose-600 text-white hover:bg-rose-500'
-                : 'bg-zinc-700 text-zinc-200 hover:bg-zinc-600'}`}
-        >
-            <Save className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">
-                {cloudStatus === 'saving' ? 'Saving…'
-                    : cloudStatus === 'ok' ? 'Saved'
-                    : cloudStatus === 'error' ? 'Retry'
-                    : 'Save'}
-            </span>
-        </button>
-    );
+    const saveBtn = <SaveButton cloudStatus={cloudStatus} onSave={() => doRemoteSave()} />;
 
     return (
         <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">

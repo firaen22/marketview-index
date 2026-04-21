@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, ExternalLink } from 'lucide-react';
 import { PdfUploader } from './PdfUploader';
+import { SaveButton } from './SaveButton';
 import { deletePdf, type PresentSlideMode } from '../utils';
 import type { useSlideSync } from '../hooks/useSlideSync';
 
@@ -33,20 +34,7 @@ export const SlideEditorPanel: React.FC<Props> = ({
             <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
                 <h2 className="text-sm font-mono tracking-widest text-zinc-300">SLIDE EDITOR</h2>
                 <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => doRemoteSave()}
-                        disabled={cloudStatus === 'saving'}
-                        className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition
-                            ${cloudStatus === 'saving' ? 'bg-zinc-700 text-zinc-400 cursor-wait'
-                            : cloudStatus === 'ok' ? 'bg-emerald-600 text-white'
-                            : cloudStatus === 'error' ? 'bg-rose-600 text-white hover:bg-rose-500'
-                            : 'bg-zinc-700 text-zinc-200 hover:bg-zinc-600'}`}
-                    >
-                        {cloudStatus === 'saving' ? '↑ Saving…'
-                            : cloudStatus === 'ok' ? '✓ Saved'
-                            : cloudStatus === 'error' ? '✕ Retry'
-                            : '↑ Save'}
-                    </button>
+                    <SaveButton cloudStatus={cloudStatus} onSave={() => doRemoteSave()} variant="compact" />
                     <button
                         onClick={onClose}
                         className="p-1 rounded hover:bg-zinc-800 text-zinc-500"

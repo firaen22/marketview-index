@@ -16,6 +16,7 @@ import { NewsSection } from './components/NewsSection';
 import { SettingsModal } from './components/SettingsModal';
 import { TickerConfigModal } from './components/TickerConfigModal';
 import { TimeRangeSelector } from './components/TimeRangeSelector';
+import { LangToggle } from './components/LangToggle';
 import { cn, getSettings, setSetting } from './utils';
 import { CATEGORIES_ORDER } from './constants';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -67,8 +68,7 @@ export default function Dashboard() {
     refreshNewsWithKey(key);
   };
 
-  const toggleLanguage = () => {
-    const nextLang = language === 'en' ? 'zh-TW' : 'en';
+  const handleLangChange = (nextLang: 'en' | 'zh-TW') => {
     setLanguage(nextLang);
     setSetting('lang', nextLang);
   };
@@ -147,12 +147,11 @@ export default function Dashboard() {
                 <span className="hidden sm:inline">{isNewsOnly ? t.allIndices : t.newsOnly}</span>
               </button>
               <div className="h-3 w-px bg-zinc-800"></div>
-              <button
-                onClick={toggleLanguage}
+              <LangToggle
+                language={language}
+                onChange={handleLangChange}
                 className="p-1 px-2.5 hover:bg-zinc-800 rounded-full transition-all text-[10px] font-bold text-zinc-300 hover:text-white"
-              >
-                {language === 'en' ? 'EN' : '中文'}
-              </button>
+              />
               <div className="h-3 w-px bg-zinc-800"></div>
               <button
                 onClick={() => setShowSettings(true)}

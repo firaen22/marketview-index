@@ -3,6 +3,7 @@ import { LayoutDashboard, Loader2, RefreshCcw, ArrowLeft, Maximize2, Minimize2 }
 import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
 import { TimeRangeSelector } from './components/TimeRangeSelector';
+import { LangToggle } from './components/LangToggle';
 import { cn, getSettings, setSetting } from './utils';
 import type { IndexData } from './types';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -131,16 +132,11 @@ export default function HeatmapPage() {
 
                     <TimeRangeSelector value={timeRange} onChange={setTimeRange} variant="default" />
 
-                    <button
-                        onClick={() => {
-                            const nextLang = language === 'en' ? 'zh-TW' : 'en';
-                            setLanguage(nextLang);
-                            setSetting('lang', nextLang);
-                        }}
+                    <LangToggle
+                        language={language}
+                        onChange={(next) => { setLanguage(next); setSetting('lang', next); }}
                         className="p-1 px-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-[10px] font-bold text-zinc-300 hover:text-white transition-all flex items-center justify-center min-w-[40px]"
-                    >
-                        {language === 'en' ? 'EN' : '中文'}
-                    </button>
+                    />
 
                     <button
                         onClick={() => fetchData(true)}

@@ -3,6 +3,7 @@ import { Wallet, LayoutDashboard, Loader2, RefreshCcw, ArrowLeft } from 'lucide-
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './components/MarketStatCard';
 import { TimeRangeSelector } from './components/TimeRangeSelector';
+import { LangToggle } from './components/LangToggle';
 import { cn, getSettings, setSetting } from './utils';
 import MarketHeatmap from './MarketHeatmap';
 import type { IndexData } from './types';
@@ -62,16 +63,11 @@ export default function FundsPage() {
                     >
                         {chartMode === 'nominal' ? t.nominal : t.percent}
                     </button>
-                    <button
-                        onClick={() => {
-                            const nextLang = language === 'en' ? 'zh-TW' : 'en';
-                            setLanguage(nextLang);
-                            setSetting('lang', nextLang);
-                        }}
+                    <LangToggle
+                        language={language}
+                        onChange={(next) => { setLanguage(next); setSetting('lang', next); }}
                         className="px-4 py-2.5 text-sm font-bold bg-zinc-900/50 backdrop-blur-md rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/80 transition-all text-zinc-300 hover:text-white"
-                    >
-                        {language === 'en' ? 'EN' : '中文'}
-                    </button>
+                    />
                     <button
                         onClick={() => fetchFunds(true)}
                         className={cn(
