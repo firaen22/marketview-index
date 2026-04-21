@@ -54,7 +54,12 @@ export const PdfViewer: React.FC<Props> = ({ url, zoom = 100 }) => {
             canvas.style.height = `${viewport.height / dpr}px`;
             const rt = page.render({ canvasContext: canvas.getContext('2d')!, canvas, viewport });
             renderTaskRef.current = rt;
-            rt.promise.catch(() => {});
+            rt.promise.catch(err => {
+                if (err?.name !== 'RenderingCancelledException') {
+                    console.error('PDF render error:', err);
+                    if (!cancelled) setError(err?.message || 'Failed to render PDF page');
+                }
+            });
         });
         return () => { cancelled = true; };
     }, [pdf, pageNum, zoom]);

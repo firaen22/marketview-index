@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { LayoutDashboard, Loader2, RefreshCcw, ArrowLeft, Maximize2, Minimize2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import MarketHeatmap from './MarketHeatmap';
@@ -31,14 +31,10 @@ export default function HeatmapPage() {
 
     const { data: marketData, isLoading, refresh: fetchData } = useMarketData({ range: timeRange });
 
-    // Handle initial view source sync
-    useEffect(() => {
-        if (viewSource === 'funds') {
-            setViewMode('subCategory');
-        } else {
-            setViewMode('category');
-        }
-    }, [viewSource]);
+    const changeViewSource = (next: 'market' | 'funds') => {
+        setViewSource(next);
+        setViewMode(next === 'funds' ? 'subCategory' : 'category');
+    };
 
     const filteredData = React.useMemo(() => {
         if (viewSource === 'market') {
@@ -81,7 +77,7 @@ export default function HeatmapPage() {
                     {/* View Source Toggle */}
                     <div className="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 backdrop-blur-md">
                         <button
-                            onClick={() => setViewSource('market')}
+                            onClick={() => changeViewSource('market')}
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300",
                                 viewSource === 'market'
@@ -92,7 +88,7 @@ export default function HeatmapPage() {
                             {t.sourceMarket}
                         </button>
                         <button
-                            onClick={() => setViewSource('funds')}
+                            onClick={() => changeViewSource('funds')}
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300",
                                 viewSource === 'funds'
