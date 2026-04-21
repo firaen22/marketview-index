@@ -132,6 +132,7 @@ export function SettingsModal({
                     <Toggle
                         checked={showFunds}
                         onChange={handleToggleShowFunds}
+                        ariaLabel={t.showFunds}
                         label={<><Wallet className="w-4 h-4 mr-2 text-indigo-400" />{t.showFunds}</>}
                     />
                 </div>
