@@ -2,7 +2,7 @@ import React from 'react';
 import { X, ExternalLink } from 'lucide-react';
 import { PdfUploader } from './PdfUploader';
 import { SaveButton } from './SaveButton';
-import { deletePdf, type PresentSlideMode } from '../utils';
+import { deletePdf, formatRelativeTime, type PresentSlideMode } from '../utils';
 import type { useSlideSync } from '../hooks/useSlideSync';
 
 type SlideSync = ReturnType<typeof useSlideSync>;
@@ -16,12 +16,11 @@ interface Props {
     cloudStatus: SlideSync['cloudStatus'];
     lastSavedAt: SlideSync['lastSavedAt'];
     sizeWarning: SlideSync['sizeWarning'];
-    formatRelativeTime: SlideSync['formatRelativeTime'];
 }
 
 export const SlideEditorPanel: React.FC<Props> = ({
     open, onClose, slide, saveSlide, doRemoteSave,
-    cloudStatus, lastSavedAt, sizeWarning, formatRelativeTime,
+    cloudStatus, lastSavedAt, sizeWarning,
 }) => {
     return (
         <div

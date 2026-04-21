@@ -6,7 +6,6 @@ import {
     saveRemoteSlide,
     StaleSaveError,
     MAX_CONTENT_BYTES,
-    formatRelativeTime,
     type PresentSlide,
 } from '../utils';
 
@@ -21,7 +20,6 @@ export interface UseSlideSyncResult {
     cloudStatus: CloudStatus;
     lastSavedAt: number | null;
     sizeWarning: string | null;
-    formatRelativeTime: (ts: number) => string;
 }
 
 export function useSlideSync(): UseSlideSyncResult {
@@ -115,6 +113,5 @@ export function useSlideSync(): UseSlideSyncResult {
         cloudStatus,
         lastSavedAt,
         sizeWarning,
-        formatRelativeTime,
     };
 }

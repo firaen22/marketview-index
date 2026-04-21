@@ -1,18 +1,23 @@
 import React from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
-import { cn, displayName } from '../utils';
+import { cn, displayName, formatPrice } from '../utils';
 import { Card } from './ui';
-import type { IndexData } from '../types';
+import type { IndexData, HistoryPoint } from '../types';
 import type { TDict } from '../locales';
 
-const CustomTooltip = ({ active, payload }: any) => {
+interface StatTooltipProps {
+    active?: boolean;
+    payload?: Array<{ payload: HistoryPoint }>;
+}
+
+const CustomTooltip = ({ active, payload }: StatTooltipProps) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
         const dateStr = data.date ? new Date(data.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Live';
         return (
             <div className="bg-zinc-800/95 border border-zinc-700/50 p-2.5 rounded-lg shadow-xl text-xs font-mono z-50 animate-in fade-in zoom-in-95 duration-200">
                 <p className="text-zinc-400 mb-1">{dateStr}</p>
-                <p className="font-bold text-zinc-100 text-sm">{Number(data.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="font-bold text-zinc-100 text-sm">{formatPrice(Number(data.value))}</p>
             </div>
         );
     }
@@ -52,7 +57,7 @@ export const MarketStatCard: React.FC<{
                 </div>
                 <div className="text-right flex flex-col items-end">
                     <div className={cn("text-base font-mono font-bold leading-none", isPositive ? "text-emerald-400" : "text-rose-400")}>
-                        {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatPrice(item.price)}
                     </div>
                     <div className={cn("text-[10px] font-mono flex items-center justify-end mt-1 px-1.5 py-0.5 rounded bg-zinc-950/50", isPositive ? "text-emerald-400" : "text-rose-400")}>
                         {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%

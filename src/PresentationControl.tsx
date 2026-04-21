@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { deletePdf, getSettings, type PresentSlideMode } from './utils';
+import { deletePdf, getSettings, formatRelativeTime, type PresentSlideMode } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useMarketData } from './hooks/useMarketData';
 import { SlideRenderer } from './components/SlideRenderer';
@@ -10,7 +10,7 @@ import { SaveButton } from './components/SaveButton';
 import { MODE_HINTS, EXAMPLES } from './presentationExamples';
 
 export default function PresentationControl() {
-    const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning, formatRelativeTime } = useSlideSync();
+    const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
     const { data: marketData } = useMarketData({ range: 'YTD', lang: getSettings().lang });
     const [showPreview, setShowPreview] = useState(false);
 

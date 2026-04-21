@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Search } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import type { IndexData } from '../types';
-import { displayName } from '../utils';
+import { displayName, formatPrice, formatWhole } from '../utils';
 
 interface Props {
     item: IndexData;
@@ -145,7 +145,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                         </div>
                         <div className="flex items-baseline gap-3 mt-1">
                             <span className="text-2xl font-mono font-bold text-white">
-                                {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {formatPrice(item.price)}
                             </span>
                             <span className={`text-sm font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
@@ -185,7 +185,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                         tickFormatter={(v: number) =>
                                             effectiveMode === 'percent'
                                                 ? `${v > 0 ? '+' : ''}${v.toFixed(1)}%`
-                                                : v.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                                                : formatWhole(v)
                                         }
                                         domain={['auto', 'auto']}
                                         width={60}
@@ -201,7 +201,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                         formatter={(val: number, name: string) => [
                                             effectiveMode === 'percent'
                                                 ? `${val > 0 ? '+' : ''}${val.toFixed(2)}%`
-                                                : val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                                                : formatPrice(val),
                                             name,
                                         ]}
                                         labelFormatter={(v) => formatDate(v, { year: 'numeric', month: 'short', day: 'numeric' })}

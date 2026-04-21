@@ -8,11 +8,13 @@ interface TreemapLeaf {
     size: number;
     change: number;
     isPositive: boolean;
+    [key: string]: string | number | boolean;
 }
 
 interface TreemapNode {
     name: string;
     children: TreemapLeaf[];
+    [key: string]: string | number | TreemapLeaf[];
 }
 
 export const transformToTreemap = (
@@ -38,7 +40,12 @@ export const transformToTreemap = (
     return Object.values(categories);
 };
 
-const CustomTooltip = ({ active, payload }: any) => {
+interface HeatmapTooltipProps {
+    active?: boolean;
+    payload?: Array<{ payload: TreemapLeaf }>;
+}
+
+const CustomTooltip = ({ active, payload }: HeatmapTooltipProps) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
         return (
@@ -54,8 +61,17 @@ const CustomTooltip = ({ active, payload }: any) => {
     return null;
 };
 
-const CustomizedContent = (props: any) => {
-    const { x, y, width, height, name, change } = props;
+interface TreemapContentProps {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    name?: string;
+    change?: number;
+}
+
+const CustomizedContent = (props: TreemapContentProps) => {
+    const { x = 0, y = 0, width = 0, height = 0, name = '', change = 0 } = props;
 
     const getBgColor = (val: number) => {
         if (val >= 3) return '#059669';      // Deep Green
@@ -105,7 +121,7 @@ export const MarketHeatmap = ({ rawData, groupBy = 'category' }: { rawData: Inde
         <div className="h-[400px] w-full bg-zinc-900/30 rounded-xl border border-zinc-800 p-2 overflow-hidden">
             <ResponsiveContainer width="100%" height="100%">
                 <Treemap
-                    data={data as any[]}
+                    data={data}
                     dataKey="size"
                     stroke="#fff"
                     fill="#8884d8"

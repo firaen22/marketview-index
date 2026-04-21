@@ -18,6 +18,14 @@ export function displayName(item: Pick<IndexData, 'name' | 'nameEn'>, lang: 'en'
     return lang === 'en' ? (item.nameEn || item.name) : item.name;
 }
 
+export function formatPrice(n: number): string {
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export function formatWhole(n: number): string {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+
 export function groupByCategory<T extends Pick<IndexData, 'category'>>(items: T[]): Record<string, T[]> {
     return items.reduce<Record<string, T[]>>((acc, item) => {
         (acc[item.category] ??= []).push(item);

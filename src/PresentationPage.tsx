@@ -20,7 +20,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 
 export default function PresentationPage() {
-    const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning, formatRelativeTime } = useSlideSync();
+    const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
     const initialSettings = React.useMemo(() => getSettings(), []);
     const [editorOpen, setEditorOpen] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -240,7 +240,6 @@ export default function PresentationPage() {
                 cloudStatus={cloudStatus}
                 lastSavedAt={lastSavedAt}
                 sizeWarning={sizeWarning}
-                formatRelativeTime={formatRelativeTime}
             />
 
             {/* Index chart modal */}
