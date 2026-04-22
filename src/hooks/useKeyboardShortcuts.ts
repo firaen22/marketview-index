@@ -8,6 +8,8 @@ interface Handlers {
     onToggleQuote: () => void;
     onToggleHints: () => void;
     onEscape: () => void;
+    onArrowLeft?: () => void;
+    onArrowRight?: () => void;
 }
 
 export function useKeyboardShortcuts(handlers: Handlers) {
@@ -22,6 +24,8 @@ export function useKeyboardShortcuts(handlers: Handlers) {
             if (e.key === 'i' || e.key === 'I') { e.preventDefault(); handlers.onToggleView(); }
             if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); handlers.onToggleQuote(); }
             if (e.key === '?' || e.key === '/') { e.preventDefault(); handlers.onToggleHints(); }
+            if (e.key === 'ArrowLeft' && handlers.onArrowLeft) { e.preventDefault(); handlers.onArrowLeft(); }
+            if (e.key === 'ArrowRight' && handlers.onArrowRight) { e.preventDefault(); handlers.onArrowRight(); }
             if (e.key === 'Escape') handlers.onEscape();
         };
         window.addEventListener('keydown', onKey);
@@ -36,5 +40,7 @@ export function useKeyboardShortcuts(handlers: Handlers) {
         handlers.onToggleQuote,
         handlers.onToggleHints,
         handlers.onEscape,
+        handlers.onArrowLeft,
+        handlers.onArrowRight,
     ]);
 }

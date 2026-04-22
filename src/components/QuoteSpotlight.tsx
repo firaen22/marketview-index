@@ -1,9 +1,13 @@
 import type { QuoteItem } from '../types/QuoteItem';
-import { X } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Props {
     item: QuoteItem;
     onDismiss: () => void;
+    index?: number;
+    total?: number;
+    onPrev?: () => void;
+    onNext?: () => void;
 }
 
 function formatValue(v: number): string {
@@ -24,7 +28,8 @@ function pctColor(p: number | undefined): string {
     return 'text-zinc-300';
 }
 
-export function QuoteSpotlight({ item, onDismiss }: Props) {
+export function QuoteSpotlight({ item, onDismiss, index, total, onPrev, onNext }: Props) {
+    const hasNav = total !== undefined && total > 1 && index !== undefined;
     const isMarket = item.group === 'market';
     const secondaryLabel = isMarket ? 'YTD' : item.secondaryLabel;
     const secondaryPct = isMarket ? item.ytdPct : item.secondaryPct;
@@ -37,6 +42,16 @@ export function QuoteSpotlight({ item, onDismiss }: Props) {
             aria-label={`Quote spotlight: ${item.name}`}
         >
             <div className="flex items-center gap-8 px-10 py-5 min-h-[100px]">
+                {hasNav && (
+                    <button
+                        onClick={onPrev}
+                        className="p-2 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
+                        title="Previous (←)"
+                        aria-label="Previous quote"
+                    >
+                        <ChevronLeft className="w-6 h-6" />
+                    </button>
+                )}
                 <div className="flex-1 flex items-baseline gap-6 min-w-0">
                     <div className="min-w-0">
                         <div className="text-2xl font-semibold text-zinc-50 truncate">{item.name}</div>
@@ -66,9 +81,25 @@ export function QuoteSpotlight({ item, onDismiss }: Props) {
                     </div>
                 )}
 
+                {hasNav && (
+                    <>
+                        <button
+                            onClick={onNext}
+                            className="p-2 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
+                            title="Next (→)"
+                            aria-label="Next quote"
+                        >
+                            <ChevronRight className="w-6 h-6" />
+                        </button>
+                        <div className="text-[10px] font-mono text-zinc-500 tabular-nums">
+                            {(index! + 1)}/{total}
+                        </div>
+                    </>
+                )}
+
                 <button
                     onClick={onDismiss}
-                    className="ml-4 p-2 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition"
+                    className="ml-2 p-2 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition"
                     title="Dismiss (Esc or Q)"
                     aria-label="Dismiss spotlight"
                 >

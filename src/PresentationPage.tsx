@@ -79,6 +79,18 @@ export default function PresentationPage() {
         }, [qp]),
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
         onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); qp.resetAll(); }, [qp]),
+        onArrowLeft: useCallback(() => {
+            if (!qp.spotlight || qp.pinned.length < 2) return;
+            const i = qp.pinned.findIndex(p => p.id === qp.spotlight!.id);
+            const next = qp.pinned[(i - 1 + qp.pinned.length) % qp.pinned.length];
+            qp.openSpotlight(next);
+        }, [qp]),
+        onArrowRight: useCallback(() => {
+            if (!qp.spotlight || qp.pinned.length < 2) return;
+            const i = qp.pinned.findIndex(p => p.id === qp.spotlight!.id);
+            const next = qp.pinned[(i + 1) % qp.pinned.length];
+            qp.openSpotlight(next);
+        }, [qp]),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -218,9 +230,25 @@ export default function PresentationPage() {
                     )}
 
                     {/* Quote spotlight — lower-third overlay */}
-                    {qp.spotlight && (
-                        <QuoteSpotlight item={qp.spotlight} onDismiss={qp.dismissSpotlight} />
-                    )}
+                    {qp.spotlight && (() => {
+                        const idx = qp.pinned.findIndex(p => p.id === qp.spotlight!.id);
+                        return (
+                            <QuoteSpotlight
+                                item={qp.spotlight}
+                                onDismiss={qp.dismissSpotlight}
+                                index={idx >= 0 ? idx : undefined}
+                                total={qp.pinned.length}
+                                onPrev={() => {
+                                    if (qp.pinned.length < 2 || idx < 0) return;
+                                    qp.openSpotlight(qp.pinned[(idx - 1 + qp.pinned.length) % qp.pinned.length]);
+                                }}
+                                onNext={() => {
+                                    if (qp.pinned.length < 2 || idx < 0) return;
+                                    qp.openSpotlight(qp.pinned[(idx + 1) % qp.pinned.length]);
+                                }}
+                            />
+                        );
+                    })()}
 
                     {/* Zoom controls — shown for pdf and html modes */}
                     {mainView === 'slide' && (slide.mode === 'pdf' || slide.mode === 'html') && (
