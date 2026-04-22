@@ -10,7 +10,8 @@ import { getLocale } from './locales';
 import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
-import type { IndexData } from './types';
+import type { IndexData, MacroData } from './types';
+import { usePinnedItems } from './hooks/usePinnedItems';
 import { STRIP_MODES, type StripMode } from './constants';
 import { useMarketData } from './hooks/useMarketData';
 import { useMacroData } from './hooks/useMacroData';
@@ -31,8 +32,8 @@ export default function PresentationPage() {
     const [pdfZoom, setPdfZoom] = useState(100);
     const [mainView, setMainView] = useState<'slide' | 'index'>('slide');
     const [quoteOpen, setQuoteOpen] = useState(false);
-    const [pinnedQuotes, setPinnedQuotes] = useState<IndexData[]>([]);
-    const [pinnedMacroQuotes, setPinnedMacroQuotes] = useState<import('./types').MacroData[]>([]);
+    const pinnedIndex = usePinnedItems<IndexData>();
+    const pinnedMacro = usePinnedItems<MacroData>();
     const [chartItem, setChartItem] = useState<IndexData | null>(null);
     const clock = useClock();
     const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
@@ -76,7 +77,7 @@ export default function PresentationPage() {
         onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
         onToggleQuote: useCallback(() => setQuoteOpen(o => !o), []),
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
-        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); setQuoteOpen(false); setPinnedQuotes([]); setPinnedMacroQuotes([]); setChartItem(null); }, []),
+        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); setQuoteOpen(false); pinnedIndex.clear(); pinnedMacro.clear(); setChartItem(null); }, [pinnedIndex, pinnedMacro]),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -120,7 +121,7 @@ export default function PresentationPage() {
                         </button>
                         <button
                             onClick={() => setQuoteOpen(o => !o)}
-                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${quoteOpen || pinnedQuotes.length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
+                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${quoteOpen || pinnedIndex.items.length > 0 || pinnedMacro.items.length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
                             title="Quote overlay (Q)"
                         >
                             <TrendingUp className="w-4 h-4" />
@@ -239,11 +240,11 @@ export default function PresentationPage() {
                 {/* Pinned quote panel — vertical right column */}
                 {!quoteOpen && (
                     <QuotePanel
-                        quotes={pinnedQuotes}
-                        onRemove={sym => setPinnedQuotes(prev => prev.filter(p => p.symbol !== sym))}
+                        quotes={pinnedIndex.items}
+                        onRemove={pinnedIndex.remove}
                         onItemClick={setChartItem}
-                        macroQuotes={pinnedMacroQuotes}
-                        onRemoveMacro={sym => setPinnedMacroQuotes(prev => prev.filter(p => p.symbol !== sym))}
+                        macroQuotes={pinnedMacro.items}
+                        onRemoveMacro={pinnedMacro.remove}
                     />
                 )}
             </div>
@@ -274,21 +275,13 @@ export default function PresentationPage() {
             {quoteOpen && (
                 <QuotePickerModal
                     marketData={marketData}
-                    pinnedQuotes={pinnedQuotes}
-                    onToggle={d => setPinnedQuotes(prev =>
-                        prev.some(p => p.symbol === d.symbol)
-                            ? prev.filter(p => p.symbol !== d.symbol)
-                            : [...prev, d]
-                    )}
-                    onClearAll={() => { setPinnedQuotes([]); setPinnedMacroQuotes([]); }}
+                    pinnedQuotes={pinnedIndex.items}
+                    onToggle={pinnedIndex.toggle}
+                    onClearAll={() => { pinnedIndex.clear(); pinnedMacro.clear(); }}
                     onClose={() => setQuoteOpen(false)}
                     macroData={macroData}
-                    pinnedMacroQuotes={pinnedMacroQuotes}
-                    onToggleMacro={d => setPinnedMacroQuotes(prev =>
-                        prev.some(p => p.symbol === d.symbol)
-                            ? prev.filter(p => p.symbol !== d.symbol)
-                            : [...prev, d]
-                    )}
+                    pinnedMacroQuotes={pinnedMacro.items}
+                    onToggleMacro={pinnedMacro.toggle}
                 />
             )}
 

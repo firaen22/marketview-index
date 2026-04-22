@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import type { IndexData, MacroData } from '../types';
+import { QuoteButton } from './QuoteButton';
 
 interface Props {
     marketData: IndexData[];
@@ -22,6 +23,9 @@ export function QuotePickerModal({ marketData, pinnedQuotes, onToggle, onClearAl
         return () => window.removeEventListener('keydown', onKey);
     }, [onClose]);
 
+    const macroPinnedCount = pinnedMacroQuotes?.length ?? 0;
+    const totalPinned = pinnedQuotes.length + macroPinnedCount;
+
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
@@ -34,72 +38,47 @@ export function QuotePickerModal({ marketData, pinnedQuotes, onToggle, onClearAl
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-baseline gap-2">
                         <span className="text-xs font-mono tracking-widest text-zinc-400">QUICK QUOTES</span>
-                        <span className="text-[10px] text-zinc-600">{pinnedQuotes.length} pinned</span>
+                        <span className="text-[10px] text-zinc-600">{totalPinned} pinned</span>
                     </div>
                     <button onClick={onClose} className="p-1 rounded hover:bg-zinc-800 text-zinc-500">
                         <X className="w-3.5 h-3.5" />
                     </button>
                 </div>
                 <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-1">
-                    {marketData.map(d => {
-                        const up = d.changePercent >= 0;
-                        const isPinned = pinnedQuotes.some(p => p.symbol === d.symbol);
-                        return (
-                            <button
-                                key={d.symbol}
-                                onClick={() => onToggle(d)}
-                                className={`flex items-center justify-between px-3 py-2 rounded-lg border transition text-left ${
-                                    isPinned
-                                        ? 'bg-emerald-500/15 border-emerald-500/40 hover:bg-emerald-500/20'
-                                        : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700'
-                                }`}
-                            >
-                                <div>
-                                    <div className="text-xs font-semibold text-zinc-200 truncate max-w-[120px]">{d.name}</div>
-                                    <div className="text-[10px] text-zinc-500 font-mono">{d.symbol}</div>
-                                </div>
-                                <div className={`text-xs font-mono font-bold ${up ? 'text-emerald-400' : 'text-red-400'}`}>
-                                    {up ? '+' : ''}{d.changePercent?.toFixed(2)}%
-                                </div>
-                            </button>
-                        );
-                    })}
+                    {marketData.map(d => (
+                        <QuoteButton
+                            key={d.symbol}
+                            name={d.name}
+                            symbol={d.symbol}
+                            changePercent={d.changePercent}
+                            isPinned={pinnedQuotes.some(p => p.symbol === d.symbol)}
+                            onClick={() => onToggle(d)}
+                        />
+                    ))}
                     {macroData && macroData.length > 0 && onToggleMacro && (
                         <>
                             <div className="col-span-2 pt-2 pb-1 border-t border-zinc-800 mt-1">
                                 <span className="text-[10px] font-mono tracking-widest text-zinc-600 uppercase">Macro</span>
                             </div>
-                            {macroData.map(d => {
-                                const up = d.changePercent >= 0;
-                                const isPinned = pinnedMacroQuotes?.some(p => p.symbol === d.symbol);
-                                return (
-                                    <button
-                                        key={d.symbol}
-                                        onClick={() => onToggleMacro(d)}
-                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border transition text-left ${
-                                            isPinned
-                                                ? 'bg-emerald-500/15 border-emerald-500/40 hover:bg-emerald-500/20'
-                                                : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700'
-                                        }`}
-                                    >
-                                        <div>
-                                            <div className="text-xs font-semibold text-zinc-200 truncate max-w-[120px]">{d.name}</div>
-                                            <div className="text-[10px] text-zinc-500 font-mono">{d.symbol}</div>
-                                        </div>
-                                        <div className={`text-xs font-mono font-bold ${up ? 'text-emerald-400' : 'text-red-400'}`}>
-                                            {up ? '+' : ''}{d.changePercent?.toFixed(2)}% YoY
-                                        </div>
-                                    </button>
-                                );
-                            })}
+                            {macroData.map(d => (
+                                <QuoteButton
+                                    key={d.symbol}
+                                    name={d.name}
+                                    symbol={d.symbol}
+                                    changePercent={d.changePercent}
+                                    suffix="YoY"
+                                    isPinned={pinnedMacroQuotes?.some(p => p.symbol === d.symbol) ?? false}
+                                    onClick={() => onToggleMacro(d)}
+                                />
+                            ))}
                         </>
                     )}
-                    {(pinnedQuotes.length > 0 || (pinnedMacroQuotes && pinnedMacroQuotes.length > 0)) && (
+                    {totalPinned > 0 && (
                         <button
                             onClick={onClearAll}
                             className="col-span-2 mt-3 w-full text-xs text-zinc-600 hover:text-zinc-400 text-center"
                         >
-                            Clear all pinned ({pinnedQuotes.length + (pinnedMacroQuotes?.length ?? 0)})
+                            Clear all pinned ({totalPinned})
                         </button>
                     )}
                 </div>
