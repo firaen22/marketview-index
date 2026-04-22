@@ -2,12 +2,12 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
 import { MacroStatCard } from './components/MacroStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
-import { getSettings } from './settings';
+import { getSettings, setSetting } from './settings';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
 import { getLocale } from './locales';
-import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
+import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp, Sunrise } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
 import { STRIP_MODES, type StripMode } from './constants';
@@ -17,6 +17,8 @@ import { useQuotePanel } from './hooks/useQuotePanel';
 import { QuotePanel } from './components/QuotePanel';
 import { QuotePickerModal } from './components/QuotePickerModal';
 import { QuoteSpotlight } from './components/QuoteSpotlight';
+import { QuoteSpotlightSearch } from './components/QuoteSpotlightSearch';
+import { MorningBriefPanel } from './components/MorningBriefPanel';
 import { IndexChartModal } from './components/IndexChartModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -34,6 +36,8 @@ export default function PresentationPage() {
     const clock = useClock();
     const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
     const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
+    const [morningBrief, setMorningBrief] = useState<string[]>(initialSettings.morningBrief);
+    const [briefPanelOpen, setBriefPanelOpen] = useState(false);
     const hintsTimerRef = useRef<number | null>(null);
 
     useSettingsSync(({ lang: nextLang, tickerSymbols: nextSymbols }) => {
@@ -46,6 +50,18 @@ export default function PresentationPage() {
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
+
+    const briefItems = React.useMemo(
+        () => morningBrief
+            .map(id => qp.allItems.find(i => i.id === id))
+            .filter((x): x is NonNullable<typeof x> => !!x),
+        [morningBrief, qp.allItems]
+    );
+
+    const saveBrief = useCallback((next: string[]) => {
+        setMorningBrief(next);
+        setSetting('morningBrief', next);
+    }, []);
 
     // Auto-show hints overlay briefly on first mount, then auto-hide
     useEffect(() => {
@@ -73,24 +89,29 @@ export default function PresentationPage() {
         onCycleStrip: useCallback(() => setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length]), []),
         onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
         onToggleQuote: useCallback(() => {
+            if (qp.isSearchOpen) { qp.closeSearch(); return; }
             if (qp.spotlight) { qp.dismissSpotlight(); return; }
-            if (qp.pinned.length > 0) { qp.openSpotlight(qp.pinned[0]); return; }
-            qp.togglePicker();
-        }, [qp]),
+            if (briefItems.length > 0) { qp.openSpotlight(briefItems[0]); return; }
+            qp.openSearch();
+        }, [qp, briefItems]),
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
         onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); qp.resetAll(); }, [qp]),
         onArrowLeft: useCallback(() => {
-            if (!qp.spotlight || qp.pinned.length < 2) return;
-            const i = qp.pinned.findIndex(p => p.id === qp.spotlight!.id);
-            const next = qp.pinned[(i - 1 + qp.pinned.length) % qp.pinned.length];
-            qp.openSpotlight(next);
-        }, [qp]),
+            if (!qp.spotlight) return;
+            const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
+            if (cycleList.length < 2) return;
+            const i = cycleList.findIndex(p => p.id === qp.spotlight!.id);
+            if (i < 0) return;
+            qp.openSpotlight(cycleList[(i - 1 + cycleList.length) % cycleList.length]);
+        }, [qp, briefItems]),
         onArrowRight: useCallback(() => {
-            if (!qp.spotlight || qp.pinned.length < 2) return;
-            const i = qp.pinned.findIndex(p => p.id === qp.spotlight!.id);
-            const next = qp.pinned[(i + 1) % qp.pinned.length];
-            qp.openSpotlight(next);
-        }, [qp]),
+            if (!qp.spotlight) return;
+            const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
+            if (cycleList.length < 2) return;
+            const i = cycleList.findIndex(p => p.id === qp.spotlight!.id);
+            if (i < 0) return;
+            qp.openSpotlight(cycleList[(i + 1) % cycleList.length]);
+        }, [qp, briefItems]),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -138,6 +159,13 @@ export default function PresentationPage() {
                             title="Quote overlay (Q)"
                         >
                             <TrendingUp className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => setBriefPanelOpen(true)}
+                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${briefItems.length > 0 ? 'text-amber-400' : 'text-zinc-400'}`}
+                            title={`Morning Brief${briefItems.length ? ` (${briefItems.length})` : ''}`}
+                        >
+                            <Sunrise className="w-4 h-4" />
                         </button>
                         <button
                             onClick={() => setEditorOpen(o => !o)}
@@ -231,21 +259,17 @@ export default function PresentationPage() {
 
                     {/* Quote spotlight — lower-third overlay */}
                     {qp.spotlight && (() => {
-                        const idx = qp.pinned.findIndex(p => p.id === qp.spotlight!.id);
+                        const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
+                        const idx = cycleList.findIndex(p => p.id === qp.spotlight!.id);
+                        const canCycle = idx >= 0 && cycleList.length > 1;
                         return (
                             <QuoteSpotlight
                                 item={qp.spotlight}
                                 onDismiss={qp.dismissSpotlight}
-                                index={idx >= 0 ? idx : undefined}
-                                total={qp.pinned.length}
-                                onPrev={() => {
-                                    if (qp.pinned.length < 2 || idx < 0) return;
-                                    qp.openSpotlight(qp.pinned[(idx - 1 + qp.pinned.length) % qp.pinned.length]);
-                                }}
-                                onNext={() => {
-                                    if (qp.pinned.length < 2 || idx < 0) return;
-                                    qp.openSpotlight(qp.pinned[(idx + 1) % qp.pinned.length]);
-                                }}
+                                index={canCycle ? idx : undefined}
+                                total={canCycle ? cycleList.length : undefined}
+                                onPrev={canCycle ? () => qp.openSpotlight(cycleList[(idx - 1 + cycleList.length) % cycleList.length]) : undefined}
+                                onNext={canCycle ? () => qp.openSpotlight(cycleList[(idx + 1) % cycleList.length]) : undefined}
                             />
                         );
                     })()}
@@ -300,6 +324,25 @@ export default function PresentationPage() {
                     allData={marketData}
                     onClose={qp.closeChart}
                     lang={lang}
+                />
+            )}
+
+            {/* Morning Brief config */}
+            {briefPanelOpen && (
+                <MorningBriefPanel
+                    items={qp.allItems}
+                    brief={morningBrief}
+                    onChange={saveBrief}
+                    onClose={() => setBriefPanelOpen(false)}
+                />
+            )}
+
+            {/* Ad-hoc quote search */}
+            {qp.isSearchOpen && (
+                <QuoteSpotlightSearch
+                    items={qp.allItems}
+                    onCommit={(item) => { qp.openSpotlight(item); qp.closeSearch(); }}
+                    onClose={qp.closeSearch}
                 />
             )}
 
