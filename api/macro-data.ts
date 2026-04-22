@@ -14,8 +14,8 @@ const CACHE_TTL = 3600 * 24; // Cache for 24 hours, macro data updates monthly
 const MACRO_SERIES = [
     { symbol: 'CPIAUCSL', name: '消費者物價指數 (CPI)', nameEn: 'Consumer Price Index (CPI)', category: 'Inflation' },
     { symbol: 'CPILFESL', name: '核心 CPI', nameEn: 'Core CPI', category: 'Inflation' },
-    { symbol: 'PPIACO', name: '生產者物價指數 (PPI)', nameEn: 'Producer Price Index (PPI)', category: 'Inflation' },
-    { symbol: 'PPIFIS', name: '核心 PPI', nameEn: 'Core PPI', category: 'Inflation' },
+    { symbol: 'PPIFIS', name: '生產者物價指數 (PPI)', nameEn: 'Producer Price Index (PPI)', category: 'Inflation' },
+    { symbol: 'PPIFES', name: '核心 PPI', nameEn: 'Core PPI', category: 'Inflation' },
 ];
 
 export default async function handler(req: any, res: any) {
@@ -27,20 +27,16 @@ export default async function handler(req: any, res: any) {
         const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
         const forceRefresh = searchParams.get('refresh') === 'true';
 
-        // Custom API Key support
-        const authHeader = req.headers.authorization;
-        const customApiKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
-        const apiKey = customApiKey || process.env.FRED_API_KEY;
-
-        if (!apiKey || apiKey === 'null' || apiKey === 'undefined') {
-            return res.status(401).json({
+        const apiKey = process.env.FRED_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({
                 success: false,
-                error: 'Missing FRED API Key',
-                message: 'FRED API Key is required to fetch macroeconomic data. Please add it to your settings.'
+                error: 'Missing FRED_API_KEY',
+                message: 'Set FRED_API_KEY in the server environment.'
             });
         }
 
-        if (redis && !forceRefresh && !customApiKey) {
+        if (redis && !forceRefresh) {
             const cached: any = await redis.get(CACHE_KEY);
             if (cached) {
                 const payload = typeof cached === 'string' ? JSON.parse(cached) : cached;
@@ -49,55 +45,47 @@ export default async function handler(req: any, res: any) {
         }
 
         console.log('Fetching fresh macro data from FRED...');
-        const results = [];
 
-        for (const series of MACRO_SERIES) {
-            const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${series.symbol}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=14`;
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`FRED API Error for ${series.symbol}: ${response.status} ${errText}`);
-            }
+        const settled = await Promise.all(MACRO_SERIES.map(async (series) => {
+            try {
+                const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${series.symbol}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=14`;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    const errText = await response.text();
+                    console.error(`FRED API Error for ${series.symbol}: ${response.status} ${errText}`);
+                    return null;
+                }
+                const data = await response.json();
+                if (!data.observations || data.observations.length < 13) return null;
 
-            const data = await response.json();
-            
-            if (data.observations && data.observations.length >= 13) {
-                // Get most recent observation
                 const currentObs = data.observations[0];
                 const currentValue = parseFloat(currentObs.value);
-                const currentDate = currentObs.date;
-                
-                // Get previous month (1 month ago) for MoM
-                const prevMonthObs = data.observations[1];
-                const prevMonthValue = parseFloat(prevMonthObs.value);
-                
-                // Get previous year (12 months ago) for YoY
-                const prevYearObs = data.observations[12];
-                const prevYearValue = parseFloat(prevYearObs.value);
+                const prevMonthValue = parseFloat(data.observations[1].value);
+                const prevYearValue = parseFloat(data.observations[12].value);
 
-                // MoM Change
                 const momChange = currentValue - prevMonthValue;
                 const momChangePercent = (momChange / prevMonthValue) * 100;
-                
-                // YoY Change
                 const yoyChange = currentValue - prevYearValue;
                 const yoyChangePercent = (yoyChange / prevYearValue) * 100;
 
-                results.push({
+                return {
                     symbol: series.symbol,
                     name: series.name,
                     nameEn: series.nameEn,
                     value: currentValue,
-                    prevValue: prevMonthValue, // Used as baseline for typical charts
+                    prevValue: prevMonthValue,
                     change: yoyChange,
-                    changePercent: yoyChangePercent, // Primary change shown is typically YoY for CPI
+                    changePercent: yoyChangePercent,
                     momChangePercent: momChangePercent,
-                    date: currentDate,
+                    date: currentObs.date,
                     category: series.category
-                });
+                };
+            } catch (e: any) {
+                console.error(`FRED fetch failed for ${series.symbol}:`, e.message);
+                return null;
             }
-        }
+        }));
+        const results = settled.filter((r): r is NonNullable<typeof r> => r !== null);
 
         const payload = {
             success: true,
@@ -106,7 +94,7 @@ export default async function handler(req: any, res: any) {
             source: 'live'
         };
 
-        if (redis && !customApiKey) {
+        if (redis) {
             await redis.set(CACHE_KEY, JSON.stringify(payload), { ex: CACHE_TTL });
             console.log('Macro data cached in Redis.');
         }

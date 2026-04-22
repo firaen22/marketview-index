@@ -22,14 +22,9 @@ export function useMacroData({ lang, refreshMs }: Options): Result {
             const params = new URLSearchParams();
             if (lang) params.set('lang', lang);
             if (force) params.set('refresh', 'true');
-            
-            // Send API key from local storage if available
-            const apiKey = localStorage.getItem('marketflow_gemini_api_key');
-            const headers: HeadersInit = {};
-            if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
             const url = `/api/macro-data?${params.toString()}`;
-            const response = await fetch(url, { headers });
+            const response = await fetch(url);
             const result: MacroDataResponse = await response.json();
             
             if (result.success) {
