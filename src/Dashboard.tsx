@@ -10,6 +10,7 @@ import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Clock, ExternalLink, RefreshCcw, LayoutDashboard, Loader2, AlertCircle, Settings, Newspaper, Wallet, MonitorPlay, ListChecks } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { MarketStatCard } from './components/MarketStatCard';
+import { MacroStatCard } from './components/MacroStatCard';
 import { ScrollArea } from './components/ui';
 import { TickerItem } from './components/TickerItem';
 import { NewsSection } from './components/NewsSection';
@@ -21,6 +22,7 @@ import { cn, getSettings, setSetting } from './utils';
 import { CATEGORIES_ORDER } from './constants';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useDashboardData } from './hooks/useDashboardData';
+import { useMacroData } from './hooks/useMacroData';
 import { getLocale } from './locales';
 
 export default function Dashboard() {
@@ -60,6 +62,8 @@ export default function Dashboard() {
     newsData, isNewsLoading, isAiTranslated, marketSummary,
     refresh, refreshNewsWithKey,
   } = useDashboardData({ timeRange, language, geminiKey, lastUpdatedLabel: t.lastUpdated });
+
+  const { data: macroData } = useMacroData({ lang: language, refreshMs: 60 * 60 * 1000 });
 
   const saveGeminiKey = (key: string) => {
     setSetting('geminiKey', key);
@@ -354,6 +358,18 @@ export default function Dashboard() {
               )}
 
               <ScrollArea className="flex-1 pr-2 -mr-2">
+                {macroData.length > 0 && (
+                  <div className="mb-6">
+                    <div className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-3">
+                      {t.macroData || 'Economic Data'}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {macroData.map((item) => (
+                        <MacroStatCard key={item.symbol} item={item} t={t} />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {isLoading ? (
                   <div className="flex flex-col items-center justify-center h-64 text-zinc-500">
                     <Loader2 className="w-8 h-8 animate-spin mb-4" />
