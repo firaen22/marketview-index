@@ -14,7 +14,6 @@ export async function loadRemoteSlide(): Promise<PresentSlide | null> {
         const res = await fetch('/api/present-slide');
         if (!res.ok) return null;
         const json = await res.json();
-        // Upstash Redis auto-parses stored JSON values, so json.slide is always an object (or null).
         if (json?.slide && typeof json.slide === 'object') return json.slide as PresentSlide;
     } catch {}
     return null;
