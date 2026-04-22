@@ -16,12 +16,12 @@ export function useKeyboardShortcuts(handlers: Handlers) {
             const target = e.target as HTMLElement;
             if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return;
 
-            if (e.key === 'e' || e.key === 'E') handlers.onEdit();
-            if (e.key === 'f' || e.key === 'F') handlers.onFullscreen();
-            if (e.key === 's' || e.key === 'S') handlers.onCycleStrip();
-            if (e.key === 'i' || e.key === 'I') handlers.onToggleView();
-            if (e.key === 'q' || e.key === 'Q') handlers.onToggleQuote();
-            if (e.key === '?' || e.key === '/') handlers.onToggleHints();
+            if (e.key === 'e' || e.key === 'E') { e.preventDefault(); handlers.onEdit(); }
+            if (e.key === 'f' || e.key === 'F') { e.preventDefault(); handlers.onFullscreen(); }
+            if (e.key === 's' || e.key === 'S') { e.preventDefault(); handlers.onCycleStrip(); }
+            if (e.key === 'i' || e.key === 'I') { e.preventDefault(); handlers.onToggleView(); }
+            if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); handlers.onToggleQuote(); }
+            if (e.key === '?' || e.key === '/') { e.preventDefault(); handlers.onToggleHints(); }
             if (e.key === 'Escape') handlers.onEscape();
         };
         window.addEventListener('keydown', onKey);
