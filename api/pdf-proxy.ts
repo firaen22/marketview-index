@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 export default async function handler(req: any, res: any) {
     const key = req.query?.key as string | undefined;
@@ -22,16 +22,39 @@ export default async function handler(req: any, res: any) {
         },
     });
 
-    try {
-        const command = new GetObjectCommand({
-            Bucket: process.env.CLOUDFLARE_R2_BUCKET_NAME,
-            Key: key,
-        });
-        const { Body, ContentLength, ContentType } = await client.send(command);
+    const bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME!;
+    const rangeHeader = req.headers['range'] as string | undefined;
 
+    try {
+        // Handle HEAD requests so pdfjs can discover file size and range support
+        // without fetching the full body.
+        if (req.method === 'HEAD') {
+            const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+            res.setHeader('Content-Type', head.ContentType || 'application/pdf');
+            res.setHeader('Content-Length', head.ContentLength ?? 0);
+            res.setHeader('Accept-Ranges', 'bytes');
+            res.setHeader('Cache-Control', 'private, max-age=3600');
+            return res.status(200).end();
+        }
+
+        const command = new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            // Forward the Range header so pdfjs can load the PDF in small chunks.
+            // This keeps each Vercel function invocation short (no full-file stream)
+            // and avoids cold-start timeouts when opening a new tab.
+            ...(rangeHeader ? { Range: rangeHeader } : {}),
+        });
+        const { Body, ContentLength, ContentType, ContentRange } = await client.send(command);
+
+        const statusCode = rangeHeader ? 206 : 200;
         res.setHeader('Content-Type', ContentType || 'application/pdf');
+        res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Cache-Control', 'private, max-age=3600');
         if (ContentLength) res.setHeader('Content-Length', ContentLength);
+        if (ContentRange) res.setHeader('Content-Range', ContentRange);
+
+        res.status(statusCode);
 
         // Await stream end so Vercel doesn't terminate the function prematurely
         const stream = Body as NodeJS.ReadableStream;
