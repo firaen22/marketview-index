@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { IndexData, MarketDataResponse } from '../types';
+import { marketCacheKey } from '../settings';
 
 interface Options {
     range: string;
@@ -16,13 +17,24 @@ interface Result {
 
 /**
  * Simple market-data fetcher for pages that don't need Dashboard's
- * cache + fallback + i18n error messaging (i.e. FundsPage, HeatmapPage).
+ * full feature set (stale-cache detection, bilingual error messaging, news).
+ * Seeds initial state from Dashboard's localStorage cache when `lang` is
+ * provided, so consumers get immediate data if the Dashboard has been visited.
  *
- * For the full-featured version (localStorage cache, stale-cache detection,
- * background polling, bilingual error messages) see Dashboard.tsx.
+ * For the full-featured version see useDashboardData.
  */
 export function useMarketData({ range, filter, lang, refreshMs }: Options): Result {
-    const [data, setData] = useState<IndexData[]>([]);
+    const [data, setData] = useState<IndexData[]>(() => {
+        if (!lang) return [];
+        try {
+            const raw = localStorage.getItem(marketCacheKey(range, lang));
+            if (raw) {
+                const { data: cached } = JSON.parse(raw);
+                if (Array.isArray(cached)) return filter ? cached.filter(filter) : cached;
+            }
+        } catch {}
+        return [];
+    });
     const [isLoading, setIsLoading] = useState(true);
 
     const refresh = useCallback(async (force = false) => {
