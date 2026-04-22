@@ -51,3 +51,23 @@ export interface MarketNewsResponse {
     timestamp?: string;
     error?: string;
 }
+
+export interface MacroData {
+    symbol: string;
+    name: string;
+    nameEn: string;
+    value: number;
+    prevValue: number;
+    change: number;
+    changePercent: number;
+    momChangePercent?: number;
+    date: string;
+    category: string;
+}
+
+export interface MacroDataResponse {
+    success: boolean;
+    data: MacroData[];
+    timestamp?: string;
+    error?: string;
+}

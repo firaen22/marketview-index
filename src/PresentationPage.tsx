@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
+import { MacroStatCard } from './components/MacroStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
 import { getSettings } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
@@ -12,6 +13,7 @@ import { Link } from 'react-router-dom';
 import type { IndexData } from './types';
 import { STRIP_MODES, type StripMode } from './constants';
 import { useMarketData } from './hooks/useMarketData';
+import { useMacroData } from './hooks/useMacroData';
 import { QuotePanel } from './components/QuotePanel';
 import { QuotePickerModal } from './components/QuotePickerModal';
 import { IndexChartModal } from './components/IndexChartModal';
@@ -44,6 +46,7 @@ export default function PresentationPage() {
     const t = React.useMemo(() => ({ ...getLocale(lang), language: lang, activeRange: 'YTD' as const }), [lang]);
 
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
+    const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
 
     // Auto-show hints overlay briefly on first mount, then auto-hide
     useEffect(() => {
@@ -164,14 +167,26 @@ export default function PresentationPage() {
 
             {/* Card grid strip */}
             {stripMode === 'full' && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 px-8 py-6 border-b border-zinc-900">
-                    {pinned.length > 0
-                        ? pinned.map((item) => (
-                            <MarketStatCard key={item.symbol} item={item} t={t} chartHeight="h-16" />
-                        ))
-                        : Array.from({ length: 8 }).map((_, i) => (
-                            <div key={i} className="h-36 rounded-xl bg-zinc-900/40 animate-pulse" />
-                        ))}
+                <div className="flex flex-col gap-4 px-8 py-6 border-b border-zinc-900 bg-zinc-950/30">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                        {pinned.length > 0
+                            ? pinned.map((item) => (
+                                <MarketStatCard key={item.symbol} item={item} t={t} chartHeight="h-16" />
+                            ))
+                            : Array.from({ length: 8 }).map((_, i) => (
+                                <div key={i} className="h-36 rounded-xl bg-zinc-900/40 animate-pulse" />
+                            ))}
+                    </div>
+                    {macroData.length > 0 && (
+                        <>
+                            <div className="text-xs font-mono text-zinc-500 uppercase tracking-widest mt-2">{t.macroData || 'Economic Data'}</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                {macroData.map((item) => (
+                                    <MacroStatCard key={item.symbol} item={item} t={t} />
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
 
