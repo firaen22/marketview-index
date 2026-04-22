@@ -1,45 +1,38 @@
-import type { IndexData, MacroData } from '../types';
+import type { QuoteItem } from '../types/QuoteItem';
 import { PinnedQuoteCard } from './PinnedQuoteCard';
 
 interface Props {
-    quotes: IndexData[];
-    onRemove: (symbol: string) => void;
-    onItemClick?: (item: IndexData) => void;
-    macroQuotes?: MacroData[];
-    onRemoveMacro?: (symbol: string) => void;
+    items: QuoteItem[];
+    onRemove: (id: string) => void;
+    onItemClick?: (item: QuoteItem) => void;
 }
 
-export function QuotePanel({ quotes, onRemove, onItemClick, macroQuotes, onRemoveMacro }: Props) {
-    const macroList = macroQuotes ?? [];
-    if (quotes.length === 0 && macroList.length === 0) return null;
+export function QuotePanel({ items, onRemove, onItemClick }: Props) {
+    if (items.length === 0) return null;
+
+    const marketItems = items.filter(i => i.group === 'market');
+    const macroItems = items.filter(i => i.group === 'macro');
 
     return (
         <div className="w-44 flex flex-col border-l border-zinc-900 bg-zinc-950 overflow-y-auto shrink-0">
-            {quotes.map((q, i) => (
+            {marketItems.map((item, i) => (
                 <PinnedQuoteCard
-                    key={q.symbol}
-                    symbol={q.symbol}
-                    name={q.name}
-                    primaryValue={q.price}
-                    primaryChangePct={q.changePercent}
-                    history={q.history}
+                    key={item.id}
+                    item={item}
                     showDivider={i > 0}
-                    onRemove={() => onRemove(q.symbol)}
-                    onClick={onItemClick ? () => onItemClick(q) : undefined}
+                    onRemove={() => onRemove(item.id)}
+                    onClick={onItemClick ? () => onItemClick(item) : undefined}
                 />
             ))}
-            {onRemoveMacro && macroList.map((q, i) => (
+            {macroItems.length > 0 && marketItems.length > 0 && (
+                <div className="border-t border-zinc-800 mx-3 mt-1" />
+            )}
+            {macroItems.map((item, i) => (
                 <PinnedQuoteCard
-                    key={q.symbol}
-                    symbol={q.symbol}
-                    name={q.name}
-                    primaryValue={q.value}
-                    primaryChangePct={q.changePercent}
-                    primaryChangeLabel="YoY"
-                    secondaryChangePct={q.momChangePercent}
-                    secondaryLabel="MoM"
-                    showDivider={i > 0 || quotes.length > 0}
-                    onRemove={() => onRemoveMacro(q.symbol)}
+                    key={item.id}
+                    item={item}
+                    showDivider={i > 0 && marketItems.length === 0}
+                    onRemove={() => onRemove(item.id)}
                 />
             ))}
         </div>

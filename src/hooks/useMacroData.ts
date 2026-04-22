@@ -26,7 +26,7 @@ export function useMacroData({ lang, refreshMs }: Options): Result {
             const url = `/api/macro-data?${params.toString()}`;
             const response = await fetch(url);
             const result: MacroDataResponse = await response.json();
-            
+
             if (result.success) {
                 setData(result.data);
             }

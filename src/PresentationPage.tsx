@@ -10,11 +10,10 @@ import { getLocale } from './locales';
 import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
-import type { IndexData, MacroData } from './types';
-import { usePinnedItems } from './hooks/usePinnedItems';
 import { STRIP_MODES, type StripMode } from './constants';
 import { useMarketData } from './hooks/useMarketData';
 import { useMacroData } from './hooks/useMacroData';
+import { useQuotePanel } from './hooks/useQuotePanel';
 import { QuotePanel } from './components/QuotePanel';
 import { QuotePickerModal } from './components/QuotePickerModal';
 import { IndexChartModal } from './components/IndexChartModal';
@@ -31,10 +30,6 @@ export default function PresentationPage() {
     const [stripMode, setStripMode] = useState<StripMode>('compact');
     const [pdfZoom, setPdfZoom] = useState(100);
     const [mainView, setMainView] = useState<'slide' | 'index'>('slide');
-    const [quoteOpen, setQuoteOpen] = useState(false);
-    const pinnedIndex = usePinnedItems<IndexData>();
-    const pinnedMacro = usePinnedItems<MacroData>();
-    const [chartItem, setChartItem] = useState<IndexData | null>(null);
     const clock = useClock();
     const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
     const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
@@ -49,6 +44,7 @@ export default function PresentationPage() {
 
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
+    const qp = useQuotePanel({ marketData, macroData });
 
     // Auto-show hints overlay briefly on first mount, then auto-hide
     useEffect(() => {
@@ -75,9 +71,9 @@ export default function PresentationPage() {
         onFullscreen: toggleFullscreen,
         onCycleStrip: useCallback(() => setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length]), []),
         onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
-        onToggleQuote: useCallback(() => setQuoteOpen(o => !o), []),
+        onToggleQuote: qp.togglePicker,
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
-        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); setQuoteOpen(false); pinnedIndex.clear(); pinnedMacro.clear(); setChartItem(null); }, [pinnedIndex, pinnedMacro]),
+        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); qp.dismissAll(); }, [qp]),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -120,8 +116,8 @@ export default function PresentationPage() {
                                 : <EyeOff className="w-4 h-4" />}
                         </button>
                         <button
-                            onClick={() => setQuoteOpen(o => !o)}
-                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${quoteOpen || pinnedIndex.items.length > 0 || pinnedMacro.items.length > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
+                            onClick={qp.togglePicker}
+                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${qp.isPickerOpen || qp.hasPinned ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
                             title="Quote overlay (Q)"
                         >
                             <TrendingUp className="w-4 h-4" />
@@ -238,13 +234,11 @@ export default function PresentationPage() {
                 </div>
 
                 {/* Pinned quote panel — vertical right column */}
-                {!quoteOpen && (
+                {!qp.isPickerOpen && (
                     <QuotePanel
-                        quotes={pinnedIndex.items}
-                        onRemove={pinnedIndex.remove}
-                        onItemClick={setChartItem}
-                        macroQuotes={pinnedMacro.items}
-                        onRemoveMacro={pinnedMacro.remove}
+                        items={qp.pinned}
+                        onRemove={qp.remove}
+                        onItemClick={qp.openChart}
                     />
                 )}
             </div>
@@ -262,26 +256,23 @@ export default function PresentationPage() {
             />
 
             {/* Index chart modal */}
-            {chartItem && (
+            {qp.chartItem && (
                 <IndexChartModal
-                    item={chartItem}
+                    item={qp.chartItem}
                     allData={marketData}
-                    onClose={() => setChartItem(null)}
+                    onClose={qp.closeChart}
                     lang={lang}
                 />
             )}
 
             {/* Quote picker overlay */}
-            {quoteOpen && (
+            {qp.isPickerOpen && (
                 <QuotePickerModal
-                    marketData={marketData}
-                    pinnedQuotes={pinnedIndex.items}
-                    onToggle={pinnedIndex.toggle}
-                    onClearAll={() => { pinnedIndex.clear(); pinnedMacro.clear(); }}
-                    onClose={() => setQuoteOpen(false)}
-                    macroData={macroData}
-                    pinnedMacroQuotes={pinnedMacro.items}
-                    onToggleMacro={pinnedMacro.toggle}
+                    items={qp.allItems}
+                    pinnedIds={qp.pinnedIds}
+                    onToggle={qp.toggle}
+                    onClearAll={qp.clearAll}
+                    onClose={qp.closePicker}
                 />
             )}
 
