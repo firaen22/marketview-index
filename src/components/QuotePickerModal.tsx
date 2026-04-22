@@ -55,22 +55,28 @@ export function QuotePickerModal({ marketData, pinnedQuotes, onToggle, onClearAl
                             onClick={() => onToggle(d)}
                         />
                     ))}
-                    {macroData && macroData.length > 0 && onToggleMacro && (
+                    {onToggleMacro && (
                         <>
                             <div className="col-span-2 pt-2 pb-1 border-t border-zinc-800 mt-1">
                                 <span className="text-[10px] font-mono tracking-widest text-zinc-600 uppercase">Macro</span>
                             </div>
-                            {macroData.map(d => (
-                                <QuoteButton
-                                    key={d.symbol}
-                                    name={d.name}
-                                    symbol={d.symbol}
-                                    changePercent={d.changePercent}
-                                    suffix="YoY"
-                                    isPinned={pinnedMacroQuotes?.some(p => p.symbol === d.symbol) ?? false}
-                                    onClick={() => onToggleMacro(d)}
-                                />
-                            ))}
+                            {macroData && macroData.length > 0 ? (
+                                macroData.map(d => (
+                                    <QuoteButton
+                                        key={d.symbol}
+                                        name={d.name}
+                                        symbol={d.symbol}
+                                        changePercent={d.changePercent}
+                                        suffix="YoY"
+                                        isPinned={pinnedMacroQuotes?.some(p => p.symbol === d.symbol) ?? false}
+                                        onClick={() => onToggleMacro(d)}
+                                    />
+                                ))
+                            ) : (
+                                <div className="col-span-2 text-[10px] text-zinc-600 italic text-center py-2">
+                                    No macro data loaded (check /api/macro-data)
+                                </div>
+                            )}
                         </>
                     )}
                     {totalPinned > 0 && (
