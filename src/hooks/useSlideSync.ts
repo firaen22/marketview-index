@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
     getSettings,
     setSetting,
+    type PresentSlide,
+} from '../settings';
+import {
     loadRemoteSlide,
     saveRemoteSlide,
     StaleSaveError,
     MAX_CONTENT_BYTES,
-    type PresentSlide,
-} from '../utils';
+} from '../slideApi';
 
 const SAVE_DEBOUNCE_MS = 800;
 

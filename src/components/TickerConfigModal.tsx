@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { ListChecks, Check } from 'lucide-react';
 import { Modal } from './Modal';
-import { cn, setSetting, groupByCategory } from '../utils';
+import { cn, groupByCategory } from '../utils';
+import { setSetting } from '../settings';
 import type { IndexData } from '../types';
 import type { TDict } from '../locales';
 

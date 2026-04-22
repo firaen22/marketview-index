@@ -1,4 +1,4 @@
-import type { HistoryPoint, IndexData, MacroData } from '../types';
+import type { HistoryPoint, IndexData, MacroData } from './index';
 
 export type QuoteGroup = 'market' | 'macro';
 
@@ -12,8 +12,6 @@ export interface QuoteItem {
     secondaryLabel?: string; // "MoM" for macro
     history?: HistoryPoint[];
     group: QuoteGroup;
-    /** Original IndexData — kept for chart modal click-through */
-    _source?: IndexData;
 }
 
 export function indexToQuoteItem(d: IndexData): QuoteItem {
@@ -24,7 +22,6 @@ export function indexToQuoteItem(d: IndexData): QuoteItem {
         changePct: d.changePercent,
         history: d.history,
         group: 'market',
-        _source: d,
     };
 }
 

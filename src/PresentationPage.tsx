@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
 import { MacroStatCard } from './components/MacroStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
-import { getSettings } from './utils';
+import { getSettings } from './settings';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
@@ -73,7 +73,7 @@ export default function PresentationPage() {
         onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
         onToggleQuote: qp.togglePicker,
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
-        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); qp.dismissAll(); }, [qp]),
+        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); qp.resetAll(); }, [qp]),
     });
 
     const pinnedRaw = tickerSymbols !== null

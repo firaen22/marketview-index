@@ -32,8 +32,3 @@ export function groupByCategory<T extends Pick<IndexData, 'category'>>(items: T[
         return acc;
     }, {});
 }
-
-// Re-exports for backward compatibility
-export { getSettings, setSetting, getSetting, type PresentSlide, type PresentSlideMode } from './settings';
-export { loadRemoteSlide, saveRemoteSlide, uploadPdf, deletePdf, StaleSaveError, MAX_CONTENT_BYTES } from './slideApi';
-export { injectMarketTokens } from './tokenInject';

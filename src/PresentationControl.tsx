@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { deletePdf, getSettings, formatRelativeTime, type PresentSlideMode } from './utils';
+import { deletePdf } from './slideApi';
+import { getSettings, type PresentSlideMode } from './settings';
+import { formatRelativeTime } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useMarketData } from './hooks/useMarketData';
 import { SlideRenderer } from './components/SlideRenderer';

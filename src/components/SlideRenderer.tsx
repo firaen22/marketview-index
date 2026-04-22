@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { PresentSlide } from '../utils';
-import { injectMarketTokens } from '../utils';
+import type { PresentSlide } from '../settings';
+import { injectMarketTokens } from '../tokenInject';
 import { PdfViewer } from './PdfViewer';
 
 interface Props {

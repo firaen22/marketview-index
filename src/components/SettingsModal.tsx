@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Settings, Cpu, CheckCircle2, ShieldAlert, Loader2, Wallet } from 'lucide-react';
 import { Modal } from './Modal';
 import { Toggle } from './Toggle';
-import { cn, setSetting } from '../utils';
+import { cn } from '../utils';
+import { setSetting } from '../settings';
 import type { TDict } from '../locales';
 
 interface VerificationResult {
@@ -17,7 +18,7 @@ interface Props {
     initialShowFunds: boolean;
     t: TDict;
     onClose: () => void;
-    onSave: (key: string) => void;
+    onSave: (geminiKey: string) => void;
     onShowFundsChange: (value: boolean) => void;
 }
 

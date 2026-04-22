@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { uploadPdf } from '../utils';
+import { uploadPdf } from '../slideApi';
 import { Upload, FileText, Loader2 } from 'lucide-react';
 
 interface Props {

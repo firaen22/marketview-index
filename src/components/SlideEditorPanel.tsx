@@ -2,7 +2,9 @@ import React from 'react';
 import { X, ExternalLink } from 'lucide-react';
 import { PdfUploader } from './PdfUploader';
 import { SaveButton } from './SaveButton';
-import { deletePdf, formatRelativeTime, type PresentSlideMode } from '../utils';
+import { deletePdf } from '../slideApi';
+import { formatRelativeTime } from '../utils';
+import type { PresentSlideMode } from '../settings';
 import type { useSlideSync } from '../hooks/useSlideSync';
 
 type SlideSync = ReturnType<typeof useSlideSync>;

@@ -1,4 +1,4 @@
-import type { PresentSlideMode } from './utils';
+import type { PresentSlideMode } from './settings';
 
 export const MODE_HINTS: Record<PresentSlideMode, string> = {
     markdown: '# Heading\n\nParagraph with **bold** and {{SPX.price}} tokens.\n\n- bullet one\n- bullet two',

@@ -42,13 +42,14 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
     const togglePicker = useCallback(() => setPickerOpen(o => !o), []);
 
     const openChart = useCallback((item: QuoteItem) => {
-        if (item._source) setChartItem(item._source);
-    }, []);
+        const source = marketData.find(d => d.symbol === item.id);
+        if (source) setChartItem(source);
+    }, [marketData]);
     const closeChart = useCallback(() => setChartItem(null), []);
 
     const hasPinned = pinned.length > 0;
 
-    const dismissAll = useCallback(() => {
+    const resetAll = useCallback(() => {
         setPickerOpen(false);
         setChartItem(null);
         setPinned([]);
@@ -71,6 +72,6 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
         togglePicker,
         openChart,
         closeChart,
-        dismissAll,
+        resetAll,
     };
 }

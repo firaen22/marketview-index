@@ -71,3 +71,6 @@ export interface MacroDataResponse {
     timestamp?: string;
     error?: string;
 }
+
+// Re-export QuoteItem types
+export { type QuoteItem, type QuoteGroup, indexToQuoteItem, macroToQuoteItem } from './QuoteItem';
