@@ -14,6 +14,7 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
     const [pinned, setPinned] = useState<QuoteItem[]>([]);
     const [isPickerOpen, setPickerOpen] = useState(false);
     const [chartItem, setChartItem] = useState<IndexData | null>(null);
+    const [spotlight, setSpotlight] = useState<QuoteItem | null>(null);
 
     // All available items as QuoteItems (for the picker)
     const allItems = useMemo<QuoteItem[]>(() => [
@@ -49,9 +50,13 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
 
     const hasPinned = pinned.length > 0;
 
+    const openSpotlight = useCallback((item: QuoteItem) => setSpotlight(item), []);
+    const dismissSpotlight = useCallback(() => setSpotlight(null), []);
+
     const resetAll = useCallback(() => {
         setPickerOpen(false);
         setChartItem(null);
+        setSpotlight(null);
         setPinned([]);
     }, []);
 
@@ -62,6 +67,7 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
         allItems,
         isPickerOpen,
         chartItem,
+        spotlight,
         hasPinned,
         // actions
         toggle,
@@ -72,6 +78,8 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
         togglePicker,
         openChart,
         closeChart,
+        openSpotlight,
+        dismissSpotlight,
         resetAll,
     };
 }

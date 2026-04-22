@@ -10,6 +10,7 @@ export interface QuoteItem {
     changeLabel?: string;    // undefined for market, "YoY" for macro
     secondaryPct?: number;   // momChangePercent for macro
     secondaryLabel?: string; // "MoM" for macro
+    ytdPct?: number;         // ytdChangePercent for market items
     history?: HistoryPoint[];
     group: QuoteGroup;
 }
@@ -20,6 +21,7 @@ export function indexToQuoteItem(d: IndexData): QuoteItem {
         name: d.name,
         value: d.price,
         changePct: d.changePercent,
+        ytdPct: d.ytdChangePercent,
         history: d.history,
         group: 'market',
     };

@@ -16,6 +16,7 @@ import { useMacroData } from './hooks/useMacroData';
 import { useQuotePanel } from './hooks/useQuotePanel';
 import { QuotePanel } from './components/QuotePanel';
 import { QuotePickerModal } from './components/QuotePickerModal';
+import { QuoteSpotlight } from './components/QuoteSpotlight';
 import { IndexChartModal } from './components/IndexChartModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -71,7 +72,11 @@ export default function PresentationPage() {
         onFullscreen: toggleFullscreen,
         onCycleStrip: useCallback(() => setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length]), []),
         onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
-        onToggleQuote: qp.togglePicker,
+        onToggleQuote: useCallback(() => {
+            if (qp.spotlight) { qp.dismissSpotlight(); return; }
+            if (qp.pinned.length > 0) { qp.openSpotlight(qp.pinned[0]); return; }
+            qp.togglePicker();
+        }, [qp]),
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
         onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); qp.resetAll(); }, [qp]),
     });
@@ -210,6 +215,11 @@ export default function PresentationPage() {
                                 Press <kbd className="text-emerald-500">I</kbd> or click <kbd className="text-emerald-500">⊞</kbd> to toggle index
                             </span>
                         </div>
+                    )}
+
+                    {/* Quote spotlight — lower-third overlay */}
+                    {qp.spotlight && (
+                        <QuoteSpotlight item={qp.spotlight} onDismiss={qp.dismissSpotlight} />
                     )}
 
                     {/* Zoom controls — shown for pdf and html modes */}
