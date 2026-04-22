@@ -1,5 +1,5 @@
 import YahooFinance from 'yahoo-finance2';
-import { redis } from './_redis';
+import { redis } from '../lib/redis';
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const CACHE_KEY = 'global_market_cache_yfinance_v1';

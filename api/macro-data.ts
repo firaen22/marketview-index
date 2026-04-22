@@ -1,4 +1,4 @@
-import { redis } from './_redis';
+import { redis } from '../lib/redis';
 
 const CACHE_KEY = 'global_macro_data_v1';
 const CACHE_TTL = 3600 * 24; // Cache for 24 hours, macro data updates monthly
