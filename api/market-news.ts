@@ -1,6 +1,6 @@
 import YahooFinance from 'yahoo-finance2';
 import { GoogleGenAI } from '@google/genai';
-import { redis } from '../lib/redis';
+import { redis } from '../lib/redis.js';
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const CACHE_KEY = 'global_market_news_v1';
