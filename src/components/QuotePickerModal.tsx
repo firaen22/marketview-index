@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
-import type { IndexData } from '../types';
+import type { IndexData, MacroData } from '../types';
 
 interface Props {
     marketData: IndexData[];
@@ -8,9 +8,12 @@ interface Props {
     onToggle: (item: IndexData) => void;
     onClearAll: () => void;
     onClose: () => void;
+    macroData?: MacroData[];
+    pinnedMacroQuotes?: MacroData[];
+    onToggleMacro?: (item: MacroData) => void;
 }
 
-export function QuotePickerModal({ marketData, pinnedQuotes, onToggle, onClearAll, onClose }: Props) {
+export function QuotePickerModal({ marketData, pinnedQuotes, onToggle, onClearAll, onClose, macroData, pinnedMacroQuotes, onToggleMacro }: Props) {
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') { e.preventDefault(); onClose(); }
@@ -61,15 +64,45 @@ export function QuotePickerModal({ marketData, pinnedQuotes, onToggle, onClearAl
                             </button>
                         );
                     })}
+                    {macroData && macroData.length > 0 && onToggleMacro && (
+                        <>
+                            <div className="col-span-2 pt-2 pb-1 border-t border-zinc-800 mt-1">
+                                <span className="text-[10px] font-mono tracking-widest text-zinc-600 uppercase">Macro</span>
+                            </div>
+                            {macroData.map(d => {
+                                const up = d.changePercent >= 0;
+                                const isPinned = pinnedMacroQuotes?.some(p => p.symbol === d.symbol);
+                                return (
+                                    <button
+                                        key={d.symbol}
+                                        onClick={() => onToggleMacro(d)}
+                                        className={`flex items-center justify-between px-3 py-2 rounded-lg border transition text-left ${
+                                            isPinned
+                                                ? 'bg-emerald-500/15 border-emerald-500/40 hover:bg-emerald-500/20'
+                                                : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700'
+                                        }`}
+                                    >
+                                        <div>
+                                            <div className="text-xs font-semibold text-zinc-200 truncate max-w-[120px]">{d.name}</div>
+                                            <div className="text-[10px] text-zinc-500 font-mono">{d.symbol}</div>
+                                        </div>
+                                        <div className={`text-xs font-mono font-bold ${up ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            {up ? '+' : ''}{d.changePercent?.toFixed(2)}% YoY
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </>
+                    )}
+                    {(pinnedQuotes.length > 0 || (pinnedMacroQuotes && pinnedMacroQuotes.length > 0)) && (
+                        <button
+                            onClick={onClearAll}
+                            className="col-span-2 mt-3 w-full text-xs text-zinc-600 hover:text-zinc-400 text-center"
+                        >
+                            Clear all pinned ({pinnedQuotes.length + (pinnedMacroQuotes?.length ?? 0)})
+                        </button>
+                    )}
                 </div>
-                {pinnedQuotes.length > 0 && (
-                    <button
-                        onClick={onClearAll}
-                        className="mt-3 w-full text-xs text-zinc-600 hover:text-zinc-400 text-center"
-                    >
-                        Clear all pinned ({pinnedQuotes.length})
-                    </button>
-                )}
             </div>
         </div>
     );

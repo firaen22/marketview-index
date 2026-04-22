@@ -32,6 +32,7 @@ export default function PresentationPage() {
     const [mainView, setMainView] = useState<'slide' | 'index'>('slide');
     const [quoteOpen, setQuoteOpen] = useState(false);
     const [pinnedQuotes, setPinnedQuotes] = useState<IndexData[]>([]);
+    const [pinnedMacroQuotes, setPinnedMacroQuotes] = useState<import('./types').MacroData[]>([]);
     const [chartItem, setChartItem] = useState<IndexData | null>(null);
     const clock = useClock();
     const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
@@ -75,7 +76,7 @@ export default function PresentationPage() {
         onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
         onToggleQuote: useCallback(() => setQuoteOpen(o => !o), []),
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
-        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); setQuoteOpen(false); setPinnedQuotes([]); setChartItem(null); }, []),
+        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); setQuoteOpen(false); setPinnedQuotes([]); setPinnedMacroQuotes([]); setChartItem(null); }, []),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -241,6 +242,8 @@ export default function PresentationPage() {
                         quotes={pinnedQuotes}
                         onRemove={sym => setPinnedQuotes(prev => prev.filter(p => p.symbol !== sym))}
                         onItemClick={setChartItem}
+                        macroQuotes={pinnedMacroQuotes}
+                        onRemoveMacro={sym => setPinnedMacroQuotes(prev => prev.filter(p => p.symbol !== sym))}
                     />
                 )}
             </div>
@@ -277,8 +280,15 @@ export default function PresentationPage() {
                             ? prev.filter(p => p.symbol !== d.symbol)
                             : [...prev, d]
                     )}
-                    onClearAll={() => setPinnedQuotes([])}
+                    onClearAll={() => { setPinnedQuotes([]); setPinnedMacroQuotes([]); }}
                     onClose={() => setQuoteOpen(false)}
+                    macroData={macroData}
+                    pinnedMacroQuotes={pinnedMacroQuotes}
+                    onToggleMacro={d => setPinnedMacroQuotes(prev =>
+                        prev.some(p => p.symbol === d.symbol)
+                            ? prev.filter(p => p.symbol !== d.symbol)
+                            : [...prev, d]
+                    )}
                 />
             )}
 
