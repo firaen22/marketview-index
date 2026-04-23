@@ -24,7 +24,7 @@ export function QuoteSpotlightSearch({ items, onCommit, onClose }: Props) {
 
     const results = useMemo(() => {
         const q = query.trim().toLowerCase();
-        if (!q) return items.slice(0, MAX_RESULTS);
+        if (!q) return items;
         return items
             .filter(i => i.id.toLowerCase().includes(q) || i.name.toLowerCase().includes(q))
             .slice(0, MAX_RESULTS);
