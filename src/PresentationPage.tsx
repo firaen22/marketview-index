@@ -300,6 +300,7 @@ export default function PresentationPage() {
                     <QuotePanel
                         items={qp.pinned}
                         onRemove={qp.remove}
+                        onClearAll={qp.clearAll}
                         onItemClick={qp.openChart}
                     />
                 )}
@@ -341,7 +342,8 @@ export default function PresentationPage() {
             {qp.isSearchOpen && (
                 <QuoteSpotlightSearch
                     items={qp.allItems}
-                    onCommit={(item) => { qp.toggle(item); qp.closeSearch(); }}
+                    pinnedIds={qp.pinnedIds}
+                    onCommit={qp.toggle}
                     onClose={qp.closeSearch}
                 />
             )}
