@@ -1,6 +1,6 @@
 import { redis } from '../lib/redis.js';
 
-const CACHE_KEY = 'global_macro_data_v1';
+const CACHE_KEY = 'global_macro_data_v2';
 const CACHE_TTL = 3600 * 24; // Cache for 24 hours, macro data updates monthly
 
 const MACRO_SERIES = [
@@ -37,6 +37,38 @@ export default async function handler(req: any, res: any) {
         }
 
         console.log('Fetching fresh macro data from FRED...');
+
+        const fetchGdpNow = async () => {
+            try {
+                const url = `https://api.stlouisfed.org/fred/series/observations?series_id=GDPNOW&api_key=${apiKey}&file_type=json&sort_order=desc&limit=2`;
+                const response = await fetch(url);
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (!data.observations || data.observations.length < 2) return null;
+
+                const current = parseFloat(data.observations[0].value);
+                const prev = parseFloat(data.observations[1].value);
+                if (isNaN(current) || isNaN(prev)) return null;
+
+                const ppChange = current - prev;
+
+                return {
+                    symbol: 'GDPNOW',
+                    name: 'GDPNow 即時預測',
+                    nameEn: 'GDPNow Estimate',
+                    value: current,
+                    prevValue: prev,
+                    change: ppChange,
+                    changePercent: ppChange,
+                    changeLabel: 'pp chg',
+                    date: data.observations[0].date,
+                    category: 'Growth',
+                };
+            } catch (e: any) {
+                console.error('FRED fetch failed for GDPNOW:', e.message);
+                return null;
+            }
+        };
 
         const settled = await Promise.all(MACRO_SERIES.map(async (series) => {
             try {
@@ -77,7 +109,9 @@ export default async function handler(req: any, res: any) {
                 return null;
             }
         }));
-        const results = settled.filter((r): r is NonNullable<typeof r> => r !== null);
+        const gdpNow = await fetchGdpNow();
+        const allFetched = [...settled, gdpNow];
+        const results = allFetched.filter((r): r is NonNullable<typeof r> => r !== null);
 
         const payload = {
             success: true,

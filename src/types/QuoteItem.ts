@@ -33,7 +33,7 @@ export function macroToQuoteItem(d: MacroData): QuoteItem {
         name: d.name,
         value: d.value,
         changePct: d.changePercent,
-        changeLabel: 'YoY',
+        changeLabel: d.changeLabel ?? 'YoY',
         secondaryPct: d.momChangePercent,
         secondaryLabel: 'MoM',
         group: 'macro',
