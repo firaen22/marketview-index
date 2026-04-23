@@ -35,7 +35,7 @@ export function macroToQuoteItem(d: MacroData): QuoteItem {
         changePct: d.changePercent,
         changeLabel: d.changeLabel ?? 'YoY',
         secondaryPct: d.momChangePercent,
-        secondaryLabel: 'MoM',
+        secondaryLabel: d.secondaryLabel ?? 'MoM',
         group: 'macro',
     };
 }

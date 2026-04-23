@@ -62,6 +62,7 @@ export interface MacroData {
     changePercent: number;
     momChangePercent?: number;
     changeLabel?: string;
+    secondaryLabel?: string;
     date: string;
     category: string;
 }

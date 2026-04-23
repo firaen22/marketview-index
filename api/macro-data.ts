@@ -1,6 +1,6 @@
 import { redis } from '../lib/redis.js';
 
-const CACHE_KEY = 'global_macro_data_v2';
+const CACHE_KEY = 'global_macro_data_v3';
 const CACHE_TTL = 3600 * 24; // Cache for 24 hours, macro data updates monthly
 
 const MACRO_SERIES = [
@@ -37,6 +37,43 @@ export default async function handler(req: any, res: any) {
         }
 
         console.log('Fetching fresh macro data from FRED...');
+
+        const fetchGdp = async () => {
+            try {
+                // GDPC1 = Real GDP, quarterly, billions of chained 2017 dollars
+                const url = `https://api.stlouisfed.org/fred/series/observations?series_id=GDPC1&api_key=${apiKey}&file_type=json&sort_order=desc&limit=6`;
+                const response = await fetch(url);
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (!data.observations || data.observations.length < 5) return null;
+
+                const current = parseFloat(data.observations[0].value);
+                const prevQuarter = parseFloat(data.observations[1].value);
+                const prevYear = parseFloat(data.observations[4].value);
+                if (isNaN(current) || isNaN(prevQuarter) || isNaN(prevYear)) return null;
+
+                const qoqChangePercent = ((current - prevQuarter) / prevQuarter) * 100;
+                const yoyChangePercent = ((current - prevYear) / prevYear) * 100;
+
+                return {
+                    symbol: 'GDPC1',
+                    name: '實質國內生產毛額 (GDP)',
+                    nameEn: 'Real GDP',
+                    value: current,
+                    prevValue: prevQuarter,
+                    change: current - prevYear,
+                    changePercent: yoyChangePercent,
+                    momChangePercent: qoqChangePercent,
+                    changeLabel: 'YoY',
+                    secondaryLabel: 'QoQ',
+                    date: data.observations[0].date,
+                    category: 'Growth',
+                };
+            } catch (e: any) {
+                console.error('FRED fetch failed for GDPC1:', e.message);
+                return null;
+            }
+        };
 
         const fetchGdpNow = async () => {
             try {
@@ -109,8 +146,8 @@ export default async function handler(req: any, res: any) {
                 return null;
             }
         }));
-        const gdpNow = await fetchGdpNow();
-        const allFetched = [...settled, gdpNow];
+        const [gdp, gdpNow] = await Promise.all([fetchGdp(), fetchGdpNow()]);
+        const allFetched = [...settled, gdp, gdpNow];
         const results = allFetched.filter((r): r is NonNullable<typeof r> => r !== null);
 
         const payload = {
