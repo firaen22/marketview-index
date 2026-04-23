@@ -341,7 +341,7 @@ export default function PresentationPage() {
             {qp.isSearchOpen && (
                 <QuoteSpotlightSearch
                     items={qp.allItems}
-                    onCommit={(item) => { qp.openSpotlight(item); qp.closeSearch(); }}
+                    onCommit={(item) => { qp.toggle(item); qp.closeSearch(); }}
                     onClose={qp.closeSearch}
                 />
             )}
