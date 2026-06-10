@@ -57,7 +57,7 @@ export interface MacroData {
     name: string;
     nameEn: string;
     value: number;
-    prevValue: number;
+    prevValue?: number;
     change: number;
     changePercent: number;
     momChangePercent?: number;

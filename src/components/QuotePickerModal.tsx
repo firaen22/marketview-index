@@ -1,32 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { X, Search } from 'lucide-react';
 import type { QuoteItem } from '../types/QuoteItem';
+import { displayName } from '../utils';
 
 interface Props {
     items: QuoteItem[];
+    lang: 'en' | 'zh-TW';
     pinnedIds: Set<string>;
     onToggle: (item: QuoteItem) => void;
     onClearAll: () => void;
     onClose: () => void;
 }
 
-export function QuotePickerModal({ items, pinnedIds, onToggle, onClearAll, onClose }: Props) {
+// Escape is handled by PresentationPage's useKeyboardShortcuts (single keyboard owner).
+export function QuotePickerModal({ items, lang, pinnedIds, onToggle, onClearAll, onClose }: Props) {
     const [search, setSearch] = useState('');
-
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [onClose]);
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         if (!q) return items;
         return items.filter(d =>
             d.id.toLowerCase().includes(q) ||
-            d.name.toLowerCase().includes(q)
+            d.name.toLowerCase().includes(q) ||
+            d.nameEn?.toLowerCase().includes(q)
         );
     }, [items, search]);
 
@@ -84,7 +80,7 @@ export function QuotePickerModal({ items, pinnedIds, onToggle, onClearAll, onClo
                                 </div>
                             )}
                             {marketItems.map(d => (
-                                <ItemButton key={d.id} item={d} isPinned={pinnedIds.has(d.id)} onClick={() => onToggle(d)} />
+                                <ItemButton key={d.id} item={d} lang={lang} isPinned={pinnedIds.has(d.id)} onClick={() => onToggle(d)} />
                             ))}
                         </>
                     )}
@@ -96,7 +92,7 @@ export function QuotePickerModal({ items, pinnedIds, onToggle, onClearAll, onClo
                                 <span className="text-[10px] font-mono tracking-widest text-zinc-600 uppercase">Macro</span>
                             </div>
                             {macroItems.map(d => (
-                                <ItemButton key={d.id} item={d} isPinned={pinnedIds.has(d.id)} onClick={() => onToggle(d)} />
+                                <ItemButton key={d.id} item={d} lang={lang} isPinned={pinnedIds.has(d.id)} onClick={() => onToggle(d)} />
                             ))}
                         </>
                     )}
@@ -123,7 +119,7 @@ export function QuotePickerModal({ items, pinnedIds, onToggle, onClearAll, onClo
 }
 
 /** Inline toggle button — replaces the old QuoteButton component */
-function ItemButton({ item, isPinned, onClick }: { item: QuoteItem; isPinned: boolean; onClick: () => void }) {
+function ItemButton({ item, lang, isPinned, onClick }: { item: QuoteItem; lang: 'en' | 'zh-TW'; isPinned: boolean; onClick: () => void }) {
     const up = item.changePct >= 0;
     return (
         <button
@@ -135,7 +131,7 @@ function ItemButton({ item, isPinned, onClick }: { item: QuoteItem; isPinned: bo
             }`}
         >
             <div className="min-w-0">
-                <div className="text-xs font-semibold text-zinc-200 truncate max-w-[120px]">{item.name}</div>
+                <div className="text-xs font-semibold text-zinc-200 truncate max-w-[120px]">{displayName(item, lang)}</div>
                 <div className="text-[10px] text-zinc-500 font-mono">{item.id}</div>
             </div>
             <div className={`text-xs font-mono font-bold shrink-0 ml-2 ${up ? 'text-emerald-400' : 'text-red-400'}`}>

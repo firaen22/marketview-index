@@ -14,6 +14,7 @@ export function injectMarketTokens(
         const val = item[field];
         if (val == null) return match;
         if (typeof val === 'number') {
+            if (!Number.isFinite(val)) return match;
             return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
         return String(val);

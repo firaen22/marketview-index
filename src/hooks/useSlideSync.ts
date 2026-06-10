@@ -31,6 +31,7 @@ export function useSlideSync(): UseSlideSyncResult {
     const [sizeWarning, setSizeWarning] = useState<string | null>(null);
     const [, setTick] = useState(0);
     const saveTimerRef = useRef<number | null>(null);
+    const statusTimerRef = useRef<number | null>(null);
     const slideRef = useRef(slide);
     slideRef.current = slide;
 
@@ -67,6 +68,7 @@ export function useSlideSync(): UseSlideSyncResult {
     // Cleanup save debounce timer on unmount
     useEffect(() => () => {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
     }, []);
 
     const doRemoteSave = (s?: PresentSlide) => {
@@ -75,16 +77,20 @@ export function useSlideSync(): UseSlideSyncResult {
             clearTimeout(saveTimerRef.current);
             saveTimerRef.current = null;
         }
+        if (statusTimerRef.current) {
+            clearTimeout(statusTimerRef.current);
+            statusTimerRef.current = null;
+        }
         setCloudStatus('saving');
         saveRemoteSlide(target).then(() => {
             setCloudStatus('ok');
             setLastSavedAt(Date.now());
-            window.setTimeout(() => setCloudStatus('idle'), 2000);
+            statusTimerRef.current = window.setTimeout(() => setCloudStatus('idle'), 2000);
         }).catch((e) => {
             // Superseded by newer save — not a real failure, let the newer one drive UI state
             if (e instanceof StaleSaveError) return;
             setCloudStatus('error');
-            window.setTimeout(() => setCloudStatus('idle'), 3000);
+            statusTimerRef.current = window.setTimeout(() => setCloudStatus('idle'), 3000);
         });
     };
 
@@ -93,6 +99,10 @@ export function useSlideSync(): UseSlideSyncResult {
         setSlide(merged);
         setSetting('presentSlide', merged);
 
+        if (statusTimerRef.current) {
+            clearTimeout(statusTimerRef.current);
+            statusTimerRef.current = null;
+        }
         const byteSize = new Blob([merged.content]).size;
         if (byteSize > MAX_CONTENT_BYTES) {
             setSizeWarning(`Content is ${(byteSize / 1024).toFixed(0)} KB — max ${MAX_CONTENT_BYTES / 1024} KB. Not synced to cloud.`);

@@ -22,6 +22,7 @@ import { MorningBriefPanel } from './components/MorningBriefPanel';
 import { IndexChartModal } from './components/IndexChartModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import type { PdfViewerHandle } from './components/PdfViewer';
 
 
 export default function PresentationPage() {
@@ -39,6 +40,7 @@ export default function PresentationPage() {
     const [morningBrief, setMorningBrief] = useState<string[]>(initialSettings.morningBrief);
     const [briefPanelOpen, setBriefPanelOpen] = useState(false);
     const hintsTimerRef = useRef<number | null>(null);
+    const pdfRef = useRef<PdfViewerHandle>(null);
 
     useSettingsSync(({ lang: nextLang, tickerSymbols: nextSymbols }) => {
         if (nextLang) setLang(nextLang);
@@ -95,23 +97,46 @@ export default function PresentationPage() {
             qp.openSearch();
         }, [qp, briefItems]),
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
-        onEscape: useCallback(() => { setEditorOpen(false); setShowHints(false); qp.resetAll(); }, [qp]),
+        // Escape closes the topmost overlay only. IndexChartModal owns its own
+        // Escape (it layers an internal compare-picker we can't see from here).
+        onEscape: useCallback(() => {
+            if (qp.chartItem) return;
+            if (qp.isSearchOpen) { qp.closeSearch(); return; }
+            if (qp.spotlight) { qp.dismissSpotlight(); return; }
+            if (qp.isPickerOpen) { qp.closePicker(); return; }
+            if (briefPanelOpen) { setBriefPanelOpen(false); return; }
+            if (editorOpen) { setEditorOpen(false); return; }
+            setShowHints(false);
+        }, [qp, briefPanelOpen, editorOpen]),
         onArrowLeft: useCallback(() => {
-            if (!qp.spotlight) return;
+            if (!qp.spotlight) {
+                if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.prevPage();
+                return;
+            }
             const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
             if (cycleList.length < 2) return;
             const i = cycleList.findIndex(p => p.id === qp.spotlight!.id);
             if (i < 0) return;
             qp.openSpotlight(cycleList[(i - 1 + cycleList.length) % cycleList.length]);
-        }, [qp, briefItems]),
+        }, [qp, briefItems, mainView, slide.mode]),
         onArrowRight: useCallback(() => {
-            if (!qp.spotlight) return;
+            if (!qp.spotlight) {
+                if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.nextPage();
+                return;
+            }
             const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
             if (cycleList.length < 2) return;
             const i = cycleList.findIndex(p => p.id === qp.spotlight!.id);
             if (i < 0) return;
             qp.openSpotlight(cycleList[(i + 1) % cycleList.length]);
-        }, [qp, briefItems]),
+        }, [qp, briefItems, mainView, slide.mode]),
+        // Presentation clickers send PageUp/PageDown — always flip the PDF.
+        onPageUp: useCallback(() => {
+            if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.prevPage();
+        }, [mainView, slide.mode]),
+        onPageDown: useCallback(() => {
+            if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.nextPage();
+        }, [mainView, slide.mode]),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -238,7 +263,13 @@ export default function PresentationPage() {
                 {/* Main slide / index area */}
                 <div className="flex-1 relative overflow-hidden">
                     <div className={mainView === 'slide' ? 'w-full h-full' : 'hidden'}>
-                        <SlideRenderer slide={slide} marketData={marketData} pdfZoom={pdfZoom} />
+                        <SlideRenderer
+                            slide={slide}
+                            marketData={marketData}
+                            pdfZoom={pdfZoom}
+                            pdfKeyboardEnabled={false}
+                            pdfRef={pdfRef}
+                        />
                     </div>
                     {mainView === 'index' && (
                         <iframe
@@ -265,6 +296,7 @@ export default function PresentationPage() {
                         return (
                             <QuoteSpotlight
                                 item={qp.spotlight}
+                                lang={lang}
                                 onDismiss={qp.dismissSpotlight}
                                 index={canCycle ? idx : undefined}
                                 total={canCycle ? cycleList.length : undefined}
@@ -299,6 +331,7 @@ export default function PresentationPage() {
                 {!qp.isPickerOpen && (
                     <QuotePanel
                         items={qp.pinned}
+                        lang={lang}
                         onRemove={qp.remove}
                         onClearAll={qp.clearAll}
                         onItemClick={qp.openChart}
@@ -342,6 +375,7 @@ export default function PresentationPage() {
             {qp.isSearchOpen && (
                 <QuoteSpotlightSearch
                     items={qp.allItems}
+                    lang={lang}
                     pinnedIds={qp.pinnedIds}
                     onCommit={qp.toggle}
                     onClose={qp.closeSearch}
@@ -352,6 +386,7 @@ export default function PresentationPage() {
             {qp.isPickerOpen && (
                 <QuotePickerModal
                     items={qp.allItems}
+                    lang={lang}
                     pinnedIds={qp.pinnedIds}
                     onToggle={qp.toggle}
                     onClearAll={qp.clearAll}

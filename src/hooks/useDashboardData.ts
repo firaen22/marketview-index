@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { IndexData } from '../types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { IndexData, MarketDataResponse } from '../types';
 import { marketCacheKey } from '../settings';
 import { useNewsData } from './useNewsData';
 
@@ -32,6 +32,8 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
     const [isError, setIsError] = useState(false);
     const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const requestControllerRef = useRef<AbortController | null>(null);
+    const requestSequenceRef = useRef(0);
 
     const { newsData, isNewsLoading, isAiTranslated, marketSummary, fetchNews, refreshNewsWithKey } =
         useNewsData({ language, geminiKey });
@@ -61,6 +63,10 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
         forceRefresh: boolean,
         overrideLang: 'en' | 'zh-TW'
     ) => {
+        requestControllerRef.current?.abort();
+        const controller = new AbortController();
+        requestControllerRef.current = controller;
+        const requestSequence = ++requestSequenceRef.current;
         const CACHE_KEY = marketCacheKey(rangeStr, overrideLang);
         if (!isBackground) {
             setIsLoading(true);
@@ -69,17 +75,24 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
         }
         try {
             const url = `/api/market-data?t=${Date.now()}&range=${rangeStr}&lang=${overrideLang}${forceRefresh ? '&refresh=true' : ''}`;
-            const response = await fetch(url);
-            const result = await response.json();
+            const response = await fetch(url, { signal: controller.signal });
+            const result: MarketDataResponse = await response.json();
+            if (requestSequence !== requestSequenceRef.current) return;
             if (result.data && Array.isArray(result.data)) {
                 setMarketData(result.data);
                 if (!result.success || result.source === 'server_stale_cache') {
-                    const timeStr = new Date(result.timestamp).toLocaleTimeString(overrideLang === 'zh-TW' ? 'zh-TW' : undefined);
+                    const timestamp = new Date(result.timestamp || '');
+                    const timeStr = Number.isNaN(timestamp.getTime())
+                        ? ''
+                        : timestamp.toLocaleTimeString(overrideLang === 'zh-TW' ? 'zh-TW' : undefined);
                     setFallbackMessage(overrideLang === 'en'
-                        ? `Could not get latest data, showing backend last updated: ${timeStr} (Global data frozen)`
-                        : `無法取得最新資料，顯示後端最後更新時間：${timeStr} (全局資料已凍結)`);
+                        ? `Could not get latest data, showing backend last updated${timeStr ? `: ${timeStr}` : ''} (Global data frozen)`
+                        : `無法取得最新資料，顯示後端最後更新時間${timeStr ? `：${timeStr}` : ''} (全局資料已凍結)`);
                 } else {
-                    setLastUpdated(new Date(result.timestamp));
+                    setFallbackMessage(null);
+                    setIsError(false);
+                    const timestamp = new Date(result.timestamp || '');
+                    setLastUpdated(Number.isNaN(timestamp.getTime()) ? null : timestamp);
                     localStorage.setItem(CACHE_KEY, JSON.stringify({
                         timestamp: Date.now(),
                         data: result.data,
@@ -89,12 +102,14 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
                 throw new Error(result.error || 'Failed to fetch data');
             }
         } catch (err) {
+            if ((err as Error)?.name === 'AbortError') return;
+            if (requestSequence !== requestSequenceRef.current) return;
             console.error('Failed to fetch market data:', err);
             handleFallback(CACHE_KEY, overrideLang === 'en'
                 ? 'Server connection failed. Showing device local cache.'
                 : '伺服器連線失敗。顯示裝置本地快取。');
         } finally {
-            if (!isBackground) setIsLoading(false);
+            if (requestSequence === requestSequenceRef.current) setIsLoading(false);
         }
     }, [handleFallback]);
 
@@ -105,7 +120,10 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
             fetchMarketData(timeRange, true, false, language);
             fetchNews(language, undefined, true, false);
         }, POLL_MS);
-        return () => clearInterval(id);
+        return () => {
+            requestControllerRef.current?.abort();
+            clearInterval(id);
+        };
     }, [timeRange, language, fetchMarketData, fetchNews]);
 
     const refresh = useCallback(() => {

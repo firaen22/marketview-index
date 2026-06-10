@@ -49,13 +49,11 @@ const DEFAULTS: MarketFlowSettings = {
  * Read all settings in one shot.
  * Includes automatic migration from the old fragmented keys on first read.
  */
-export function getSettings(): MarketFlowSettings {
-    if (_cache) return _cache;
+function loadFromStorage(): MarketFlowSettings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) {
         try {
-            _cache = { ...DEFAULTS, ...JSON.parse(raw) };
-            return _cache;
+            return { ...DEFAULTS, ...JSON.parse(raw) };
         } catch {
             // corrupted – fall through to migration
         }
@@ -65,7 +63,12 @@ export function getSettings(): MarketFlowSettings {
         chartMode: (localStorage.getItem('marketflow_chart_mode') as MarketFlowSettings['chartMode']) || DEFAULTS.chartMode,
         showFunds: (() => {
             const v = localStorage.getItem('marketflow_show_funds');
-            return v !== null ? JSON.parse(v) : DEFAULTS.showFunds;
+            if (v === null) return DEFAULTS.showFunds;
+            try {
+                return JSON.parse(v);
+            } catch {
+                return DEFAULTS.showFunds;
+            }
         })(),
         geminiKey: localStorage.getItem('user_gemini_key') || DEFAULTS.geminiKey,
         presentSlide: DEFAULTS.presentSlide,
@@ -77,13 +80,17 @@ export function getSettings(): MarketFlowSettings {
 
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(migrated));
     LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
-    _cache = migrated;
     return migrated;
 }
 
+export function getSettings(): MarketFlowSettings {
+    if (_cache) return _cache;
+    _cache = loadFromStorage();
+    return _cache;
+}
+
 export function setSetting<K extends keyof MarketFlowSettings>(key: K, value: MarketFlowSettings[K]) {
-    const current = getSettings();
-    current[key] = value;
+    const current = { ...loadFromStorage(), [key]: value };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(current));
     _cache = current;
 }

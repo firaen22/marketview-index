@@ -90,10 +90,10 @@ export default function Dashboard() {
   const tickerDisplay = tickerData.length > 0 ? tickerData : marketData;
   const categories = categoriesOrder.filter(c => c === 'All' || displayMarketData.some(item => item.category === c));
 
-  const filteredIndices = (selectedCategory === 'All'
+  const filteredIndices = [...(selectedCategory === 'All'
     ? displayMarketData
     : displayMarketData.filter(item => item.category === selectedCategory)
-  ).sort((a, b) => sortOrder === 'desc' ? b.ytdChangePercent - a.ytdChangePercent : a.ytdChangePercent - b.ytdChangePercent);
+  )].sort((a, b) => sortOrder === 'desc' ? b.ytdChangePercent - a.ytdChangePercent : a.ytdChangePercent - b.ytdChangePercent);
 
   // Rendering...
 

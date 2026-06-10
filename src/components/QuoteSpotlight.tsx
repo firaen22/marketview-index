@@ -1,8 +1,10 @@
 import type { QuoteItem } from '../types/QuoteItem';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { displayName } from '../utils';
 
 interface Props {
     item: QuoteItem;
+    lang: 'en' | 'zh-TW';
     onDismiss: () => void;
     index?: number;
     total?: number;
@@ -28,7 +30,7 @@ function pctColor(p: number | undefined): string {
     return 'text-zinc-300';
 }
 
-export function QuoteSpotlight({ item, onDismiss, index, total, onPrev, onNext }: Props) {
+export function QuoteSpotlight({ item, lang, onDismiss, index, total, onPrev, onNext }: Props) {
     const hasNav = total !== undefined && total > 1 && index !== undefined;
     const isMarket = item.group === 'market';
     const secondaryLabel = isMarket ? 'YTD' : item.secondaryLabel;
@@ -39,7 +41,7 @@ export function QuoteSpotlight({ item, onDismiss, index, total, onPrev, onNext }
         <div
             className="absolute bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-sm border-t border-zinc-800 shadow-2xl animate-in slide-in-from-bottom-8 duration-300"
             role="dialog"
-            aria-label={`Quote spotlight: ${item.name}`}
+            aria-label={`Quote spotlight: ${displayName(item, lang)}`}
         >
             <div className="flex items-center gap-8 px-10 py-5 min-h-[100px]">
                 {hasNav && (
@@ -54,7 +56,7 @@ export function QuoteSpotlight({ item, onDismiss, index, total, onPrev, onNext }
                 )}
                 <div className="flex-1 flex items-baseline gap-6 min-w-0">
                     <div className="min-w-0">
-                        <div className="text-2xl font-semibold text-zinc-50 truncate">{item.name}</div>
+                        <div className="text-2xl font-semibold text-zinc-50 truncate">{displayName(item, lang)}</div>
                         <div className="text-xs font-mono text-zinc-500 tracking-widest uppercase">{item.id}</div>
                     </div>
                 </div>

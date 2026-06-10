@@ -6,7 +6,10 @@ export default async function handler(req: any, res: any) {
     }
 
     try {
-        const { apiKey: rawApiKey } = req.body;
+        const rawApiKey = req.body?.apiKey;
+        if (typeof rawApiKey !== 'string') {
+            return res.status(400).json({ success: false, message: 'API Key must be a string' });
+        }
         if (!rawApiKey) {
             return res.status(400).json({ success: false, message: 'API Key is required' });
         }

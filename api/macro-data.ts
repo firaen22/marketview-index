@@ -42,7 +42,7 @@ export default async function handler(req: any, res: any) {
             try {
                 // GDPC1 = Real GDP, quarterly, billions of chained 2017 dollars
                 const url = `https://api.stlouisfed.org/fred/series/observations?series_id=GDPC1&api_key=${apiKey}&file_type=json&sort_order=desc&limit=6`;
-                const response = await fetch(url);
+                const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
                 if (!response.ok) return null;
                 const data = await response.json();
                 if (!data.observations || data.observations.length < 5) return null;
@@ -78,7 +78,7 @@ export default async function handler(req: any, res: any) {
         const fetchGdpNow = async () => {
             try {
                 const url = `https://api.stlouisfed.org/fred/series/observations?series_id=GDPNOW&api_key=${apiKey}&file_type=json&sort_order=desc&limit=2`;
-                const response = await fetch(url);
+                const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
                 if (!response.ok) return null;
                 const data = await response.json();
                 if (!data.observations || data.observations.length < 2) return null;
@@ -110,7 +110,7 @@ export default async function handler(req: any, res: any) {
         const settled = await Promise.all(MACRO_SERIES.map(async (series) => {
             try {
                 const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${series.symbol}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=14`;
-                const response = await fetch(url);
+                const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
                 if (!response.ok) {
                     const errText = await response.text();
                     console.error(`FRED API Error for ${series.symbol}: ${response.status} ${errText}`);
@@ -123,9 +123,13 @@ export default async function handler(req: any, res: any) {
                 const currentValue = parseFloat(currentObs.value);
                 const prevMonthValue = parseFloat(data.observations[1].value);
                 const prevYearValue = parseFloat(data.observations[12].value);
+                // FRED encodes missing observations as "." — drop the series when the
+                // current or year-ago value is missing (same contract as fetchGdp).
+                if (isNaN(currentValue) || isNaN(prevYearValue)) return null;
 
-                const momChange = currentValue - prevMonthValue;
-                const momChangePercent = (momChange / prevMonthValue) * 100;
+                const momChangePercent = isNaN(prevMonthValue)
+                    ? undefined
+                    : ((currentValue - prevMonthValue) / prevMonthValue) * 100;
                 const yoyChange = currentValue - prevYearValue;
                 const yoyChangePercent = (yoyChange / prevYearValue) * 100;
 
@@ -134,7 +138,7 @@ export default async function handler(req: any, res: any) {
                     name: series.name,
                     nameEn: series.nameEn,
                     value: currentValue,
-                    prevValue: prevMonthValue,
+                    prevValue: isNaN(prevMonthValue) ? undefined : prevMonthValue,
                     change: yoyChange,
                     changePercent: yoyChangePercent,
                     momChangePercent: momChangePercent,

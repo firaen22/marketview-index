@@ -1,7 +1,9 @@
 import { cn } from '../utils';
+import type { TimeRange } from '../types';
+
+export type { TimeRange };
 
 export const TIME_RANGES = ['1M', '3M', 'YTD', '1Y'] as const;
-export type TimeRange = (typeof TIME_RANGES)[number];
 
 type Variant = 'default' | 'blue' | 'subtle';
 

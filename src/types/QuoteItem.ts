@@ -5,6 +5,7 @@ export type QuoteGroup = 'market' | 'macro';
 export interface QuoteItem {
     id: string;              // symbol
     name: string;
+    nameEn?: string;
     value: number;
     changePct: number;
     changeLabel?: string;    // undefined for market, "YoY" for macro
@@ -19,6 +20,7 @@ export function indexToQuoteItem(d: IndexData): QuoteItem {
     return {
         id: d.symbol,
         name: d.name,
+        nameEn: d.nameEn,
         value: d.price,
         changePct: d.changePercent,
         ytdPct: d.ytdChangePercent,
@@ -31,6 +33,7 @@ export function macroToQuoteItem(d: MacroData): QuoteItem {
     return {
         id: d.symbol,
         name: d.name,
+        nameEn: d.nameEn,
         value: d.value,
         changePct: d.changePercent,
         changeLabel: d.changeLabel ?? 'YoY',

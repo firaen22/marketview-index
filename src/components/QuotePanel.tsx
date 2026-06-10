@@ -4,12 +4,13 @@ import { PinnedQuoteCard } from './PinnedQuoteCard';
 
 interface Props {
     items: QuoteItem[];
+    lang: 'en' | 'zh-TW';
     onRemove: (id: string) => void;
     onClearAll?: () => void;
     onItemClick?: (item: QuoteItem) => void;
 }
 
-export function QuotePanel({ items, onRemove, onClearAll, onItemClick }: Props) {
+export function QuotePanel({ items, lang, onRemove, onClearAll, onItemClick }: Props) {
     if (items.length === 0) return null;
 
     const marketItems = items.filter(i => i.group === 'market');
@@ -33,6 +34,7 @@ export function QuotePanel({ items, onRemove, onClearAll, onItemClick }: Props) 
                 <PinnedQuoteCard
                     key={item.id}
                     item={item}
+                    lang={lang}
                     showDivider={i > 0}
                     onRemove={() => onRemove(item.id)}
                     onClick={onItemClick ? () => onItemClick(item) : undefined}
@@ -45,7 +47,8 @@ export function QuotePanel({ items, onRemove, onClearAll, onItemClick }: Props) 
                 <PinnedQuoteCard
                     key={item.id}
                     item={item}
-                    showDivider={i > 0 && marketItems.length === 0}
+                    lang={lang}
+                    showDivider={i > 0}
                     onRemove={() => onRemove(item.id)}
                 />
             ))}
