@@ -9,11 +9,12 @@ export const MacroStatCard: React.FC<{
     t: TDict;
 }> = ({ item, t }) => {
     const isYoyPositive = item.changePercent >= 0;
-    const isMomPositive = (item.momChangePercent || 0) >= 0;
+    const isMomPositive = typeof item.momChangePercent === 'number' && item.momChangePercent >= 0;
 
     const lang = t.language === 'zh-TW' ? 'zh-TW' : 'en';
     const displayName = lang === 'zh-TW' ? item.name : item.nameEn;
-    const formattedDate = new Date(item.date).toLocaleDateString(lang === 'zh-TW' ? 'zh-TW' : 'en-US', {
+    const [year, month, day] = item.date.split('-').map(Number);
+    const formattedDate = new Date(year, month - 1, day).toLocaleDateString(lang === 'zh-TW' ? 'zh-TW' : 'en-US', {
         year: 'numeric',
         month: 'short'
     });
@@ -49,20 +50,22 @@ export const MacroStatCard: React.FC<{
             <div className="flex justify-between items-end text-[10px] border-t border-zinc-800/80 pt-3 relative z-10 mt-4">
                 <div className="flex flex-col">
                     <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">
-                        {t.yoyChange || 'YoY Change'}
+                        {item.changeLabel ?? (t.yoyChange || 'YoY Change')}
                     </span>
                     <span className={cn("font-mono font-medium text-xs", isYoyPositive ? "text-emerald-400" : "text-rose-400")}>
                         {isYoyPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
                     </span>
                 </div>
-                <div className="text-right flex flex-col">
-                    <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">
-                        {t.momChange || 'MoM Change'}
-                    </span>
-                    <span className={cn("font-mono font-medium text-xs", isMomPositive ? "text-emerald-400" : "text-rose-400")}>
-                        {isMomPositive ? '+' : ''}{(item.momChangePercent || 0).toFixed(2)}%
-                    </span>
-                </div>
+                {typeof item.momChangePercent === 'number' && (
+                    <div className="text-right flex flex-col">
+                        <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">
+                            {item.secondaryLabel ?? (t.momChange || 'MoM Change')}
+                        </span>
+                        <span className={cn("font-mono font-medium text-xs", isMomPositive ? "text-emerald-400" : "text-rose-400")}>
+                            {isMomPositive ? '+' : ''}{item.momChangePercent.toFixed(2)}%
+                        </span>
+                    </div>
+                )}
             </div>
         </Card>
     );

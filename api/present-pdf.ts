@@ -27,19 +27,26 @@ function isR2Configured(): boolean {
 
 function authorize(req: any): boolean {
     const requiredKey = process.env.PRESENT_API_KEY;
-    if (!requiredKey) return true;
-    return req.headers['x-api-key'] === requiredKey;
+    if (!requiredKey) return false;
+    const providedKey = typeof req.headers['x-api-key'] === 'string' ? req.headers['x-api-key'] : '';
+    const providedHash = crypto.createHash('sha256').update(providedKey).digest();
+    const requiredHash = crypto.createHash('sha256').update(requiredKey).digest();
+    return crypto.timingSafeEqual(providedHash, requiredHash);
 }
 
 function sanitizeFilename(name: string): string {
     const stripped = name.replace(/^.*[\\/]/, '');
-    const cleaned = stripped.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 128);
+    const cleaned = stripped.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/\.\.+/g, '.').slice(0, 128);
     return cleaned || `slide-${Date.now()}.pdf`;
 }
 
 export default async function handler(req: any, res: any) {
     if (!isR2Configured()) {
         return res.status(503).json({ error: 'R2 storage not configured' });
+    }
+
+    if (!process.env.PRESENT_API_KEY) {
+        return res.status(503).json({ error: 'Server is missing PRESENT_API_KEY configuration' });
     }
 
     if (!authorize(req)) {
@@ -81,9 +88,9 @@ export default async function handler(req: any, res: any) {
     const suffix = crypto.randomBytes(6).toString('hex');
     const key = `${Date.now()}-${suffix}-${filename}`;
 
-    const contentLength = Number(body?.size || 0);
-    if (contentLength > MAX_BYTES) {
-        return res.status(413).json({ error: `PDF too large. Max ${MAX_BYTES / 1024 / 1024} MB.` });
+    const contentLength = Number(body?.size);
+    if (!Number.isFinite(contentLength) || contentLength <= 0 || contentLength > MAX_BYTES) {
+        return res.status(400).json({ error: `PDF size must be greater than 0 and no more than ${MAX_BYTES / 1024 / 1024} MB.` });
     }
 
     try {
@@ -92,7 +99,7 @@ export default async function handler(req: any, res: any) {
             Bucket: bucket,
             Key: key,
             ContentType: 'application/pdf',
-            ...(contentLength > 0 ? { ContentLength: contentLength } : {}),
+            ContentLength: contentLength,
         });
         const uploadUrl = await getSignedUrl(client, command, { expiresIn: PRESIGN_TTL_SECONDS });
 

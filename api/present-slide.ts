@@ -1,4 +1,5 @@
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import crypto from 'crypto';
 
 const SLIDE_KEY = 'slide-state/marketflow_present_slide_v1.json';
 
@@ -21,6 +22,13 @@ async function readStream(stream: NodeJS.ReadableStream): Promise<string> {
         stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
         stream.on('error', reject);
     });
+}
+
+function authorize(providedKey: unknown, requiredKey: string): boolean {
+    const provided = typeof providedKey === 'string' ? providedKey : '';
+    const providedHash = crypto.createHash('sha256').update(provided).digest();
+    const requiredHash = crypto.createHash('sha256').update(requiredKey).digest();
+    return crypto.timingSafeEqual(providedHash, requiredHash);
 }
 
 export default async function handler(req: any, res: any) {
@@ -48,10 +56,13 @@ export default async function handler(req: any, res: any) {
         }
     }
 
-    // POST — save slide (requires auth if PRESENT_API_KEY is set)
+    // POST — save slide (requires auth)
     if (req.method === 'POST') {
         const requiredKey = process.env.PRESENT_API_KEY;
-        if (requiredKey && req.headers['x-api-key'] !== requiredKey) {
+        if (!requiredKey) {
+            return res.status(503).json({ error: 'Server is missing PRESENT_API_KEY configuration' });
+        }
+        if (!authorize(req.headers['x-api-key'], requiredKey)) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
         let body: any;

@@ -21,7 +21,7 @@ export const PdfUploader: React.FC<Props> = ({ onUploaded }) => {
             return;
         }
         if (file.size > MAX_BYTES) {
-            setErrorMsg(`PDF too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 4 MB — compress or split.`);
+            setErrorMsg(`PDF too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max ${(MAX_BYTES / 1024 / 1024).toFixed(0)} MB — compress or split.`);
             setStatus('error');
             return;
         }

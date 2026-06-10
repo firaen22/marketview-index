@@ -36,6 +36,9 @@ async function resolveModel(client: any, cacheKey: string): Promise<string> {
     } catch (listErr) {
         console.warn('Fallback to gemini-1.5-flash:', listErr);
     }
+    if (resolvedModelCache.size >= 50) {
+        resolvedModelCache.clear();
+    }
     resolvedModelCache.set(cacheKey, { model: modelName, ts: Date.now() });
     return modelName;
 }
@@ -107,16 +110,20 @@ export default async function handler(req: any, res: any) {
         const isChinese = lang === 'zh-TW';
 
         // 3. Consolidated AI Processing: Single Request for ALL data
-        let processedNews = newsItems.map((article: any, index: number) => ({
-            id: article.uuid || `news-${index}`,
-            title: article.title,
-            originalTitle: article.title,
-            summary: article.title,
-            url: article.link || article.url,
-            publisher: article.publisher || "Market News",
-            time: article.providerPublishTime ? new Date(article.providerPublishTime * 1000).toISOString() : new Date().toISOString(),
-            sentiment: "Neutral" as 'Bullish' | 'Bearish' | 'Neutral'
-        }));
+        let processedNews = newsItems.map((article: any, index: number) => {
+            const publishedAt = article.providerPublishTime ? new Date(article.providerPublishTime) : new Date();
+            const time = isNaN(publishedAt.getTime()) ? new Date().toISOString() : publishedAt.toISOString();
+            return {
+                id: article.uuid || `news-${index}`,
+                title: article.title,
+                originalTitle: article.title,
+                summary: article.title,
+                url: article.link || article.url,
+                publisher: article.publisher || "Market News",
+                time,
+                sentiment: "Neutral" as 'Bullish' | 'Bearish' | 'Neutral'
+            };
+        });
 
         let marketSummary = "";
 

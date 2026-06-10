@@ -3,6 +3,9 @@ import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s
 export default async function handler(req: any, res: any) {
     const key = req.query?.key as string | undefined;
     if (!key) return res.status(400).json({ error: 'key query param required' });
+    if (!/^(?!.*\.\.)\d{13}-[a-f0-9]{12}-[a-zA-Z0-9._-]{1,128}$/.test(key)) {
+        return res.status(403).json({ error: 'Forbidden PDF key' });
+    }
 
     if (
         !process.env.CLOUDFLARE_R2_ENDPOINT ||
@@ -47,7 +50,7 @@ export default async function handler(req: any, res: any) {
         });
         const { Body, ContentLength, ContentType, ContentRange } = await client.send(command);
 
-        const statusCode = rangeHeader ? 206 : 200;
+        const statusCode = ContentRange ? 206 : 200;
         res.setHeader('Content-Type', ContentType || 'application/pdf');
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Cache-Control', 'private, max-age=3600');
@@ -67,5 +70,6 @@ export default async function handler(req: any, res: any) {
         if (e?.name === 'NoSuchKey') return res.status(404).json({ error: 'PDF not found' });
         console.error('R2 proxy error:', e);
         if (!res.headersSent) return res.status(500).json({ error: e.message });
+        res.destroy(e);
     }
 }

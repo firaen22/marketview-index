@@ -40,11 +40,14 @@ export function MorningBriefPanel({ items, brief, onChange, onClose }: Props) {
     };
     const remove = (id: string) => onChange(brief.filter(s => s !== id));
     const move = (id: string, delta: -1 | 1) => {
-        const i = brief.indexOf(id);
+        const visibleIds = brief.filter(briefId => itemsById.has(briefId));
+        const i = visibleIds.indexOf(id);
         const j = i + delta;
-        if (i < 0 || j < 0 || j >= brief.length) return;
+        if (i < 0 || j < 0 || j >= visibleIds.length) return;
+        const from = brief.indexOf(visibleIds[i]);
+        const to = brief.indexOf(visibleIds[j]);
         const next = [...brief];
-        [next[i], next[j]] = [next[j], next[i]];
+        [next[from], next[to]] = [next[to], next[from]];
         onChange(next);
     };
 

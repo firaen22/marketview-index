@@ -16,7 +16,8 @@ export function useKeyboardShortcuts(handlers: Handlers) {
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement;
-            if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return;
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) return;
 
             if (e.key === 'e' || e.key === 'E') { e.preventDefault(); handlers.onEdit(); }
             if (e.key === 'f' || e.key === 'F') { e.preventDefault(); handlers.onFullscreen(); }

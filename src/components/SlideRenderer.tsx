@@ -8,9 +8,10 @@ interface Props {
     slide: PresentSlide;
     marketData: Array<{ symbol: string; [k: string]: any }>;
     pdfZoom?: number;
+    pdfKeyboardEnabled?: boolean;
 }
 
-export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100 }) => {
+export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true }) => {
     const injected = React.useMemo(() => {
         if (slide.mode !== 'markdown' && slide.mode !== 'html') return '';
         return injectMarketTokens(slide.content, marketData);
@@ -42,7 +43,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     if (slide.mode === 'pdf') {
-        return <PdfViewer url={slide.content.trim()} zoom={pdfZoom} />;
+        return <PdfViewer url={slide.content.trim()} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} />;
     }
 
     if (slide.mode === 'html') {

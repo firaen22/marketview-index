@@ -21,6 +21,7 @@ export function QuoteSpotlightSearch({ items, pinnedIds, onCommit, onClose }: Pr
     const [query, setQuery] = useState('');
     const [selectedIdx, setSelectedIdx] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
+    const selectedRef = useRef<HTMLLIElement>(null);
 
     useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -33,6 +34,9 @@ export function QuoteSpotlightSearch({ items, pinnedIds, onCommit, onClose }: Pr
     }, [query, items]);
 
     useEffect(() => { setSelectedIdx(0); }, [query]);
+    useEffect(() => {
+        selectedRef.current?.scrollIntoView({ block: 'nearest' });
+    }, [selectedIdx]);
 
     const commit = (item: QuoteItem) => {
         onCommit(item);
@@ -50,9 +54,11 @@ export function QuoteSpotlightSearch({ items, pinnedIds, onCommit, onClose }: Pr
             if (pick) commit(pick);
         } else if (e.key === 'ArrowDown') {
             e.preventDefault();
+            if (results.length === 0) return;
             setSelectedIdx(i => Math.min(results.length - 1, i + 1));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
+            if (results.length === 0) return;
             setSelectedIdx(i => Math.max(0, i - 1));
         }
     };
@@ -85,6 +91,7 @@ export function QuoteSpotlightSearch({ items, pinnedIds, onCommit, onClose }: Pr
                             return (
                                 <li
                                     key={r.id}
+                                    ref={i === selectedIdx ? selectedRef : undefined}
                                     onMouseEnter={() => setSelectedIdx(i)}
                                     onClick={() => commit(r)}
                                     className={`flex items-center gap-3 px-5 py-3 cursor-pointer transition ${

@@ -81,7 +81,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
             if (hist.length === 0) continue;
             const base = hist[0].value;
             hist.forEach((pt, idx) => {
-                const key = pt.date || String(idx);
+                const key = pt.date || String(idx).padStart(4, '0');
                 if (!dateMap.has(key)) dateMap.set(key, { date: key });
                 const row = dateMap.get(key)!;
                 const val =

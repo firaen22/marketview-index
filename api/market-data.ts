@@ -71,18 +71,19 @@ const INDICES_TO_FETCH = [
 ];
 
 export default async function handler(req: any, res: any) {
+  const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
+  const forceRefresh = searchParams.get('refresh') === 'true';
+  const requestedRange = searchParams.get('range') || 'YTD';
+  const range = ['1M', '3M', 'YTD', '1Y'].includes(requestedRange) ? requestedRange : 'YTD';
+
+  // Unique cache key per range
+  const RANGE_CACHE_KEY = `${CACHE_KEY}_${range}`;
+
   try {
     // 設置不快取 API Response，而是依賴 Redis
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-
-    const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
-    const forceRefresh = searchParams.get('refresh') === 'true';
-    const range = searchParams.get('range') || 'YTD'; // 1M, 3M, YTD, 1Y
-
-    // Unique cache key per range
-    const RANGE_CACHE_KEY = `${CACHE_KEY}_${range}`;
 
     const isCron = req.headers['user-agent']?.includes('Vercel-Cron');
 
@@ -122,7 +123,7 @@ export default async function handler(req: any, res: any) {
     // 如果拉取失敗，但 Redis 裡面有舊資料，執行 Server-Side Freeze
     if (redis) {
       try {
-        const fallbackPayload: any = await redis.get(CACHE_KEY);
+        const fallbackPayload: any = await redis.get(RANGE_CACHE_KEY);
         if (fallbackPayload) {
           const parsed = typeof fallbackPayload === 'string' ? JSON.parse(fallbackPayload) : fallbackPayload;
           return res.status(200).json({
@@ -193,6 +194,7 @@ async function fetchAllIndices(range: string) {
     let history = [];
     let ytdChange = 0;
     let ytdChangePercent = 0;
+    let estimated = false;
 
     if (chartData.length > 0) {
       // Use authentic history points
@@ -230,13 +232,18 @@ async function fetchAllIndices(range: string) {
     } else {
       // Fallback if Yahoo Chart API fails for a specific obscure ticker
       const fiftyTwoWeekLow = quote.fiftyTwoWeekLow || price * 0.9;
-      ytdChange = (price - fiftyTwoWeekLow) * 0.15;
-      ytdChangePercent = (ytdChange / (price - ytdChange)) * 100;
-      history = Array.from({ length: 20 }, (_, i) => ({
-        value: price * (0.95 + Math.random() * 0.1),
-        date: new Date(Date.now() - (20 - i) * 86400000).toISOString()
-      }));
-      history.push({ value: price, date: new Date().toISOString() });
+      if (price === 0 || !Number.isFinite(price)) {
+        ytdChange = 0;
+        ytdChangePercent = 0;
+      } else {
+        ytdChange = (price - fiftyTwoWeekLow) * 0.15;
+        const denominator = price - ytdChange;
+        ytdChangePercent = denominator !== 0 && Number.isFinite(denominator)
+          ? (ytdChange / denominator) * 100
+          : 0;
+      }
+      history = [];
+      estimated = true;
     }
 
     results.push({
@@ -254,6 +261,7 @@ async function fetchAllIndices(range: string) {
       ytdChange,
       ytdChangePercent,
       history,
+      ...(estimated ? { estimated: true } : {}),
     });
   }
 

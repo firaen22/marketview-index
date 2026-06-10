@@ -16,7 +16,7 @@ export function useMacroData({ lang, refreshMs }: Options): Result {
     const [data, setData] = useState<MacroData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    const refresh = useCallback(async (force = false) => {
+    const refresh = useCallback(async (force = false, signal?: AbortSignal) => {
         setIsLoading(true);
         try {
             const params = new URLSearchParams();
@@ -24,25 +24,31 @@ export function useMacroData({ lang, refreshMs }: Options): Result {
             if (force) params.set('refresh', 'true');
 
             const url = `/api/macro-data?${params.toString()}`;
-            const response = await fetch(url);
+            const response = await fetch(url, { signal });
             const result: MacroDataResponse = await response.json();
 
             if (result.success) {
                 setData(result.data);
             }
         } catch (err) {
+            if ((err as Error)?.name === 'AbortError') return;
             console.error('Failed to fetch macro data:', err);
         } finally {
-            setIsLoading(false);
+            if (!signal?.aborted) setIsLoading(false);
         }
     }, [lang]);
 
     useEffect(() => {
-        refresh();
+        const controller = new AbortController();
+        refresh(false, controller.signal);
         if (refreshMs && refreshMs > 0) {
-            const id = setInterval(() => { refresh(); }, refreshMs);
-            return () => clearInterval(id);
+            const id = setInterval(() => { refresh(false, controller.signal); }, refreshMs);
+            return () => {
+                controller.abort();
+                clearInterval(id);
+            };
         }
+        return () => controller.abort();
     }, [refresh, refreshMs]);
 
     return { data, isLoading, refresh };

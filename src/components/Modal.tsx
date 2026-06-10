@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Card } from './ui';
 import { cn } from '../utils';
@@ -26,6 +26,14 @@ export function Modal({
     bodyClassName,
     cardClassName,
 }: Props) {
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+
     return (
         <div
             className="fixed inset-0 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
@@ -35,7 +43,7 @@ export function Modal({
                 'w-full flex flex-col border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden relative',
                 maxWidth,
                 cardClassName,
-            )}>
+            )} role="dialog" aria-modal="true">
                 <div className={cn('absolute top-0 left-0 w-full h-1 bg-gradient-to-r', accent)} />
                 <div className="flex justify-between items-center p-5 pb-3">
                     <h3 className="text-lg font-bold flex items-center">{title}</h3>

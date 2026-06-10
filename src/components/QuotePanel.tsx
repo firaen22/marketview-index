@@ -45,7 +45,7 @@ export function QuotePanel({ items, onRemove, onClearAll, onItemClick }: Props) 
                 <PinnedQuoteCard
                     key={item.id}
                     item={item}
-                    showDivider={i > 0 && marketItems.length === 0}
+                    showDivider={i > 0}
                     onRemove={() => onRemove(item.id)}
                 />
             ))}

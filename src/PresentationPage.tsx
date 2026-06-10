@@ -238,7 +238,12 @@ export default function PresentationPage() {
                 {/* Main slide / index area */}
                 <div className="flex-1 relative overflow-hidden">
                     <div className={mainView === 'slide' ? 'w-full h-full' : 'hidden'}>
-                        <SlideRenderer slide={slide} marketData={marketData} pdfZoom={pdfZoom} />
+                        <SlideRenderer
+                            slide={slide}
+                            marketData={marketData}
+                            pdfZoom={pdfZoom}
+                            pdfKeyboardEnabled={!qp.spotlight && !qp.isSearchOpen}
+                        />
                     </div>
                     {mainView === 'index' && (
                         <iframe

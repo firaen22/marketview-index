@@ -37,31 +37,37 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
     });
     const [isLoading, setIsLoading] = useState(true);
 
-    const refresh = useCallback(async (force = false) => {
+    const refresh = useCallback(async (force = false, signal?: AbortSignal) => {
         setIsLoading(true);
         try {
             const params = new URLSearchParams({ range });
             if (lang) params.set('lang', lang);
             if (force) params.set('refresh', 'true');
             const url = `/api/market-data?${params.toString()}`;
-            const response = await fetch(url);
+            const response = await fetch(url, { signal });
             const result: MarketDataResponse = await response.json();
             if (result.success) {
                 setData(filter ? result.data.filter(filter) : result.data);
             }
         } catch (err) {
+            if ((err as Error)?.name === 'AbortError') return;
             console.error('Failed to fetch market data:', err);
         } finally {
-            setIsLoading(false);
+            if (!signal?.aborted) setIsLoading(false);
         }
     }, [range, filter, lang]);
 
     useEffect(() => {
-        refresh();
+        const controller = new AbortController();
+        refresh(false, controller.signal);
         if (refreshMs && refreshMs > 0) {
-            const id = setInterval(() => { refresh(); }, refreshMs);
-            return () => clearInterval(id);
+            const id = setInterval(() => { refresh(false, controller.signal); }, refreshMs);
+            return () => {
+                controller.abort();
+                clearInterval(id);
+            };
         }
+        return () => controller.abort();
     }, [refresh, refreshMs]);
 
     return { data, isLoading, refresh };

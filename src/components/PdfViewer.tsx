@@ -8,9 +8,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl as string;
 interface Props {
     url: string;
     zoom?: number;
+    keyboardEnabled?: boolean;
 }
 
-export const PdfViewer: React.FC<Props> = ({ url, zoom = 100 }) => {
+export const PdfViewer: React.FC<Props> = ({ url, zoom = 100, keyboardEnabled = true }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pageNum, setPageNum] = useState(1);
@@ -68,6 +69,7 @@ export const PdfViewer: React.FC<Props> = ({ url, zoom = 100 }) => {
     const next = useCallback(() => setPageNum(p => Math.min(numPages, p + 1)), [numPages]);
 
     useEffect(() => {
+        if (!keyboardEnabled) return;
         const onKey = (e: KeyboardEvent) => {
             const tag = (e.target as HTMLElement).tagName;
             if (tag === 'TEXTAREA' || tag === 'INPUT') return;
@@ -76,7 +78,7 @@ export const PdfViewer: React.FC<Props> = ({ url, zoom = 100 }) => {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [prev, next]);
+    }, [prev, next, keyboardEnabled]);
 
     if (error) {
         return (
