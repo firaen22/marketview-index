@@ -1,15 +1,17 @@
 import { X } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import type { QuoteItem } from '../types/QuoteItem';
+import { displayName } from '../utils';
 
 interface Props {
     item: QuoteItem;
+    lang: 'en' | 'zh-TW';
     showDivider: boolean;
     onRemove: () => void;
     onClick?: () => void;
 }
 
-export function PinnedQuoteCard({ item, showDivider, onRemove, onClick }: Props) {
+export function PinnedQuoteCard({ item, lang, showDivider, onRemove, onClick }: Props) {
     const isPositive = item.changePct >= 0;
     const color = isPositive ? '#34d399' : '#fb7185';
     const hasHistory = item.history && item.history.length > 1;
@@ -38,7 +40,7 @@ export function PinnedQuoteCard({ item, showDivider, onRemove, onClick }: Props)
                     <X className="w-2.5 h-2.5" />
                 </button>
             </div>
-            <div className="text-[11px] text-zinc-400 leading-tight">{item.name}</div>
+            <div className="text-[11px] text-zinc-400 leading-tight">{displayName(item, lang)}</div>
             <div className="text-xl font-bold font-mono text-white leading-none mt-1">
                 {item.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </div>

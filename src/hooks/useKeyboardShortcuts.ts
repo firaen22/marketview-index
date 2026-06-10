@@ -10,6 +10,8 @@ interface Handlers {
     onEscape: () => void;
     onArrowLeft?: () => void;
     onArrowRight?: () => void;
+    onPageUp?: () => void;
+    onPageDown?: () => void;
 }
 
 export function useKeyboardShortcuts(handlers: Handlers) {
@@ -17,6 +19,8 @@ export function useKeyboardShortcuts(handlers: Handlers) {
         const onKey = (e: KeyboardEvent) => {
             const target = e.target as HTMLElement;
             if (e.metaKey || e.ctrlKey || e.altKey) return;
+            // Escape works even while an input is focused (close the overlay you're typing in)
+            if (e.key === 'Escape') { handlers.onEscape(); return; }
             if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable)) return;
 
             if (e.key === 'e' || e.key === 'E') { e.preventDefault(); handlers.onEdit(); }
@@ -27,7 +31,8 @@ export function useKeyboardShortcuts(handlers: Handlers) {
             if (e.key === '?' || e.key === '/') { e.preventDefault(); handlers.onToggleHints(); }
             if (e.key === 'ArrowLeft' && handlers.onArrowLeft) { e.preventDefault(); handlers.onArrowLeft(); }
             if (e.key === 'ArrowRight' && handlers.onArrowRight) { e.preventDefault(); handlers.onArrowRight(); }
-            if (e.key === 'Escape') handlers.onEscape();
+            if (e.key === 'PageUp' && handlers.onPageUp) { e.preventDefault(); handlers.onPageUp(); }
+            if (e.key === 'PageDown' && handlers.onPageDown) { e.preventDefault(); handlers.onPageDown(); }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
@@ -43,5 +48,7 @@ export function useKeyboardShortcuts(handlers: Handlers) {
         handlers.onEscape,
         handlers.onArrowLeft,
         handlers.onArrowRight,
+        handlers.onPageUp,
+        handlers.onPageDown,
     ]);
 }

@@ -1,9 +1,11 @@
 import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
+export const PDF_KEY_PATTERN = /^(?!.*\.\.)\d{13}-[a-f0-9]{12}-[a-zA-Z0-9._-]{1,128}$/;
+
 export default async function handler(req: any, res: any) {
     const key = req.query?.key as string | undefined;
     if (!key) return res.status(400).json({ error: 'key query param required' });
-    if (!/^(?!.*\.\.)\d{13}-[a-f0-9]{12}-[a-zA-Z0-9._-]{1,128}$/.test(key)) {
+    if (!PDF_KEY_PATTERN.test(key)) {
         return res.status(403).json({ error: 'Forbidden PDF key' });
     }
 

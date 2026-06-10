@@ -22,6 +22,10 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       chunkSizeWarningLimit: 1500, // Increase chunk size limit to dismiss Vite warnings for heavy libraries
-    }
+    },
+    test: {
+      environment: 'jsdom',
+      include: ['src/**/*.test.ts', 'api/**/*.test.ts'],
+    },
   };
 });

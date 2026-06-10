@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import type { QuoteItem } from '../types/QuoteItem';
+import { displayName } from '../utils';
 
 interface Props {
     items: QuoteItem[];
+    lang: 'en' | 'zh-TW';
     pinnedIds?: Set<string>;
     onCommit: (item: QuoteItem) => void;
     onClose: () => void;
@@ -17,7 +19,7 @@ function pctColor(p: number): string {
     return 'text-zinc-400';
 }
 
-export function QuoteSpotlightSearch({ items, pinnedIds, onCommit, onClose }: Props) {
+export function QuoteSpotlightSearch({ items, lang, pinnedIds, onCommit, onClose }: Props) {
     const [query, setQuery] = useState('');
     const [selectedIdx, setSelectedIdx] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -29,7 +31,11 @@ export function QuoteSpotlightSearch({ items, pinnedIds, onCommit, onClose }: Pr
         const q = query.trim().toLowerCase();
         if (!q) return items;
         return items
-            .filter(i => i.id.toLowerCase().includes(q) || i.name.toLowerCase().includes(q))
+            .filter(i =>
+                i.id.toLowerCase().includes(q) ||
+                i.name.toLowerCase().includes(q) ||
+                i.nameEn?.toLowerCase().includes(q)
+            )
             .slice(0, MAX_RESULTS);
     }, [query, items]);
 
@@ -102,7 +108,7 @@ export function QuoteSpotlightSearch({ items, pinnedIds, onCommit, onClose }: Pr
                                         {isPinned && <Check className="w-3 h-3 text-emerald-400" />}
                                     </span>
                                     <span className="font-mono text-xs text-zinc-500 w-20 truncate">{r.id}</span>
-                                    <span className="flex-1 text-sm text-zinc-200 truncate">{r.name}</span>
+                                    <span className="flex-1 text-sm text-zinc-200 truncate">{displayName(r, lang)}</span>
                                     <span className="font-mono text-xs text-zinc-400 tabular-nums">
                                         {r.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                     </span>

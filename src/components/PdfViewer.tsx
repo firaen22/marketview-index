@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore — Vite ?url import
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -11,7 +11,12 @@ interface Props {
     keyboardEnabled?: boolean;
 }
 
-export const PdfViewer: React.FC<Props> = ({ url, zoom = 100, keyboardEnabled = true }) => {
+export interface PdfViewerHandle {
+    prevPage: () => void;
+    nextPage: () => void;
+}
+
+export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pageNum, setPageNum] = useState(1);
@@ -68,6 +73,8 @@ export const PdfViewer: React.FC<Props> = ({ url, zoom = 100, keyboardEnabled = 
     const prev = useCallback(() => setPageNum(p => Math.max(1, p - 1)), []);
     const next = useCallback(() => setPageNum(p => Math.min(numPages, p + 1)), [numPages]);
 
+    useImperativeHandle(ref, () => ({ prevPage: prev, nextPage: next }), [prev, next]);
+
     useEffect(() => {
         if (!keyboardEnabled) return;
         const onKey = (e: KeyboardEvent) => {
@@ -115,4 +122,4 @@ export const PdfViewer: React.FC<Props> = ({ url, zoom = 100, keyboardEnabled = 
             </div>
         </div>
     );
-};
+});

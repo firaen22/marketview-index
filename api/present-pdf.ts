@@ -34,7 +34,7 @@ function authorize(req: any): boolean {
     return crypto.timingSafeEqual(providedHash, requiredHash);
 }
 
-function sanitizeFilename(name: string): string {
+export function sanitizeFilename(name: string): string {
     const stripped = name.replace(/^.*[\\/]/, '');
     const cleaned = stripped.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/\.\.+/g, '.').slice(0, 128);
     return cleaned || `slide-${Date.now()}.pdf`;

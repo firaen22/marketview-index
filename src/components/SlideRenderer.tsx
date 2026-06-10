@@ -2,16 +2,17 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { PresentSlide } from '../settings';
 import { injectMarketTokens } from '../tokenInject';
-import { PdfViewer } from './PdfViewer';
+import { PdfViewer, type PdfViewerHandle } from './PdfViewer';
 
 interface Props {
     slide: PresentSlide;
     marketData: Array<{ symbol: string; [k: string]: any }>;
     pdfZoom?: number;
     pdfKeyboardEnabled?: boolean;
+    pdfRef?: React.Ref<PdfViewerHandle>;
 }
 
-export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true }) => {
+export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true, pdfRef }) => {
     const injected = React.useMemo(() => {
         if (slide.mode !== 'markdown' && slide.mode !== 'html') return '';
         return injectMarketTokens(slide.content, marketData);
@@ -43,7 +44,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     if (slide.mode === 'pdf') {
-        return <PdfViewer url={slide.content.trim()} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} />;
+        return <PdfViewer ref={pdfRef} url={slide.content.trim()} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} />;
     }
 
     if (slide.mode === 'html') {
