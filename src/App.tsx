@@ -6,7 +6,6 @@ const FundsPage = lazy(() => import('./FundsPage'));
 const HeatmapPage = lazy(() => import('./HeatmapPage'));
 const PresentationPage = lazy(() => import('./PresentationPage'));
 const PresentationControl = lazy(() => import('./PresentationControl'));
-const FactorMonitorPage = lazy(() => import('./FactorMonitorPage'));
 
 export default function App() {
   return (
@@ -18,7 +17,6 @@ export default function App() {
           <Route path="/heatmap" element={<HeatmapPage />} />
           <Route path="/present" element={<PresentationPage />} />
           <Route path="/present-control" element={<PresentationControl />} />
-          <Route path="/factors" element={<FactorMonitorPage />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

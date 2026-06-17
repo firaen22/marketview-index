@@ -1,4 +1,4 @@
-import { TrendingUp, TrendingDown, Clock, RefreshCcw, LayoutDashboard, Loader2, AlertCircle, Settings, Newspaper, Wallet, MonitorPlay, ListChecks, Radio } from 'lucide-react';
+import { TrendingUp, TrendingDown, Clock, RefreshCcw, LayoutDashboard, Loader2, AlertCircle, Settings, Newspaper, Wallet, MonitorPlay, ListChecks } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { TickerItem } from './TickerItem';
 import { LangToggle } from './LangToggle';
@@ -124,14 +124,6 @@ export function DashboardHeader({
                             title={t.heatmap}
                         >
                             <LayoutDashboard className="w-4 h-4" />
-                        </Link>
-                        <div className="h-3 w-px bg-zinc-800"></div>
-                        <Link
-                            to="/factors"
-                            className="p-1 hover:bg-zinc-800 rounded-full transition-all text-zinc-400 hover:text-fuchsia-400"
-                            title="Podcast Factor Monitor"
-                        >
-                            <Radio className="w-4 h-4" />
                         </Link>
                         <div className="h-3 w-px bg-zinc-800"></div>
                         <Link
