@@ -19,7 +19,7 @@ export default function FundsPage() {
     const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
 
     const fundFilter = useCallback((item: IndexData) => item.category === 'Fund', []);
-    const { data: marketData, isLoading, refresh: fetchFunds } = useMarketData({
+    const { data: marketData, isLoading, error, refresh: fetchFunds } = useMarketData({
         range: timeRange,
         filter: fundFilter,
     });
@@ -97,6 +97,17 @@ export default function FundsPage() {
             </header>
 
             <main className="max-w-7xl mx-auto">
+                {error && !isLoading && (
+                    <div className="mb-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg text-xs px-4 py-2.5 flex items-center justify-between gap-4">
+                        <span>{t.error}</span>
+                        <button
+                            onClick={() => fetchFunds(true)}
+                            className="font-bold text-rose-300 hover:text-rose-100 transition-colors"
+                        >
+                            {t.retry}
+                        </button>
+                    </div>
+                )}
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center h-64 text-zinc-600">
                         <Loader2 className="w-10 h-10 animate-spin mb-4 opacity-50" />

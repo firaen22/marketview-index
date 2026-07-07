@@ -17,6 +17,7 @@ export default {
     lastUpdated: "Last Updated",
     loading: "Loading tickers...",
     error: "Market data unavailable.",
+    retry: "Reload",
     newsLoading: "Gemini is analyzing latest news...",
     noNews: "No recent news available.",
     showAll: "View All",

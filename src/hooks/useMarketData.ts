@@ -12,6 +12,7 @@ interface Options {
 interface Result {
     data: IndexData[];
     isLoading: boolean;
+    error: boolean;
     refresh: (force?: boolean) => Promise<void>;
 }
 
@@ -36,6 +37,7 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
         return [];
     });
     const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(false);
 
     const refresh = useCallback(async (force = false, signal?: AbortSignal) => {
         setIsLoading(true);
@@ -45,12 +47,20 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
             if (force) params.set('refresh', 'true');
             const url = `/api/market-data?${params.toString()}`;
             const response = await fetch(url, { signal });
+            if (!response.ok) {
+                setError(true);
+                return;
+            }
             const result: MarketDataResponse = await response.json();
             if (result.success) {
+                setError(false);
                 setData(filter ? result.data.filter(filter) : result.data);
+            } else {
+                setError(true);
             }
         } catch (err) {
             if ((err as Error)?.name === 'AbortError') return;
+            setError(true);
             console.error('Failed to fetch market data:', err);
         } finally {
             if (!signal?.aborted) setIsLoading(false);
@@ -70,5 +80,5 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
         return () => controller.abort();
     }, [refresh, refreshMs]);
 
-    return { data, isLoading, refresh };
+    return { data, isLoading, error, refresh };
 }
