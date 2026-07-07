@@ -1,6 +1,7 @@
 import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { PDF_KEY_PATTERN } from '../lib/pdfKey.js';
 
-export const PDF_KEY_PATTERN = /^(?!.*\.\.)\d{13}-[a-f0-9]{12}-[a-zA-Z0-9._-]{1,128}$/;
+export { PDF_KEY_PATTERN } from '../lib/pdfKey.js';
 
 export default async function handler(req: any, res: any) {
     const key = req.query?.key as string | undefined;
@@ -28,7 +29,8 @@ export default async function handler(req: any, res: any) {
     });
 
     const bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME!;
-    const rangeHeader = req.headers['range'] as string | undefined;
+    const rawRangeHeader = req.headers['range'];
+    const rangeHeader = typeof rawRangeHeader === 'string' && /^bytes=\d{1,12}-\d{0,12}$/.test(rawRangeHeader) ? rawRangeHeader : undefined;
 
     try {
         // Handle HEAD requests so pdfjs can discover file size and range support
@@ -71,7 +73,7 @@ export default async function handler(req: any, res: any) {
     } catch (e: any) {
         if (e?.name === 'NoSuchKey') return res.status(404).json({ error: 'PDF not found' });
         console.error('R2 proxy error:', e);
-        if (!res.headersSent) return res.status(500).json({ error: e.message });
+        if (!res.headersSent) return res.status(500).json({ error: 'Failed to proxy PDF' });
         res.destroy(e);
     }
 }

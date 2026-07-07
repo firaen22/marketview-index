@@ -1,6 +1,7 @@
 import { S3Client, DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
+import { PDF_KEY_PATTERN } from '../lib/pdfKey.js';
 
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 const PRESIGN_TTL_SECONDS = 300; // 5 min window to complete the upload
@@ -61,13 +62,16 @@ export default async function handler(req: any, res: any) {
         if (!key || typeof key !== 'string') {
             return res.status(400).json({ error: 'x-r2-key header required' });
         }
+        if (!PDF_KEY_PATTERN.test(key)) {
+            return res.status(403).json({ error: 'Forbidden key' });
+        }
         try {
             const client = getR2Client();
             await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
             return res.status(200).json({ success: true });
         } catch (e: any) {
             console.error('R2 delete error:', e);
-            return res.status(500).json({ error: e.message });
+            return res.status(500).json({ error: 'Failed to delete PDF' });
         }
     }
 
@@ -109,6 +113,6 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({ uploadUrl, proxyUrl, key });
     } catch (e: any) {
         console.error('R2 presign error:', e);
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: 'Failed to create upload URL' });
     }
 }

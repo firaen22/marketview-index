@@ -19,10 +19,12 @@ export function displayName(item: Pick<IndexData, 'name' | 'nameEn'>, lang: 'en'
 }
 
 export function formatPrice(n: number): string {
+    if (!Number.isFinite(n)) return '—';
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function formatWhole(n: number): string {
+    if (!Number.isFinite(n)) return '—';
     return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 

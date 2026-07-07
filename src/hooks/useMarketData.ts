@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IndexData, MarketDataResponse } from '../types';
 import { marketCacheKey } from '../settings';
 
 interface Options {
     range: string;
+    /** Must be referentially stable (useCallback/module-level) — it is a dependency of the fetch effect. */
     filter?: (item: IndexData) => boolean;
     lang?: 'en' | 'zh-TW';
     refreshMs?: number;
@@ -38,8 +39,10 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
     });
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(false);
+    const requestSeqRef = useRef(0);
 
     const refresh = useCallback(async (force = false, signal?: AbortSignal) => {
+        const seq = ++requestSeqRef.current;
         setIsLoading(true);
         try {
             const params = new URLSearchParams({ range });
@@ -48,10 +51,12 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
             const url = `/api/market-data?${params.toString()}`;
             const response = await fetch(url, { signal });
             if (!response.ok) {
+                if (seq !== requestSeqRef.current) return;
                 setError(true);
                 return;
             }
             const result: MarketDataResponse = await response.json();
+            if (seq !== requestSeqRef.current) return;
             if (result.success) {
                 setError(false);
                 setData(filter ? result.data.filter(filter) : result.data);
@@ -60,10 +65,11 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
             }
         } catch (err) {
             if ((err as Error)?.name === 'AbortError') return;
+            if (seq !== requestSeqRef.current) return;
             setError(true);
             console.error('Failed to fetch market data:', err);
         } finally {
-            if (!signal?.aborted) setIsLoading(false);
+            if (seq === requestSeqRef.current && !signal?.aborted) setIsLoading(false);
         }
     }, [range, filter, lang]);
 

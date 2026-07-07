@@ -76,6 +76,7 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
         try {
             const url = `/api/market-data?t=${Date.now()}&range=${rangeStr}&lang=${overrideLang}${forceRefresh ? '&refresh=true' : ''}`;
             const response = await fetch(url, { signal: controller.signal });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const result: MarketDataResponse = await response.json();
             if (requestSequence !== requestSequenceRef.current) return;
             if (result.data && Array.isArray(result.data)) {

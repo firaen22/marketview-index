@@ -18,6 +18,10 @@ export default async function handler(req: any, res: any) {
 
         const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
         const forceRefresh = searchParams.get('refresh') === 'true';
+        const returnCachedPayload = (cached: any) => {
+            const payload = typeof cached === 'string' ? JSON.parse(cached) : cached;
+            return res.status(200).json({ ...payload, source: 'cache' });
+        };
 
         const apiKey = process.env.FRED_API_KEY;
         if (!apiKey) {
@@ -28,11 +32,19 @@ export default async function handler(req: any, res: any) {
             });
         }
 
+        let cached: any = redis ? await redis.get(CACHE_KEY) : null;
+        if (redis && forceRefresh) {
+            const throttleKey = `refresh_throttle_${CACHE_KEY}`;
+            const throttled = await redis.get(throttleKey);
+            if (throttled && cached) {
+                return returnCachedPayload(cached);
+            }
+            await redis.set(throttleKey, '1', { ex: 60 });
+        }
+
         if (redis && !forceRefresh) {
-            const cached: any = await redis.get(CACHE_KEY);
             if (cached) {
-                const payload = typeof cached === 'string' ? JSON.parse(cached) : cached;
-                return res.status(200).json({ ...payload, source: 'cache' });
+                return returnCachedPayload(cached);
             }
         }
 
@@ -171,7 +183,7 @@ export default async function handler(req: any, res: any) {
         console.error('Macro API Error:', error);
         return res.status(500).json({
             success: false,
-            error: error.message,
+            error: 'Failed to fetch macroeconomic data',
             message: 'Failed to fetch macroeconomic data.'
         });
     }

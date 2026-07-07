@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { redis } from '../lib/redis.js';
 
 export default async function handler(req: any, res: any) {
     if (req.method !== 'POST') {
@@ -6,6 +7,26 @@ export default async function handler(req: any, res: any) {
     }
 
     try {
+        if (redis) {
+            try {
+                const forwardedFor = req.headers['x-forwarded-for'];
+                const ip = typeof forwardedFor === 'string'
+                    ? forwardedFor.split(',')[0].trim()
+                    : (req.socket?.remoteAddress || 'unknown');
+                const key = `verify_key_rl_${ip || 'unknown'}`;
+                const count = await redis.incr(key);
+                // -1 TTL = counter survived a crash between incr and expire; re-arm it
+                if (count === 1 || (await redis.ttl(key)) === -1) {
+                    await redis.expire(key, 60);
+                }
+                if (count > 5) {
+                    return res.status(429).json({ success: false, message: 'Too many verification attempts. Try again in a minute.' });
+                }
+            } catch (rateLimitError) {
+                console.error('Verify key rate limit error:', rateLimitError);
+            }
+        }
+
         const rawApiKey = req.body?.apiKey;
         if (typeof rawApiKey !== 'string') {
             return res.status(400).json({ success: false, message: 'API Key must be a string' });

@@ -1,6 +1,7 @@
 import YahooFinance from 'yahoo-finance2';
 import { GoogleGenAI } from '@google/genai';
 import { redis } from '../lib/redis.js';
+import crypto from 'crypto';
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const CACHE_KEY = 'global_market_news_v1';
@@ -52,13 +53,19 @@ export default async function handler(req: any, res: any) {
 
         const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
         const forceRefresh = searchParams.get('refresh') === 'true';
-        const lang = searchParams.get('lang') || 'en'; // default to English
+        const requestedLang = searchParams.get('lang') || 'en';
+        const lang = requestedLang === 'en' || requestedLang === 'zh-TW' ? requestedLang : 'en';
 
         const CURRENT_CACHE_KEY = lang === 'en' ? CACHE_KEY : `${CACHE_KEY}_${lang}`;
+        const returnCachedPayload = (cachedNews: any) => {
+            const payload = typeof cachedNews === 'string' ? JSON.parse(cachedNews) : cachedNews;
+            return res.status(200).json({ ...payload, source: 'cache' });
+        };
 
         // Check for custom Gemini API Key in Authorization header
         const authHeader = req.headers.authorization;
-        const customApiKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+        const rawCustomApiKey = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+        const customApiKey = rawCustomApiKey && /^[A-Za-z0-9._-]{20,128}$/.test(rawCustomApiKey) ? rawCustomApiKey : null;
 
         // Use custom key if provided, otherwise fallback to server key
         let activeAi = ai;
@@ -68,11 +75,19 @@ export default async function handler(req: any, res: any) {
         }
 
         // 1. Try to read from Redis Cache first (only if NO custom key is used)
+        let cachedNews: any = redis ? await redis.get(CURRENT_CACHE_KEY) : null;
+        if (redis && forceRefresh) {
+            const throttleKey = `refresh_throttle_${CURRENT_CACHE_KEY}`;
+            const throttled = await redis.get(throttleKey);
+            if (throttled && cachedNews) {
+                return returnCachedPayload(cachedNews);
+            }
+            await redis.set(throttleKey, '1', { ex: 60 });
+        }
+
         if (redis && !forceRefresh && !customApiKey) {
-            const cachedNews: any = await redis.get(CURRENT_CACHE_KEY);
             if (cachedNews) {
-                const payload = typeof cachedNews === 'string' ? JSON.parse(cachedNews) : cachedNews;
-                return res.status(200).json({ ...payload, source: 'cache' });
+                return returnCachedPayload(cachedNews);
             }
         }
 
@@ -130,7 +145,7 @@ export default async function handler(req: any, res: any) {
         if (activeAi) {
             try {
                 // Determine best model for this key (cached)
-                const modelCacheKey = customApiKey || '_server_';
+                const modelCacheKey = customApiKey ? crypto.createHash('sha256').update(customApiKey).digest('hex') : '_server_';
                 const modelName = await resolveModel(activeAi, modelCacheKey);
 
                 const combinedPrompt = `
@@ -222,7 +237,7 @@ OUTPUT FORMAT (Valid JSON only):
         console.error('News API Error:', error);
         return res.status(500).json({
             success: false,
-            error: error.message,
+            error: 'Failed to fetch or process market news',
             message: 'Failed to fetch or process market news.'
         });
     }
