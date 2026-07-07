@@ -32,3 +32,9 @@
   scrollbar-width: none;
   /* Firefox */
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker {
+    animation: none;
+  }
+}

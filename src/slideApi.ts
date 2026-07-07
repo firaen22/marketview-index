@@ -1,6 +1,10 @@
 import type { PresentSlide } from './settings';
 
-const API_KEY = (import.meta as any).env?.VITE_PRESENT_API_KEY as string | undefined;
+const API_KEY = import.meta.env.VITE_PRESENT_API_KEY;
+
+if (import.meta.env.DEV && import.meta.env.MODE !== 'test' && !API_KEY) {
+    console.warn('VITE_PRESENT_API_KEY not set — remote slide save/auth headers disabled');
+}
 
 // Max payload size for slide content (HTML/markdown). PDFs use separate blob upload path.
 export const MAX_CONTENT_BYTES = 256 * 1024;

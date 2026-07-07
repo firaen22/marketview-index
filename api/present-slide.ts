@@ -2,6 +2,8 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import crypto from 'crypto';
 
 const SLIDE_KEY = 'slide-state/marketflow_present_slide_v1.json';
+// Keep in sync with PresentSlideMode in src/settings.ts.
+const ALLOWED_MODES = ['markdown', 'html', 'url', 'pdf'];
 
 function makeClient(): S3Client | null {
     const endpoint = process.env.CLOUDFLARE_R2_ENDPOINT;
@@ -52,7 +54,8 @@ export default async function handler(req: any, res: any) {
             return res.status(200).json({ success: true, slide });
         } catch (e: any) {
             if (e?.name === 'NoSuchKey') return res.status(200).json({ success: true, slide: null });
-            return res.status(500).json({ error: e.message });
+            console.error('Slide read error:', e);
+            return res.status(500).json({ error: 'Failed to load slide' });
         }
     }
 
@@ -74,8 +77,17 @@ export default async function handler(req: any, res: any) {
             body = req.body;
         }
         const { mode, content } = body ?? {};
-        if (!mode || content === undefined) {
+        if (mode === undefined || content === undefined) {
             return res.status(400).json({ error: 'mode and content required' });
+        }
+        if (!ALLOWED_MODES.includes(mode)) {
+            return res.status(400).json({ error: 'Invalid mode' });
+        }
+        if (typeof content !== 'string') {
+            return res.status(400).json({ error: 'content must be a string' });
+        }
+        if (content.length > 1_000_000) {
+            return res.status(413).json({ error: 'Content too large' });
         }
         try {
             const slide = { mode, content, updatedAt: Date.now() };
@@ -87,7 +99,8 @@ export default async function handler(req: any, res: any) {
             }));
             return res.status(200).json({ success: true, slide });
         } catch (e: any) {
-            return res.status(500).json({ error: e.message });
+            console.error('Slide save error:', e);
+            return res.status(500).json({ error: 'Failed to save slide' });
         }
     }
 

@@ -17,6 +17,7 @@ export default {
     lastUpdated: "數據更新時間",
     loading: "正在讀取市場報價...",
     error: "市場數據暫時失效",
+    retry: "重新載入",
     newsLoading: "Gemini 正在分析最新新聞...",
     noNews: "目前無最新新聞。",
     showAll: "查看全部",

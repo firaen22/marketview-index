@@ -36,14 +36,15 @@ export function SettingsModal({
     const [showFunds, setShowFunds] = useState(initialShowFunds);
 
     const handleVerifyKey = async () => {
-        if (!geminiKey) return;
+        const trimmedKey = geminiKey.trim();
+        if (!trimmedKey) return;
         setIsVerifying(true);
         setVerificationResult(null);
         try {
             const response = await fetch('/api/verify-key', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ apiKey: geminiKey })
+                body: JSON.stringify({ apiKey: trimmedKey })
             });
             const result = await response.json();
             setVerificationResult(result);
@@ -70,7 +71,7 @@ export function SettingsModal({
             footer={
                 <>
                     <button
-                        onClick={() => onSave(geminiKey)}
+                        onClick={() => onSave(geminiKey.trim())}
                         className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg transition-all active:scale-[0.98] shadow-lg shadow-blue-900/20"
                     >
                         {t.saveConfig}
@@ -97,6 +98,7 @@ export function SettingsModal({
                     <input
                         type="password"
                         value={geminiKey}
+                        maxLength={200}
                         onChange={(e) => {
                             setGeminiKey(e.target.value);
                             setVerificationResult(null);
@@ -106,7 +108,7 @@ export function SettingsModal({
                     />
                     <button
                         onClick={handleVerifyKey}
-                        disabled={isVerifying || !geminiKey}
+                        disabled={isVerifying || !geminiKey || geminiKey.trim().length < 20}
                         className="absolute right-2 top-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-xs font-semibold rounded-md border border-zinc-700 transition-colors"
                     >
                         {isVerifying ? <Loader2 className="w-3 h-3 animate-spin" /> : t.verify}

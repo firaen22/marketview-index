@@ -46,4 +46,11 @@ describe('settings persistence', () => {
             geminiKey: '',
         });
     });
+
+    it('first load with empty localStorage returns full defaults including newer fields', async () => {
+        const { getSettings } = await import('./settings');
+        const s = getSettings();
+        expect(s).toMatchObject({ lang: 'zh-TW', chartMode: 'nominal', showFunds: true, geminiKey: '', tickerSymbols: null, morningBrief: [] });
+        expect(s.presentSlide.mode).toBe('markdown');
+    });
 });

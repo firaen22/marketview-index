@@ -31,7 +31,7 @@ export default function HeatmapPage() {
         if (lang) setLanguage(lang);
     });
 
-    const { data: marketData, isLoading, refresh: fetchData } = useMarketData({ range: timeRange });
+    const { data: marketData, isLoading, error, refresh: fetchData } = useMarketData({ range: timeRange });
 
     const changeViewSource = (next: 'market' | 'funds') => {
         setViewSource(next);
@@ -45,7 +45,8 @@ export default function HeatmapPage() {
         return marketData.filter(item => item.category === 'Fund');
     }, [marketData, viewSource]);
 
-    const t = getLocale(language).heatmapPage;
+    const locale = getLocale(language);
+    const t = { ...locale, ...locale.heatmapPage };
 
     return (
         <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 lg:p-8 font-sans">
@@ -80,6 +81,7 @@ export default function HeatmapPage() {
                     <div className="flex items-center bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 backdrop-blur-md">
                         <button
                             onClick={() => changeViewSource('market')}
+                            aria-pressed={viewSource === 'market'}
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300",
                                 viewSource === 'market'
@@ -91,6 +93,7 @@ export default function HeatmapPage() {
                         </button>
                         <button
                             onClick={() => changeViewSource('funds')}
+                            aria-pressed={viewSource === 'funds'}
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-300",
                                 viewSource === 'funds'
@@ -108,6 +111,7 @@ export default function HeatmapPage() {
                         <button
                             onClick={() => setViewMode('category')}
                             disabled={viewSource === 'funds'}
+                            aria-pressed={viewMode === 'category'}
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200",
                                 viewMode === 'category'
@@ -120,6 +124,7 @@ export default function HeatmapPage() {
                         </button>
                         <button
                             onClick={() => setViewMode('subCategory')}
+                            aria-pressed={viewMode === 'subCategory'}
                             className={cn(
                                 "px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200",
                                 viewMode === 'subCategory'
@@ -153,6 +158,17 @@ export default function HeatmapPage() {
             </header>
 
             <main className="max-w-7xl mx-auto">
+                {error && !isLoading && (
+                    <div className="mb-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg text-xs px-4 py-2.5 flex items-center justify-between gap-4">
+                        <span>{t.error}</span>
+                        <button
+                            onClick={() => fetchData(true)}
+                            className="font-bold text-rose-300 hover:text-rose-100 transition-colors"
+                        >
+                            {t.retry}
+                        </button>
+                    </div>
+                )}
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center h-[500px] text-zinc-600">
                         <Loader2 className="w-12 h-12 animate-spin mb-4 opacity-50 text-emerald-500" />

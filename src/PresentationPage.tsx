@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
 import { MacroStatCard } from './components/MacroStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
+import { SlideErrorBoundary } from './components/SlideErrorBoundary';
 import { getSettings, setSetting } from './settings';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -263,13 +264,15 @@ export default function PresentationPage() {
                 {/* Main slide / index area */}
                 <div className="flex-1 relative overflow-hidden">
                     <div className={mainView === 'slide' ? 'w-full h-full' : 'hidden'}>
-                        <SlideRenderer
-                            slide={slide}
-                            marketData={marketData}
-                            pdfZoom={pdfZoom}
-                            pdfKeyboardEnabled={false}
-                            pdfRef={pdfRef}
-                        />
+                        <SlideErrorBoundary resetKey={`${slide.mode}:${typeof slide.content === 'string' ? slide.content.length : 0}`}>
+                            <SlideRenderer
+                                slide={slide}
+                                marketData={marketData}
+                                pdfZoom={pdfZoom}
+                                pdfKeyboardEnabled={false}
+                                pdfRef={pdfRef}
+                            />
+                        </SlideErrorBoundary>
                     </div>
                     {mainView === 'index' && (
                         <iframe

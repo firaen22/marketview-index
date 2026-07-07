@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { X, Search } from 'lucide-react';
 import type { QuoteItem } from '../types/QuoteItem';
 import { displayName } from '../utils';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
     items: QuoteItem[];
@@ -15,6 +16,7 @@ interface Props {
 // Escape is handled by PresentationPage's useKeyboardShortcuts (single keyboard owner).
 export function QuotePickerModal({ items, lang, pinnedIds, onToggle, onClearAll, onClose }: Props) {
     const [search, setSearch] = useState('');
+    const { containerRef, onKeyDown } = useFocusTrap<HTMLDivElement>();
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -32,13 +34,15 @@ export function QuotePickerModal({ items, lang, pinnedIds, onToggle, onClearAll,
 
     return (
         <div
+            ref={containerRef}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
             role="dialog"
             aria-modal="true"
             aria-label="Quick quotes picker"
+            onKeyDown={onKeyDown}
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-[460px] p-4 max-h-[80vh] flex flex-col">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-[460px] max-w-[calc(100vw-2rem)] p-4 max-h-[80vh] flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-baseline gap-2">

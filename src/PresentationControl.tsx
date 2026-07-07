@@ -6,6 +6,7 @@ import { formatRelativeTime } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useMarketData } from './hooks/useMarketData';
 import { SlideRenderer } from './components/SlideRenderer';
+import { SlideErrorBoundary } from './components/SlideErrorBoundary';
 import { PdfUploader } from './components/PdfUploader';
 import { Monitor, RotateCcw, Clipboard, Eye, EyeOff } from 'lucide-react';
 import { SaveButton } from './components/SaveButton';
@@ -182,7 +183,9 @@ export default function PresentationControl() {
                         )}
                     </div>
                     <div className="flex-1 overflow-hidden">
-                        <SlideRenderer slide={slide} marketData={marketData} />
+                        <SlideErrorBoundary resetKey={`${slide.mode}:${typeof slide.content === 'string' ? slide.content.length : 0}`}>
+                            <SlideRenderer slide={slide} marketData={marketData} />
+                        </SlideErrorBoundary>
                     </div>
                 </div>
             </div>

@@ -85,10 +85,31 @@ export default async function handler(req: any, res: any) {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    const isCron = req.headers['user-agent']?.includes('Vercel-Cron');
+    const authHeader = req.headers.authorization;
+    const cronSecret = process.env.CRON_SECRET;
+    const isCron = cronSecret
+      ? typeof authHeader === 'string' && authHeader === `Bearer ${cronSecret}`
+      : req.headers['user-agent']?.includes('Vercel-Cron');
 
     // 1. 嘗試從 Redis 讀取全球快取資料
     let cachedPayload: any = redis ? await redis.get(RANGE_CACHE_KEY) : null;
+    const returnCachedPayload = (payload: any) => {
+      const resultPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      if (resultPayload) {
+        resultPayload.source = 'server_cache';
+      }
+
+      return res.status(200).json(resultPayload);
+    };
+
+    if (redis && forceRefresh && !isCron) {
+      const throttleKey = `refresh_throttle_${RANGE_CACHE_KEY}`;
+      const throttled = await redis.get(throttleKey);
+      if (throttled && cachedPayload) {
+        return returnCachedPayload(cachedPayload);
+      }
+      await redis.set(throttleKey, '1', { ex: 60 });
+    }
 
     // 2. 如果是 Cron 時段 (早上 9 點)、強制更新、或 Redis 內完全沒資料，就拉取新資料並寫入 Redis
     if (isCron || forceRefresh || !cachedPayload) {
@@ -110,12 +131,7 @@ export default async function handler(req: any, res: any) {
     }
 
     // 3. 一般前端請求，直接回傳 Redis 上的資料（節省 API 額度與防 IP Ban）
-    const resultPayload = typeof cachedPayload === 'string' ? JSON.parse(cachedPayload) : cachedPayload;
-    if (resultPayload) {
-      resultPayload.source = 'server_cache';
-    }
-
-    return res.status(200).json(resultPayload);
+    return returnCachedPayload(cachedPayload);
 
   } catch (error: any) {
     console.error('API Error:', error);
@@ -130,7 +146,7 @@ export default async function handler(req: any, res: any) {
             ...parsed,
             success: false,
             source: 'server_stale_cache',
-            error: error.message,
+            error: 'Failed to fetch market data',
             message: 'Yahoo Finance Fetch Error. Serving Server-Side Frozen Data.'
           });
         }
@@ -141,7 +157,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       success: false,
-      error: error.message,
+      error: 'Failed to fetch market data',
       message: 'API Error and No Cache Available.'
     });
   }

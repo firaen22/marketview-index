@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import type { QuoteItem } from '../types/QuoteItem';
 import { displayName } from '../utils';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
     items: QuoteItem[];
@@ -24,6 +25,7 @@ export function QuoteSpotlightSearch({ items, lang, pinnedIds, onCommit, onClose
     const [selectedIdx, setSelectedIdx] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
     const selectedRef = useRef<HTMLLIElement>(null);
+    const { containerRef, onKeyDown: onTrapKeyDown } = useFocusTrap<HTMLDivElement>();
 
     useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -77,7 +79,9 @@ export function QuoteSpotlightSearch({ items, lang, pinnedIds, onCommit, onClose
             aria-label="Quick quote search"
         >
             <div
+                ref={containerRef}
                 className="w-full max-w-xl mx-4 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+                onKeyDown={onTrapKeyDown}
                 onClick={e => e.stopPropagation()}
             >
                 <input
