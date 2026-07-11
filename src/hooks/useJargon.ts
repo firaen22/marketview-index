@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+    extractJargonImageBase64,
     isJargonEligible,
     jargonCacheKey,
     parseJargonResponse,
@@ -19,11 +20,12 @@ interface LatestPageText {
     pdfUrl: string;
     page: number;
     text: string;
+    image?: string;
 }
 
 export function useJargon(opts: Options): {
     terms: JargonTerm[];
-    onPageText: (page: number, text: string) => void;
+    onPageText: (page: number, text: string, imageDataUrl?: string) => void;
     onPageChange: () => void;
 } {
     const { enabled, pdfUrl, lang, geminiKey } = opts;
@@ -51,22 +53,20 @@ export function useJargon(opts: Options): {
         console.warn('Failed to fetch jargon explanations', error);
     }, []);
 
-    const runPipeline = useCallback((page: number, text: string) => {
+    const runPipeline = useCallback((page: number, text: string, imageDataUrl?: string) => {
         const currentPdfUrl = pdfUrlRef.current;
         const currentLang = langRef.current;
-        const key = jargonCacheKey(currentPdfUrl, page, currentLang);
-        latestRef.current = { key, pdfUrl: currentPdfUrl, page, text };
+        latestRef.current = { key: '', pdfUrl: currentPdfUrl, page, text, image: imageDataUrl };
         if (!enabledRef.current) return;
         clearDebounce();
 
-        const cached = cacheRef.current.get(key);
-        if (cached) {
-            activeRequestKeyRef.current = null;
-            setTerms(cached);
-            return;
-        }
-
-        if (!isJargonEligible(text)) {
+        const imageBase64 = isJargonEligible(text) ? null : extractJargonImageBase64(imageDataUrl);
+        const path: 'text' | 'image' | null = isJargonEligible(text)
+            ? 'text'
+            : imageBase64
+                ? 'image'
+                : null;
+        if (!path) {
             // Not cached: extraction may have transiently failed with '' — a
             // revisit re-extracts and gets a fresh chance. Skipping the fetch
             // is free, so caching ineligible results saves nothing.
@@ -75,18 +75,32 @@ export function useJargon(opts: Options): {
             return;
         }
 
+        const key = jargonCacheKey(currentPdfUrl, page, currentLang, path);
+        latestRef.current = { key, pdfUrl: currentPdfUrl, page, text, image: imageDataUrl };
+
+        const cached = cacheRef.current.get(key);
+        if (cached) {
+            activeRequestKeyRef.current = null;
+            setTerms(cached);
+            return;
+        }
+
         setTerms([]);
         activeRequestKeyRef.current = key;
         debounceRef.current = window.setTimeout(async () => {
             const requestKey = key;
+            const requestPath = path;
             try {
                 const headers: HeadersInit = { 'Content-Type': 'application/json' };
                 const activeGeminiKey = geminiKeyRef.current.trim();
                 if (activeGeminiKey) headers.Authorization = `Bearer ${activeGeminiKey}`;
+                const body = requestPath === 'text'
+                    ? { text: prepareJargonText(text), lang: currentLang }
+                    : { imageBase64, lang: currentLang };
                 const response = await fetch('/api/explain-jargon', {
                     method: 'POST',
                     headers,
-                    body: JSON.stringify({ text: prepareJargonText(text), lang: currentLang }),
+                    body: JSON.stringify(body),
                 });
                 if (!response.ok) {
                     if (response.status !== 503) warnFailure(requestKey, new Error(`HTTP ${response.status}`));
@@ -94,7 +108,7 @@ export function useJargon(opts: Options): {
                     if (activeRequestKeyRef.current === requestKey) {
                         const latest = latestRef.current;
                         const currentKey = latest && latest.pdfUrl === pdfUrlRef.current
-                            ? jargonCacheKey(pdfUrlRef.current, latest.page, langRef.current)
+                            ? jargonCacheKey(pdfUrlRef.current, latest.page, langRef.current, requestPath)
                             : null;
                         if (currentKey === requestKey) setTerms([]);
                     }
@@ -113,7 +127,7 @@ export function useJargon(opts: Options): {
                 cacheRef.current.set(requestKey, nextTerms);
                 const latest = latestRef.current;
                 const currentKey = latest && latest.pdfUrl === pdfUrlRef.current
-                    ? jargonCacheKey(pdfUrlRef.current, latest.page, langRef.current)
+                    ? jargonCacheKey(pdfUrlRef.current, latest.page, langRef.current, requestPath)
                     : null;
                 if (activeRequestKeyRef.current === requestKey && currentKey === requestKey) {
                     setTerms(nextTerms);
@@ -123,7 +137,7 @@ export function useJargon(opts: Options): {
                 cacheRef.current.set(requestKey, []);
                 const latest = latestRef.current;
                 const currentKey = latest && latest.pdfUrl === pdfUrlRef.current
-                    ? jargonCacheKey(pdfUrlRef.current, latest.page, langRef.current)
+                    ? jargonCacheKey(pdfUrlRef.current, latest.page, langRef.current, requestPath)
                     : null;
                 if (activeRequestKeyRef.current === requestKey && currentKey === requestKey) {
                     setTerms([]);
@@ -132,8 +146,8 @@ export function useJargon(opts: Options): {
         }, 600);
     }, [clearDebounce, warnFailure]);
 
-    const onPageText = useCallback((page: number, text: string) => {
-        runPipeline(page, text);
+    const onPageText = useCallback((page: number, text: string, imageDataUrl?: string) => {
+        runPipeline(page, text, imageDataUrl);
     }, [runPipeline]);
 
     // Fired synchronously when the displayed PDF page changes, BEFORE the new
@@ -163,7 +177,7 @@ export function useJargon(opts: Options): {
         setTerms([]);
         const latest = latestRef.current;
         if (enabledRef.current && latest && latest.pdfUrl === pdfUrlRef.current) {
-            runPipeline(latest.page, latest.text);
+            runPipeline(latest.page, latest.text, latest.image);
         }
     }, [lang, clearDebounce, runPipeline]);
 
@@ -178,7 +192,7 @@ export function useJargon(opts: Options): {
 
         const latest = latestRef.current;
         if (latest && latest.pdfUrl === pdfUrlRef.current) {
-            runPipeline(latest.page, latest.text);
+            runPipeline(latest.page, latest.text, latest.image);
         }
     }, [enabled, clearDebounce, runPipeline]);
 

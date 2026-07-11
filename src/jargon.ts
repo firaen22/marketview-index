@@ -5,13 +5,44 @@ export interface JargonTerm {
 
 export const JARGON_MIN_TEXT_LEN = 40;
 export const JARGON_MAX_TEXT_LEN = 6000;
+export const JARGON_IMAGE_MAX_DIM = 1280;
+export const JARGON_IMAGE_MAX_B64_LEN = 2_000_000;
 
-export function jargonCacheKey(pdfUrl: string, page: number, lang: 'en' | 'zh-TW'): string {
-    return `${pdfUrl}#${page}#${lang}`;
+export function jargonCacheKey(pdfUrl: string, page: number, lang: 'en' | 'zh-TW', path: 'text' | 'image'): string {
+    return `${pdfUrl}#${page}#${lang}#${path}`;
 }
 
 export function isJargonEligible(text: string): boolean {
     return typeof text === 'string' && text.trim().length >= JARGON_MIN_TEXT_LEN;
+}
+
+export function jargonImageDims(w: number, h: number, maxDim = JARGON_IMAGE_MAX_DIM): { width: number; height: number } {
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+        return { width: 1, height: 1 };
+    }
+
+    const safeMaxDim = Number.isFinite(maxDim) && maxDim > 0 ? maxDim : JARGON_IMAGE_MAX_DIM;
+    const scale = Math.min(1, safeMaxDim / Math.max(w, h));
+    return {
+        width: Math.max(1, Math.round(w * scale)),
+        height: Math.max(1, Math.round(h * scale)),
+    };
+}
+
+export function extractJargonImageBase64(dataUrl: unknown): string | null {
+    if (typeof dataUrl !== 'string') return null;
+    if (dataUrl.length === 0 || dataUrl === 'null' || dataUrl === 'undefined') return null;
+    if (dataUrl.startsWith('data:') && !dataUrl.startsWith('data:image/jpeg;base64,')) return null;
+
+    const base64 = dataUrl.startsWith('data:image/jpeg;base64,')
+        ? dataUrl.slice('data:image/jpeg;base64,'.length)
+        : dataUrl;
+
+    if (base64.length === 0 || base64.length > JARGON_IMAGE_MAX_B64_LEN) return null;
+    if (base64.length % 4 !== 0) return null;
+    if (!/^[A-Za-z0-9+/=]+$/.test(base64)) return null;
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return null;
+    return base64;
 }
 
 export function prepareJargonText(text: string): string {

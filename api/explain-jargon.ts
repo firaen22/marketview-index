@@ -6,6 +6,8 @@ interface JargonTerm {
 }
 
 const API_KEY_PATTERN = /^[A-Za-z0-9._-]{20,128}$/;
+const IMAGE_BASE64_MIN_LEN = 100;
+const IMAGE_BASE64_MAX_LEN = 3_000_000;
 
 // Fallback is a different model generation with its own quota pool, so a
 // 3.1-side quota or outage issue doesn't take out both legs.
@@ -53,9 +55,24 @@ function sanitizeTerms(payload: any): JargonTerm[] {
         .slice(0, 4);
 }
 
-async function generateJargon(client: GoogleGenAI, model: string, text: string, lang: 'en' | 'zh-TW') {
+function validateImageBase64(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    if (value.length < IMAGE_BASE64_MIN_LEN || value.length > IMAGE_BASE64_MAX_LEN) return null;
+    if (value.length % 4 !== 0) return null;
+    if (!/^[A-Za-z0-9+/=]+$/.test(value)) return null;
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
+    return value;
+}
+
+async function generateJargon(
+    client: GoogleGenAI,
+    model: string,
+    input: { text: string } | { imageBase64: string },
+    lang: 'en' | 'zh-TW'
+) {
     const outputLanguage = lang === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English';
-    const prompt = `You assist a live financial-markets presentation. From the slide text below, identify up to 4
+    const prompt = 'text' in input
+        ? `You assist a live financial-markets presentation. From the slide text below, identify up to 4
 technical financial terms (jargon) that a general business audience may not know.
 For each, give a plain-language explanation of at most 25 words, written in
 ${outputLanguage}. The term itself should be kept
@@ -64,13 +81,28 @@ Only include genuinely technical terms (e.g. duration, basis point, contango, EB
 skip common words, company names, and numbers. If there is no jargon, return an empty list.
 
 SLIDE TEXT:
-${text}
+${input.text}
+
+OUTPUT (valid JSON only): { "terms": [ { "term": "...", "explanation": "..." } ] }`
+        : `You assist a live financial-markets presentation. From the slide IMAGE, read the visible text and identify up to 4
+technical financial terms (jargon) that a general business audience may not know.
+For each, give a plain-language explanation of at most 25 words, written in
+${outputLanguage}. The term itself should be kept
+in its original language as it appears on the slide.
+Only include genuinely technical terms (e.g. duration, basis point, contango, EBITDA margin) —
+skip common words, company names, and numbers. If there is no jargon, return an empty list.
 
 OUTPUT (valid JSON only): { "terms": [ { "term": "...", "explanation": "..." } ] }`;
+    const parts = 'text' in input
+        ? [{ text: prompt }]
+        : [
+            { inlineData: { mimeType: 'image/jpeg', data: input.imageBase64 } },
+            { text: prompt },
+        ];
 
     return client.models.generateContent({
         model,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        contents: [{ role: 'user', parts }],
         config: { responseMimeType: 'application/json' }
     });
 }
@@ -87,13 +119,17 @@ export default async function handler(req: any, res: any) {
 
         const body = parseBody(req.body);
         const rawText = body?.text;
-        if (typeof rawText !== 'string' || rawText.trim().length === 0) {
-            return res.status(400).json({ success: false, error: 'Missing text' });
+        const validText = typeof rawText === 'string' && rawText.trim().length > 0;
+        const imageBase64 = validText ? null : validateImageBase64(body?.imageBase64);
+        if (!validText && !imageBase64) {
+            return res.status(400).json({ success: false, error: 'Missing text or image' });
         }
 
         const requestedLang = body?.lang;
         const lang: 'en' | 'zh-TW' = requestedLang === 'en' || requestedLang === 'zh-TW' ? requestedLang : 'en';
-        const text = rawText.slice(0, 6000);
+        const input = validText
+            ? { text: rawText.slice(0, 6000) }
+            : { imageBase64 };
         const customApiKey = getCustomApiKey(req);
         const apiKeys = customApiKey ? [customApiKey] : getServerApiKeys();
 
@@ -106,7 +142,7 @@ export default async function handler(req: any, res: any) {
             const client = new GoogleGenAI({ apiKey });
             for (const model of MODEL_CHAIN) {
                 try {
-                    result = await generateJargon(client, model, text, lang);
+                    result = await generateJargon(client, model, input, lang);
                     break;
                 } catch (error) {
                     console.warn(`Jargon generation failed (model ${model}):`, error);

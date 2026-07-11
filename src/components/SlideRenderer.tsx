@@ -10,7 +10,7 @@ interface Props {
     pdfZoom?: number;
     pdfKeyboardEnabled?: boolean;
     pdfRef?: React.Ref<PdfViewerHandle>;
-    onPdfPageText?: (page: number, text: string) => void;
+    onPdfPageText?: (page: number, text: string, imageDataUrl?: string) => void;
     onPdfPageChange?: (page: number) => void;
 }
 
