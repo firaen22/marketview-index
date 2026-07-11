@@ -1,38 +1,12 @@
-import { GoogleGenAI } from '@google/genai';
+import { getNimApiKeys, callNim, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
 
 interface JargonTerm {
     term: string;
     explanation: string;
 }
 
-const API_KEY_PATTERN = /^[A-Za-z0-9._-]{20,128}$/;
 const IMAGE_BASE64_MIN_LEN = 100;
 const IMAGE_BASE64_MAX_LEN = 3_000_000;
-
-// Fallback is a different model generation with its own quota pool, so a
-// 3.1-side quota or outage issue doesn't take out both legs.
-const MODEL_CHAIN = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
-
-// Each env var may hold a single key or several comma-separated keys.
-function getServerApiKeys(): string[] {
-    return [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_FALLBACK]
-        .flatMap(value => (typeof value === 'string' ? value.split(',') : []))
-        .map(key => key.trim())
-        .filter(key => key.length > 0);
-}
-
-function getCustomApiKey(req: any): string | null {
-    const authHeader = req.headers.authorization;
-    const rawCustomApiKey = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
-        ? authHeader.substring(7)
-        : null;
-    return rawCustomApiKey
-        && API_KEY_PATTERN.test(rawCustomApiKey)
-        && rawCustomApiKey !== 'null'
-        && rawCustomApiKey !== 'undefined'
-        ? rawCustomApiKey
-        : null;
-}
 
 function parseBody(body: any): any {
     if (typeof body !== 'string') return body;
@@ -64,12 +38,10 @@ function validateImageBase64(value: unknown): string | null {
     return value;
 }
 
-async function generateJargon(
-    client: GoogleGenAI,
-    model: string,
+function buildJargonMessages(
     input: { text: string } | { imageBase64: string },
     lang: 'en' | 'zh-TW'
-) {
+): unknown[] {
     const outputLanguage = lang === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English';
     const prompt = 'text' in input
         ? `You assist a live financial-markets presentation. From the slide text below, identify up to 4
@@ -93,18 +65,15 @@ Only include genuinely technical terms (e.g. duration, basis point, contango, EB
 skip common words, company names, and numbers. If there is no jargon, return an empty list.
 
 OUTPUT (valid JSON only): { "terms": [ { "term": "...", "explanation": "..." } ] }`;
-    const parts = 'text' in input
-        ? [{ text: prompt }]
-        : [
-            { inlineData: { mimeType: 'image/jpeg', data: input.imageBase64 } },
-            { text: prompt },
-        ];
-
-    return client.models.generateContent({
-        model,
-        contents: [{ role: 'user', parts }],
-        config: { responseMimeType: 'application/json' }
-    });
+    return 'text' in input
+        ? [{ role: 'user', content: prompt }]
+        : [{
+            role: 'user',
+            content: [
+                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${input.imageBase64}` } },
+                { type: 'text', text: prompt },
+            ],
+        }];
 }
 
 export default async function handler(req: any, res: any) {
@@ -130,33 +99,24 @@ export default async function handler(req: any, res: any) {
         const input = validText
             ? { text: rawText.slice(0, 6000) }
             : { imageBase64 };
-        const customApiKey = getCustomApiKey(req);
-        const apiKeys = customApiKey ? [customApiKey] : getServerApiKeys();
+        const apiKeys = getNimApiKeys();
 
         if (apiKeys.length === 0) {
-            return res.status(503).json({ success: false, error: 'No Gemini API key configured' });
+            return res.status(503).json({ success: false, error: 'No AI API key configured' });
         }
 
-        let result: any = null;
-        for (const apiKey of apiKeys) {
-            const client = new GoogleGenAI({ apiKey });
-            for (const model of MODEL_CHAIN) {
-                try {
-                    result = await generateJargon(client, model, input, lang);
-                    break;
-                } catch (error) {
-                    console.warn(`Jargon generation failed (model ${model}):`, error);
-                }
-            }
-            if (result) break;
-        }
-        if (!result) {
+        const models = 'text' in input ? NIM_TEXT_MODELS : NIM_VISION_MODELS;
+        let raw: string;
+        try {
+            raw = await callNim(apiKeys, models, buildJargonMessages(input, lang), 900);
+        } catch (error) {
+            console.warn('Jargon generation failed:', error);
             return res.status(502).json({ success: false, error: 'AI processing failed' });
         }
 
         let parsed: any;
         try {
-            parsed = JSON.parse(result.text || '{}');
+            parsed = JSON.parse(raw || '{}');
         } catch {
             return res.status(200).json({ success: true, terms: [] });
         }
