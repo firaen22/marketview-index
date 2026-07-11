@@ -7,6 +7,16 @@ interface JargonTerm {
 
 const API_KEY_PATTERN = /^[A-Za-z0-9._-]{20,128}$/;
 
+// gemini-1.5-flash is retired; flash-lite has a separate (higher) free-tier
+// quota, so it also absorbs quota failures on the primary model.
+const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+
+function getServerApiKeys(): string[] {
+    return [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_FALLBACK]
+        .map(key => (typeof key === 'string' ? key.trim() : ''))
+        .filter(key => key.length > 0);
+}
+
 function getCustomApiKey(req: any): string | null {
     const authHeader = req.headers.authorization;
     const rawCustomApiKey = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
@@ -83,22 +93,27 @@ export default async function handler(req: any, res: any) {
         const lang: 'en' | 'zh-TW' = requestedLang === 'en' || requestedLang === 'zh-TW' ? requestedLang : 'en';
         const text = rawText.slice(0, 6000);
         const customApiKey = getCustomApiKey(req);
-        const apiKey = customApiKey || process.env.GEMINI_API_KEY;
+        const apiKeys = customApiKey ? [customApiKey] : getServerApiKeys();
 
-        if (!apiKey) {
+        if (apiKeys.length === 0) {
             return res.status(503).json({ success: false, error: 'No Gemini API key configured' });
         }
 
-        const client = new GoogleGenAI({ apiKey });
-        let result: any;
-        try {
-            result = await generateJargon(client, 'gemini-2.5-flash', text, lang);
-        } catch {
-            try {
-                result = await generateJargon(client, 'gemini-1.5-flash', text, lang);
-            } catch {
-                return res.status(502).json({ success: false, error: 'AI processing failed' });
+        let result: any = null;
+        for (const apiKey of apiKeys) {
+            const client = new GoogleGenAI({ apiKey });
+            for (const model of MODEL_CHAIN) {
+                try {
+                    result = await generateJargon(client, model, text, lang);
+                    break;
+                } catch (error) {
+                    console.warn(`Jargon generation failed (model ${model}):`, error);
+                }
             }
+            if (result) break;
+        }
+        if (!result) {
+            return res.status(502).json({ success: false, error: 'AI processing failed' });
         }
 
         let parsed: any;
