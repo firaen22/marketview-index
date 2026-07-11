@@ -10,7 +10,7 @@ export const NIM_CHAT_URL = 'https://integrate.api.nvidia.com/v1/chat/completion
 // mistral, gemma-4-31b 4.8-11.4s / 4 correct terms). gemma-3-12b excluded (404
 // on this account); deepseek-v4-flash excluded (text-only, multimodal disabled).
 export const NIM_TEXT_MODELS = ['openai/gpt-oss-120b', 'mistralai/mistral-medium-3.5-128b'];
-export const NIM_VISION_MODELS = ['meta/llama-3.2-90b-vision-instruct', 'mistralai/mistral-medium-3.5-128b', 'google/gemma-4-31b-it'];
+export const NIM_VISION_MODELS = ['google/gemma-4-31b-it', 'meta/llama-3.2-90b-vision-instruct', 'mistralai/mistral-medium-3.5-128b'];
 
 // Each env var may hold a single key or several comma-separated keys.
 export function getNimApiKeys(): string[] {
