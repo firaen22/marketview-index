@@ -67,7 +67,7 @@ export default function PresentationPage() {
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
-    const jargon = useJargon({ enabled: mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey });
+    const jargon = useJargon({ enabled: mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey, slideVersion: slide.mode === 'pdf' ? slide.updatedAt : undefined });
     const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || !!qp.chartItem;
     const dwellSec = normalizedPresentCycle.dwellSec;
 
