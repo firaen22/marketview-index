@@ -86,6 +86,37 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     useEffect(() => {
         if (!pdf || !onPageText) return;
         let cancelled = false;
+
+        const captureImage = (text: string) => {
+            pdf.getPage(pageNum)
+                .then(async page => {
+                    const sourceViewport = page.getViewport({ scale: 1 });
+                    const target = jargonImageDims(sourceViewport.width, sourceViewport.height);
+                    jargonDebug('captureStart', { page: pageNum, w: target.width, h: target.height });
+                    const scale = sourceViewport.width > 0 ? target.width / sourceViewport.width : 1;
+                    const viewport = page.getViewport({ scale });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = target.width;
+                    canvas.height = target.height;
+                    const context = canvas.getContext('2d');
+                    if (!context) { jargonDebug('captureNoContext', { page: pageNum }); return; }
+                    await page.render({ canvasContext: context, canvas, viewport }).promise;
+                    if (cancelled) return;
+
+                    let imageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                    if (!extractJargonImageBase64(imageDataUrl)) {
+                        jargonDebug('captureRetryLowQ', { page: pageNum, len: imageDataUrl.length, prefix: imageDataUrl.slice(0, 30) });
+                        imageDataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                    }
+                    const valid = extractJargonImageBase64(imageDataUrl);
+                    jargonDebug('captureDone', { page: pageNum, b64len: valid ? valid.length : null, prefix: imageDataUrl.slice(0, 30) });
+                    if (!cancelled && valid) {
+                        onPageText(pageNum, text, imageDataUrl);
+                    }
+                })
+                .catch((err) => { jargonDebug('captureError', { page: pageNum, err: String(err).slice(0, 200) }); });
+        };
+
         pdf.getPage(pageNum)
             .then(page => page.getTextContent())
             .then(tc => {
@@ -94,38 +125,16 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
                 jargonDebug('textExtracted', { page: pageNum, len: text.trim().length });
                 onPageText(pageNum, text);
                 if (text.trim().length >= JARGON_MIN_TEXT_LEN) return;
-
-                pdf.getPage(pageNum)
-                    .then(async page => {
-                        const sourceViewport = page.getViewport({ scale: 1 });
-                        const target = jargonImageDims(sourceViewport.width, sourceViewport.height);
-                        jargonDebug('captureStart', { page: pageNum, w: target.width, h: target.height });
-                        const scale = sourceViewport.width > 0 ? target.width / sourceViewport.width : 1;
-                        const viewport = page.getViewport({ scale });
-                        const canvas = document.createElement('canvas');
-                        canvas.width = target.width;
-                        canvas.height = target.height;
-                        const context = canvas.getContext('2d');
-                        if (!context) { jargonDebug('captureNoContext', { page: pageNum }); return; }
-                        await page.render({ canvasContext: context, canvas, viewport }).promise;
-                        if (cancelled) return;
-
-                        let imageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-                        if (!extractJargonImageBase64(imageDataUrl)) {
-                            jargonDebug('captureRetryLowQ', { page: pageNum, len: imageDataUrl.length, prefix: imageDataUrl.slice(0, 30) });
-                            imageDataUrl = canvas.toDataURL('image/jpeg', 0.5);
-                        }
-                        const valid = extractJargonImageBase64(imageDataUrl);
-                        jargonDebug('captureDone', { page: pageNum, b64len: valid ? valid.length : null, prefix: imageDataUrl.slice(0, 30) });
-                        if (!cancelled && valid) {
-                            onPageText(pageNum, text, imageDataUrl);
-                        }
-                    })
-                    .catch((err) => { jargonDebug('captureError', { page: pageNum, err: String(err).slice(0, 200) }); });
+                captureImage(text);
             })
             .catch((err) => {
                 jargonDebug('textError', { page: pageNum, err: String(err).slice(0, 200) });
-                if (!cancelled) onPageText(pageNum, '');
+                if (cancelled) return;
+                onPageText(pageNum, '');
+                // getTextContent() throws on iOS Safari (pdf.js engine
+                // incompatibility) even though page rendering works — fall back
+                // to the image path so those devices still get jargon via OCR.
+                captureImage('');
             });
         return () => { cancelled = true; };
     }, [pdf, pageNum, onPageText]);
