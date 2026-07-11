@@ -10,6 +10,13 @@ export const marketCacheKey = (range: string, lang: 'en' | 'zh-TW') =>
     `marketflow_cache_${range}_${lang}`;
 
 export type PresentSlideMode = 'markdown' | 'html' | 'url' | 'pdf';
+export type PresentView = 'slide' | 'index' | 'heatmap';
+
+export interface PresentCycle {
+    enabled: boolean;
+    dwellSec: number;
+    views: PresentView[];
+}
 
 export interface PresentSlide {
     mode: PresentSlideMode;
@@ -25,6 +32,7 @@ interface MarketFlowSettings {
     presentSlide: PresentSlide;
     tickerSymbols: string[] | null;
     morningBrief: string[];
+    presentCycle: PresentCycle;
 }
 
 const DEFAULT_SLIDE: PresentSlide = {
@@ -32,6 +40,14 @@ const DEFAULT_SLIDE: PresentSlide = {
     content: '# Market Update\n\nPaste slide content from the control panel to begin.',
     updatedAt: 0,
 };
+
+const DEFAULT_PRESENT_CYCLE: PresentCycle = {
+    enabled: false,
+    dwellSec: 45,
+    views: ['slide', 'heatmap'],
+};
+
+const PRESENT_VIEWS: PresentView[] = ['slide', 'index', 'heatmap'];
 
 let _cache: MarketFlowSettings | null = null;
 
@@ -43,7 +59,37 @@ const DEFAULTS: MarketFlowSettings = {
     presentSlide: DEFAULT_SLIDE,
     tickerSymbols: null,
     morningBrief: [],
+    presentCycle: DEFAULT_PRESENT_CYCLE,
 };
+
+export function normalizePresentCycle(value: unknown): PresentCycle {
+    const input = value && typeof value === 'object' ? value as Partial<PresentCycle> : {};
+    const rawDwell = input.dwellSec ?? DEFAULT_PRESENT_CYCLE.dwellSec;
+    const dwellSec = typeof rawDwell === 'number' && Number.isFinite(rawDwell)
+        ? Math.min(3600, Math.max(10, rawDwell))
+        : 10;
+    const rawViews = Array.isArray(input.views) ? input.views : DEFAULT_PRESENT_CYCLE.views;
+    const views = rawViews.reduce<PresentView[]>((acc, view) => {
+        if (!PRESENT_VIEWS.includes(view as PresentView)) return acc;
+        if (acc.includes(view as PresentView)) return acc;
+        acc.push(view as PresentView);
+        return acc;
+    }, []);
+
+    return {
+        enabled: views.length > 0 ? input.enabled === true : false,
+        dwellSec,
+        views,
+    };
+}
+
+function withNormalizedSettings(value: Partial<MarketFlowSettings>): MarketFlowSettings {
+    return {
+        ...DEFAULTS,
+        ...value,
+        presentCycle: normalizePresentCycle(value.presentCycle),
+    };
+}
 
 /**
  * Read all settings in one shot.
@@ -53,7 +99,7 @@ function loadFromStorage(): MarketFlowSettings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) {
         try {
-            return { ...DEFAULTS, ...JSON.parse(raw) };
+            return withNormalizedSettings(JSON.parse(raw));
         } catch {
             // corrupted – fall through to migration
         }
@@ -74,13 +120,14 @@ function loadFromStorage(): MarketFlowSettings {
         presentSlide: DEFAULTS.presentSlide,
         tickerSymbols: DEFAULTS.tickerSymbols,
         morningBrief: DEFAULTS.morningBrief,
+        presentCycle: DEFAULTS.presentCycle,
     };
     if (migrated.lang !== 'en' && migrated.lang !== 'zh-TW') migrated.lang = DEFAULTS.lang;
     if (migrated.chartMode !== 'nominal' && migrated.chartMode !== 'percent') migrated.chartMode = DEFAULTS.chartMode;
 
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(migrated));
     LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
-    return migrated;
+    return withNormalizedSettings(migrated);
 }
 
 export function getSettings(): MarketFlowSettings {
@@ -90,7 +137,7 @@ export function getSettings(): MarketFlowSettings {
 }
 
 export function setSetting<K extends keyof MarketFlowSettings>(key: K, value: MarketFlowSettings[K]) {
-    const current = { ...loadFromStorage(), [key]: value };
+    const current = withNormalizedSettings({ ...loadFromStorage(), [key]: value });
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(current));
     _cache = current;
 }

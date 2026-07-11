@@ -52,5 +52,47 @@ describe('settings persistence', () => {
         const s = getSettings();
         expect(s).toMatchObject({ lang: 'zh-TW', chartMode: 'nominal', showFunds: true, geminiKey: '', tickerSymbols: null, morningBrief: [] });
         expect(s.presentSlide.mode).toBe('markdown');
+        expect(s.presentCycle).toEqual({ enabled: false, dwellSec: 45, views: ['slide', 'heatmap'] });
+    });
+
+    it('normalizes missing, null, and partial presentCycle values with deep defaults', async () => {
+        const { normalizePresentCycle } = await import('./settings');
+
+        expect(normalizePresentCycle(undefined)).toEqual({ enabled: false, dwellSec: 45, views: ['slide', 'heatmap'] });
+        expect(normalizePresentCycle(null)).toEqual({ enabled: false, dwellSec: 45, views: ['slide', 'heatmap'] });
+        expect(normalizePresentCycle({ enabled: true })).toEqual({ enabled: true, dwellSec: 45, views: ['slide', 'heatmap'] });
+    });
+
+    it('clamps malformed presentCycle dwell seconds', async () => {
+        const { normalizePresentCycle } = await import('./settings');
+
+        expect(normalizePresentCycle({ dwellSec: Number.NaN }).dwellSec).toBe(10);
+        expect(normalizePresentCycle({ dwellSec: 0 }).dwellSec).toBe(10);
+        expect(normalizePresentCycle({ dwellSec: -5 }).dwellSec).toBe(10);
+        expect(normalizePresentCycle({ dwellSec: '45' }).dwellSec).toBe(10);
+        expect(normalizePresentCycle({ dwellSec: Infinity }).dwellSec).toBe(10);
+        expect(normalizePresentCycle({ dwellSec: 7200 }).dwellSec).toBe(3600);
+    });
+
+    it('filters and deduplicates presentCycle views while preserving first occurrence', async () => {
+        const { normalizePresentCycle } = await import('./settings');
+
+        expect(normalizePresentCycle({ enabled: true, views: [] })).toEqual({ enabled: false, dwellSec: 45, views: [] });
+        expect(normalizePresentCycle({ enabled: true, views: ['bogus'] })).toEqual({ enabled: false, dwellSec: 45, views: [] });
+        expect(normalizePresentCycle({ enabled: true, views: ['slide'] })).toEqual({ enabled: true, dwellSec: 45, views: ['slide'] });
+        expect(normalizePresentCycle({ enabled: true, views: ['heatmap', 'bogus', 'slide', 'heatmap', 'index'] })).toEqual({
+            enabled: true,
+            dwellSec: 45,
+            views: ['heatmap', 'slide', 'index'],
+        });
+    });
+
+    it('getSettings normalizes stored presentCycle without writing it back', async () => {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presentCycle: { enabled: true, dwellSec: 5, views: ['slide', 'slide', 'bogus', 'heatmap'] } }));
+        const before = localStorage.getItem(SETTINGS_KEY);
+        const { getSettings } = await import('./settings');
+
+        expect(getSettings().presentCycle).toEqual({ enabled: true, dwellSec: 10, views: ['slide', 'heatmap'] });
+        expect(localStorage.getItem(SETTINGS_KEY)).toBe(before);
     });
 });

@@ -5,6 +5,7 @@ interface Handlers {
     onFullscreen: () => void;
     onCycleStrip: () => void;
     onToggleView: () => void;
+    onTogglePlay?: () => void;
     onToggleQuote: () => void;
     onToggleHints: () => void;
     onEscape: () => void;
@@ -27,6 +28,7 @@ export function useKeyboardShortcuts(handlers: Handlers) {
             if (e.key === 'f' || e.key === 'F') { e.preventDefault(); handlers.onFullscreen(); }
             if (e.key === 's' || e.key === 'S') { e.preventDefault(); handlers.onCycleStrip(); }
             if (e.key === 'i' || e.key === 'I') { e.preventDefault(); handlers.onToggleView(); }
+            if ((e.key === 'p' || e.key === 'P') && handlers.onTogglePlay) { e.preventDefault(); handlers.onTogglePlay(); }
             if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); handlers.onToggleQuote(); }
             if (e.key === '?' || e.key === '/') { e.preventDefault(); handlers.onToggleHints(); }
             if (e.key === 'ArrowLeft' && handlers.onArrowLeft) { e.preventDefault(); handlers.onArrowLeft(); }
@@ -43,6 +45,7 @@ export function useKeyboardShortcuts(handlers: Handlers) {
         handlers.onFullscreen,
         handlers.onCycleStrip,
         handlers.onToggleView,
+        handlers.onTogglePlay,
         handlers.onToggleQuote,
         handlers.onToggleHints,
         handlers.onEscape,
