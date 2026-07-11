@@ -14,6 +14,10 @@ interface Options {
     pdfUrl: string;
     lang: 'en' | 'zh-TW';
     geminiKey: string;
+    // Stable, cross-machine slide identity (the slide's updatedAt). Sent to the
+    // server as `${slideVersion}#${page}` so every device sharing this slide
+    // hits the same server-side cache entry.
+    slideVersion?: number;
 }
 
 interface LatestPageText {
@@ -29,7 +33,7 @@ export function useJargon(opts: Options): {
     onPageText: (page: number, text: string, imageDataUrl?: string) => void;
     onPageChange: () => void;
 } {
-    const { enabled, pdfUrl, lang, geminiKey } = opts;
+    const { enabled, pdfUrl, lang, geminiKey, slideVersion } = opts;
     const [terms, setTerms] = useState<JargonTerm[]>([]);
     const cacheRef = useRef(new Map<string, JargonTerm[]>());
     const latestRef = useRef<LatestPageText | null>(null);
@@ -39,6 +43,7 @@ export function useJargon(opts: Options): {
     const pdfUrlRef = useRef(pdfUrl.trim());
     const langRef = useRef(lang);
     const geminiKeyRef = useRef(geminiKey);
+    const slideVersionRef = useRef(slideVersion);
     const warnedFailureKeysRef = useRef(new Set<string>());
 
     const clearDebounce = useCallback(() => {
@@ -96,9 +101,11 @@ export function useJargon(opts: Options): {
                 const headers: HeadersInit = { 'Content-Type': 'application/json' };
                 const activeGeminiKey = geminiKeyRef.current.trim();
                 if (activeGeminiKey) headers.Authorization = `Bearer ${activeGeminiKey}`;
+                const version = slideVersionRef.current;
+                const slideId = typeof version === 'number' && version > 0 ? `${version}#${page}` : undefined;
                 const body = requestPath === 'text'
-                    ? { text: prepareJargonText(text), lang: currentLang }
-                    : { imageBase64, lang: currentLang };
+                    ? { text: prepareJargonText(text), lang: currentLang, ...(slideId ? { slideId } : {}) }
+                    : { imageBase64, lang: currentLang, ...(slideId ? { slideId } : {}) };
                 jargonDebug('fetchStart', { page, path: requestPath });
                 const response = await fetch('/api/explain-jargon', {
                     method: 'POST',
@@ -166,6 +173,10 @@ export function useJargon(opts: Options): {
     useEffect(() => {
         geminiKeyRef.current = geminiKey;
     }, [geminiKey]);
+
+    useEffect(() => {
+        slideVersionRef.current = slideVersion;
+    }, [slideVersion]);
 
     useEffect(() => {
         pdfUrlRef.current = pdfUrl.trim();

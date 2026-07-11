@@ -1,9 +1,37 @@
+import crypto from 'crypto';
 import { getNimApiKeys, callNim, callNimHedged, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
+import { redis } from '../lib/redis.js';
 
 interface JargonTerm {
     term: string;
     explanation: string;
 }
+
+function sha(value: string): string {
+    return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+// Prefer a stable, cross-machine slide identifier ("slideVersion#page") supplied
+// by the client. Every device viewing the same slide maps to the SAME key —
+// text path OR image path, regardless of presigned-URL rotation or rendered-JPEG
+// byte differences between devices — so the result is computed once and shared
+// (projector, laptop, iPad all hit). slideVersion is the slide's updatedAt, so a
+// changed slide gets a new key (self-invalidating, no stale).
+// Fall back to hashing the payload bytes when no slideId is sent (e.g. a direct
+// API caller): still de-dupes, but only per-identical-payload — text is
+// cross-machine, rendered images may differ device-to-device.
+function jargonCacheKey(
+    input: { text: string } | { imageBase64: string },
+    lang: 'en' | 'zh-TW',
+    slideId: string,
+): string {
+    if (slideId) return `jargon:slide:${lang}:${sha(slideId)}`;
+    const basis = 'text' in input ? `t:${input.text}` : `i:${input.imageBase64}`;
+    return `jargon:content:${lang}:${sha(basis)}`;
+}
+
+// Slides rarely change and the key is content-addressed, so a long TTL is safe.
+const JARGON_CACHE_TTL_S = 60 * 60 * 24 * 30; // 30 days
 
 const IMAGE_BASE64_MIN_LEN = 100;
 const IMAGE_BASE64_MAX_LEN = 3_000_000;
@@ -129,9 +157,29 @@ export default async function handler(req: any, res: any) {
 
         const requestedLang = body?.lang;
         const lang: 'en' | 'zh-TW' = requestedLang === 'en' || requestedLang === 'zh-TW' ? requestedLang : 'en';
+        const slideId = typeof body?.slideId === 'string' ? body.slideId.trim().slice(0, 200) : '';
         const input = validText
             ? { text: rawText.slice(0, 6000) }
             : { imageBase64 };
+
+        // Serve from the shared server-side cache if this slide (any device, any
+        // prior session) was explained before. Cache read failures must never
+        // break the request — fall through to a fresh NIM call.
+        const cacheKey = redis ? jargonCacheKey(input, lang, slideId) : null;
+        if (cacheKey) {
+            try {
+                const cached = await redis!.get(cacheKey);
+                if (cached) {
+                    const terms = typeof cached === 'string' ? JSON.parse(cached) : cached;
+                    if (Array.isArray(terms)) {
+                        return res.status(200).json({ success: true, terms, source: 'cache' });
+                    }
+                }
+            } catch (err) {
+                console.warn('Jargon cache read failed:', err);
+            }
+        }
+
         const apiKeys = getNimApiKeys();
 
         if (apiKeys.length === 0) {
@@ -163,7 +211,19 @@ export default async function handler(req: any, res: any) {
             return res.status(200).json({ success: true, terms: [] });
         }
 
-        return res.status(200).json({ success: true, terms: sanitizeTerms(parsed) });
+        const terms = sanitizeTerms(parsed);
+        // Cache only non-empty results: vision latency swings and can return an
+        // empty read on a slide that DOES have jargon, so we never want to lock
+        // in a bad empty result for 30 days. Cache write failures are ignored.
+        if (cacheKey && terms.length > 0) {
+            try {
+                await redis!.set(cacheKey, JSON.stringify(terms), { ex: JARGON_CACHE_TTL_S });
+            } catch (err) {
+                console.warn('Jargon cache write failed:', err);
+            }
+        }
+
+        return res.status(200).json({ success: true, terms });
     } catch (error) {
         console.error('Jargon API Error:', error);
         if (!res.headersSent) {
