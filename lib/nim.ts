@@ -1,11 +1,16 @@
 export const NIM_CHAT_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
-// Order = preference. Each chain's fallback is a different vendor so a single
-// vendor outage doesn't take out both legs (probed live 2026-07-11).
-// Vision: llama first — measured 13-17s vs mistral's 24s-timeout(>40s), so
-// mistral-primary usually burned the whole 25s abort before falling back.
+// NIM_TEXT_MODELS is a fallback CHAIN (callNim tries each in order); order =
+// preference, and the fallback is a different vendor so one vendor outage
+// doesn't take out both legs (probed live 2026-07-11).
+// NIM_VISION_MODELS is NOT a chain — explain-jargon RACES all of them in
+// parallel via Promise.any (latency = fastest to respond), so order is
+// irrelevant here and more members = more resilience to NIM capacity blips.
+// All three verified vision-capable on the real slide 2026-07-11 (llama 6-17s,
+// mistral, gemma-4-31b 4.8-11.4s / 4 correct terms). gemma-3-12b excluded (404
+// on this account); deepseek-v4-flash excluded (text-only, multimodal disabled).
 export const NIM_TEXT_MODELS = ['openai/gpt-oss-120b', 'mistralai/mistral-medium-3.5-128b'];
-export const NIM_VISION_MODELS = ['meta/llama-3.2-90b-vision-instruct', 'mistralai/mistral-medium-3.5-128b'];
+export const NIM_VISION_MODELS = ['google/gemma-4-31b-it', 'meta/llama-3.2-90b-vision-instruct', 'mistralai/mistral-medium-3.5-128b'];
 
 // Each env var may hold a single key or several comma-separated keys.
 export function getNimApiKeys(): string[] {
