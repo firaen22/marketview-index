@@ -23,8 +23,8 @@ describe('jargon helpers', () => {
     });
 
     it('builds cache keys with page and language separation', () => {
-        expect(jargonCacheKey('/deck.pdf', 3, 'en')).toBe('/deck.pdf#3#en');
-        expect(jargonCacheKey('/deck.pdf', 3, 'en')).not.toBe(jargonCacheKey('/deck.pdf', 3, 'zh-TW'));
+        expect(jargonCacheKey('/deck.pdf', 3, 'en', 'text')).toBe('/deck.pdf#3#en#text');
+        expect(jargonCacheKey('/deck.pdf', 3, 'en', 'text')).not.toBe(jargonCacheKey('/deck.pdf', 3, 'zh-TW', 'text'));
     });
 
     it('passes through valid jargon payloads', () => {

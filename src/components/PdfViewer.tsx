@@ -2,6 +2,11 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef,
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore — Vite ?url import
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import {
+    extractJargonImageBase64,
+    JARGON_MIN_TEXT_LEN,
+    jargonImageDims,
+} from '../jargon';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl as string;
 
@@ -9,7 +14,7 @@ interface Props {
     url: string;
     zoom?: number;
     keyboardEnabled?: boolean;
-    onPageText?: (page: number, text: string) => void;
+    onPageText?: (page: number, text: string, imageDataUrl?: string) => void;
     onPageChange?: (page: number) => void;
 }
 
@@ -86,6 +91,31 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
                 if (cancelled) return;
                 const text = tc.items.map((it: any) => (typeof it.str === 'string' ? it.str : '')).join(' ');
                 onPageText(pageNum, text);
+                if (text.trim().length >= JARGON_MIN_TEXT_LEN) return;
+
+                pdf.getPage(pageNum)
+                    .then(async page => {
+                        const sourceViewport = page.getViewport({ scale: 1 });
+                        const target = jargonImageDims(sourceViewport.width, sourceViewport.height);
+                        const scale = sourceViewport.width > 0 ? target.width / sourceViewport.width : 1;
+                        const viewport = page.getViewport({ scale });
+                        const canvas = document.createElement('canvas');
+                        canvas.width = target.width;
+                        canvas.height = target.height;
+                        const context = canvas.getContext('2d');
+                        if (!context) return;
+                        await page.render({ canvasContext: context, canvas, viewport }).promise;
+                        if (cancelled) return;
+
+                        let imageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                        if (!extractJargonImageBase64(imageDataUrl)) {
+                            imageDataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                        }
+                        if (!cancelled && extractJargonImageBase64(imageDataUrl)) {
+                            onPageText(pageNum, text, imageDataUrl);
+                        }
+                    })
+                    .catch(() => {});
             })
             .catch(() => { if (!cancelled) onPageText(pageNum, ''); });
         return () => { cancelled = true; };
