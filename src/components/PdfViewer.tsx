@@ -9,6 +9,8 @@ interface Props {
     url: string;
     zoom?: number;
     keyboardEnabled?: boolean;
+    onPageText?: (page: number, text: string) => void;
+    onPageChange?: (page: number) => void;
 }
 
 export interface PdfViewerHandle {
@@ -16,7 +18,7 @@ export interface PdfViewerHandle {
     nextPage: () => void;
 }
 
-export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true }, ref) => {
+export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText, onPageChange }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pageNum, setPageNum] = useState(1);
@@ -69,6 +71,25 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         });
         return () => { cancelled = true; };
     }, [pdf, pageNum, zoom]);
+
+    useEffect(() => {
+        if (!pdf || !onPageChange) return;
+        onPageChange(pageNum);
+    }, [pdf, pageNum, onPageChange]);
+
+    useEffect(() => {
+        if (!pdf || !onPageText) return;
+        let cancelled = false;
+        pdf.getPage(pageNum)
+            .then(page => page.getTextContent())
+            .then(tc => {
+                if (cancelled) return;
+                const text = tc.items.map((it: any) => (typeof it.str === 'string' ? it.str : '')).join(' ');
+                onPageText(pageNum, text);
+            })
+            .catch(() => { if (!cancelled) onPageText(pageNum, ''); });
+        return () => { cancelled = true; };
+    }, [pdf, pageNum, onPageText]);
 
     const prev = useCallback(() => setPageNum(p => Math.max(1, p - 1)), []);
     const next = useCallback(() => setPageNum(p => Math.min(numPages, p + 1)), [numPages]);

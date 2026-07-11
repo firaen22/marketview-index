@@ -22,7 +22,9 @@ import { QuoteSpotlightSearch } from './components/QuoteSpotlightSearch';
 import { MorningBriefPanel } from './components/MorningBriefPanel';
 import { IndexChartModal } from './components/IndexChartModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
+import { JargonSpotlight } from './components/JargonSpotlight';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useJargon } from './hooks/useJargon';
 import type { PdfViewerHandle } from './components/PdfViewer';
 import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
@@ -31,6 +33,7 @@ import { MarketStatusChip } from './components/MarketStatusChip';
 export default function PresentationPage() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
     const initialSettings = React.useMemo(() => getSettings(), []);
+    const geminiKey = initialSettings.geminiKey;
     const [editorOpen, setEditorOpen] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showHints, setShowHints] = useState(false);
@@ -64,6 +67,7 @@ export default function PresentationPage() {
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
+    const jargon = useJargon({ enabled: mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey });
     const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || !!qp.chartItem;
     const dwellSec = normalizedPresentCycle.dwellSec;
 
@@ -482,6 +486,8 @@ export default function PresentationPage() {
                                 pdfZoom={pdfZoom}
                                 pdfKeyboardEnabled={false}
                                 pdfRef={pdfRef}
+                                onPdfPageText={jargon.onPageText}
+                                onPdfPageChange={jargon.onPageChange}
                             />
                         </SlideErrorBoundary>
                     </div>
@@ -511,6 +517,8 @@ export default function PresentationPage() {
                             </span>
                         </div>
                     )}
+
+                    {mainView === 'slide' && slide.mode === 'pdf' && <JargonSpotlight terms={jargon.terms} lang={lang} />}
 
                     {/* Quote spotlight — lower-third overlay */}
                     {qp.spotlight && (() => {
