@@ -1,4 +1,4 @@
-import { getNimApiKeys, callNim, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
+import { getNimApiKeys, callNim, callNimHedged, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
 
 interface JargonTerm {
     term: string;
@@ -102,6 +102,13 @@ ${output}`;
 // slow-but-successful vision runs (measured 42.6s success on a real slide).
 const VISION_TIMEOUT_MS = 50_000;
 
+// Hedge window: fire only the primary vision model first and escalate to the
+// backups if it hasn't answered in HEDGE_DELAY_MS. Healthy vision runs land
+// ~5-9s (measured 2026-07-11) so 10s lets a healthy primary win alone (≈3x
+// fewer NIM calls on the common path); slow spells (27-60s) escalate at 10s
+// into the full race — still inside the 45s slide window.
+const HEDGE_DELAY_MS = 10_000;
+
 export default async function handler(req: any, res: any) {
     try {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -133,16 +140,17 @@ export default async function handler(req: any, res: any) {
 
         let raw: string;
         try {
-            // Vision models race in parallel: /present auto-advances every 45s,
-            // and a serial llama(50s timeout)->mistral chain measured 67.8s —
-            // slower than the slide dwell, so the card never showed. Racing
-            // makes latency the FASTEST model (16-25s typical) instead of the
-            // sum; the loser's request is simply dropped.
+            // Vision models race, but HEDGED: fire the primary first and only
+            // add the backups if it's slow/fails (callNimHedged). /present
+            // auto-advances every 45s and a serial llama(50s)->mistral chain
+            // measured 67.8s — too slow — so latency must be the FASTEST model,
+            // not the sum. A full 3-way race achieved that but fired 3 calls
+            // every time; the hedge keeps the fast-path latency while firing 1
+            // call on the healthy path and escalating to the full race only
+            // when the primary lags past HEDGE_DELAY_MS.
             raw = 'text' in input
                 ? await callNim(apiKeys, NIM_TEXT_MODELS, buildJargonMessages(input, lang), 900, { reasoningEffort: 'low' })
-                : await Promise.any(NIM_VISION_MODELS.map(model =>
-                    callNim(apiKeys, [model], buildJargonMessages(input, lang), 900, { timeoutMs: VISION_TIMEOUT_MS })
-                ));
+                : await callNimHedged(apiKeys, NIM_VISION_MODELS, buildJargonMessages(input, lang), 900, { timeoutMs: VISION_TIMEOUT_MS, hedgeDelayMs: HEDGE_DELAY_MS });
         } catch (error) {
             console.warn('Jargon generation failed:', error);
             return res.status(502).json({ success: false, error: 'AI processing failed' });
