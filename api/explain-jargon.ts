@@ -7,9 +7,9 @@ interface JargonTerm {
 
 const API_KEY_PATTERN = /^[A-Za-z0-9._-]{20,128}$/;
 
-// gemini-1.5-flash is retired; flash-lite has a separate (higher) free-tier
-// quota, so it also absorbs quota failures on the primary model.
-const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+// Fallback is a different model generation with its own quota pool, so a
+// 3.1-side quota or outage issue doesn't take out both legs.
+const MODEL_CHAIN = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
 
 // Each env var may hold a single key or several comma-separated keys.
 function getServerApiKeys(): string[] {
