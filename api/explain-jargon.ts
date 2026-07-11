@@ -11,9 +11,11 @@ const API_KEY_PATTERN = /^[A-Za-z0-9._-]{20,128}$/;
 // quota, so it also absorbs quota failures on the primary model.
 const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 
+// Each env var may hold a single key or several comma-separated keys.
 function getServerApiKeys(): string[] {
     return [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_FALLBACK]
-        .map(key => (typeof key === 'string' ? key.trim() : ''))
+        .flatMap(value => (typeof value === 'string' ? value.split(',') : []))
+        .map(key => key.trim())
         .filter(key => key.length > 0);
 }
 
