@@ -137,7 +137,7 @@ export default function Dashboard() {
       <main className="container mx-auto p-4 lg:p-6 max-w-7xl">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 transition-all duration-500 ease-in-out">
 
-          {(isNewsOnly || !isPresentationMode) && (
+          {!isEmbed && (isNewsOnly || !isPresentationMode) && (
             <NewsSection
               isNewsOnly={isNewsOnly}
               isNewsLoading={isNewsLoading}
@@ -154,14 +154,14 @@ export default function Dashboard() {
           {!isNewsOnly && (
             <div className={cn(
               "flex flex-col h-[calc(100vh-var(--dash-offset,180px))] transition-all duration-500 ease-in-out lg:order-first",
-              isPresentationMode ? "col-span-1 lg:col-span-12" : "lg:col-span-7 xl:col-span-8"
+              (isPresentationMode || isEmbed) ? "col-span-1 lg:col-span-12" : "lg:col-span-7 xl:col-span-8"
             )}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold flex items-center">
                   <span className="w-1 h-6 bg-emerald-500 mr-3 rounded-full"></span>
                   {t.performance}
                 </h2>
-                {isPresentationMode ? (
+                {isEmbed ? null : isPresentationMode ? (
                   <button
                     onClick={() => setIsPresentationMode(false)}
                     className="text-xs text-blue-400 hover:text-blue-300 flex items-center px-2 py-1 bg-blue-500/10 rounded-md border border-blue-500/20 transition-colors"
@@ -180,6 +180,7 @@ export default function Dashboard() {
               </div>
 
               {/* Category Filter */}
+              {!isEmbed && (
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                 <div className="flex flex-wrap gap-2">
                   {categories.map(category => (
@@ -217,6 +218,7 @@ export default function Dashboard() {
 
                 <TimeRangeSelector value={timeRange} onChange={setTimeRange} variant="subtle" />
               </div>
+              )}
 
               {fallbackMessage && (
                 <div className="mb-4 bg-zinc-800/80 border border-zinc-700 text-yellow-500/90 text-xs px-4 py-2 rounded-lg flex items-center animate-in fade-in slide-in-from-top-2 duration-300">
@@ -226,7 +228,7 @@ export default function Dashboard() {
               )}
 
               <ScrollArea className="flex-1 pr-2 -mr-2">
-                {macroData.length > 0 && (
+                {!isEmbed && macroData.length > 0 && (
                   <div className="mb-6">
                     <div className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-3">
                       {t.macroData || 'Economic Data'}
@@ -246,13 +248,13 @@ export default function Dashboard() {
                 ) : marketData.length > 0 ? (
                   <div className={cn(
                     "grid gap-4 transition-all duration-500",
-                    isPresentationMode ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2"
+                    (isPresentationMode || isEmbed) ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2"
                   )}>
                     {filteredIndices.map((index) => (
                       <MarketStatCard
                         key={index.symbol}
                         item={index}
-                        chartHeight={isPresentationMode ? "h-32" : "h-16"}
+                        chartHeight={(isPresentationMode || isEmbed) ? "h-32" : "h-16"}
                         t={t}
                         chartMode={chartMode}
                       />
