@@ -38,12 +38,15 @@ export function extractNimText(message: unknown): string {
 // a warning and moves on; only total exhaustion throws.
 // opts.reasoningEffort ('low') is applied ONLY to openai/gpt-oss* models —
 // cuts jargon latency ~2x (measured 1.7s vs 2-3.8s); Mistral 400s on 'low'.
+// opts.timeoutMs overrides the 25s per-attempt abort — NIM vision latency
+// swings 16-43s on the same payload (measured 2026-07-11), so vision callers
+// need more headroom or slow-but-successful runs get killed mid-flight.
 export async function callNim(
     apiKeys: string[],
     models: string[],
     messages: unknown[],
     maxTokens: number,
-    opts?: { reasoningEffort?: 'low' }
+    opts?: { reasoningEffort?: 'low'; timeoutMs?: number }
 ): Promise<string> {
     for (const apiKey of apiKeys) {
         for (const model of models) {
@@ -64,7 +67,7 @@ export async function callNim(
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify(body),
-                    signal: AbortSignal.timeout(25_000),
+                    signal: AbortSignal.timeout(opts?.timeoutMs ?? 25_000),
                 });
                 if (!response.ok) {
                     console.warn(`NIM call failed (model ${model}): HTTP ${response.status}`);

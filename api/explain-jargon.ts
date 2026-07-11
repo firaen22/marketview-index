@@ -46,9 +46,19 @@ function buildJargonMessages(
     const lengthRule = lang === 'zh-TW' ? '50 個中文字' : '30 words';
     const source = 'text' in input
         ? 'From the slide text below, identify'
-        : 'From the slide IMAGE, read the visible text and identify';
+        : 'Read ALL text visible in this slide IMAGE, then identify';
+    // Vision models grab table codes (B12, X03#) as "terms" unless told where
+    // jargon actually lives — inside fund names, headers and labels (measured
+    // 2026-07-11: without this guidance llama returned 4 junk codes, with it
+    // 3-4 correct terms on the same slide).
+    const imageGuidance = 'text' in input ? '' : `
+
+WHERE TO LOOK: jargon usually hides INSIDE longer phrases — fund names, headers,
+column labels, footnotes. Example: the fund name "美元貨幣市場基金 A類別（累積）"
+contains the jargon 貨幣市場基金, A類別 and 累積.
+NEVER pick: fund/ticker codes (like B12, X03#), row numbers, percentages, or dates.`;
     const rules = `You assist a live financial-markets presentation. ${source} up to 4
-technical financial terms (jargon) that a general business audience may not know.
+technical financial terms (jargon) that a general business audience may not know.${imageGuidance}
 
 For each term, write an explanation in ${outputLanguage} that:
 - uses plain everyday language a viewer with no finance background instantly understands — never
@@ -83,57 +93,14 @@ ${output}`;
         }];
 }
 
-// Vision models under-extract jargon when asked directly (1 term where the
-// text model finds 4 on the same slide, measured live 2026-07-11), so image
-// input is handled in two steps: a vision model transcribes the slide text,
-// then the stronger text model extracts jargon from the transcript. Returns ''
-// when nothing useful comes back so the caller can fall back to single-shot
-// vision extraction.
-async function transcribeSlideImage(apiKeys: string[], imageBase64: string): Promise<string> {
-    const messages = [{
-        role: 'user',
-        content: [
-            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-            {
-                type: 'text',
-                text: 'Transcribe ALL text visible in this slide image, in reading order, exactly as written. OUTPUT (valid JSON only): { "text": "..." }',
-            },
-        ],
-    }];
-    const raw = await callNim(apiKeys, NIM_VISION_MODELS, messages, 1200, { reasoningEffort: 'low' });
-    try {
-        const parsed = JSON.parse(raw || '{}');
-        return typeof parsed?.text === 'string' ? parsed.text.trim() : '';
-    } catch {
-        return '';
-    }
-}
-
-// Transcribe-then-extract, falling back to the old single-shot vision
-// extraction when transcription yields nothing or the text model is down —
-// an image request must not fail while the legacy path could still succeed.
-async function extractFromImage(apiKeys: string[], imageBase64: string, lang: 'en' | 'zh-TW'): Promise<string> {
-    let transcript = '';
-    try {
-        transcript = await transcribeSlideImage(apiKeys, imageBase64);
-    } catch (error) {
-        console.warn('Slide transcription failed:', error);
-    }
-    if (transcript) {
-        try {
-            return await callNim(
-                apiKeys,
-                NIM_TEXT_MODELS,
-                buildJargonMessages({ text: transcript.slice(0, 6000) }, lang),
-                900,
-                { reasoningEffort: 'low' }
-            );
-        } catch (error) {
-            console.warn('Jargon extraction from transcript failed:', error);
-        }
-    }
-    return callNim(apiKeys, NIM_VISION_MODELS, buildJargonMessages({ imageBase64 }, lang), 900, { reasoningEffort: 'low' });
-}
+// Image input is a SINGLE vision call. A serial transcribe-then-extract chain
+// was tried (PR #15) and reverted: NIM vision latency swings 16-60s+ on the
+// same payload, so two serial vision-budget calls blew every latency window
+// (measured 2026-07-11: full transcription >60s; requests hit 41-100s and the
+// card never appeared). Term quality is handled by prompt guidance in
+// buildJargonMessages instead. 50s per-attempt timeout: a 25s abort killed
+// slow-but-successful vision runs (measured 42.6s success on a real slide).
+const VISION_TIMEOUT_MS = 50_000;
 
 export default async function handler(req: any, res: any) {
     try {
@@ -166,9 +133,16 @@ export default async function handler(req: any, res: any) {
 
         let raw: string;
         try {
+            // Vision models race in parallel: /present auto-advances every 45s,
+            // and a serial llama(50s timeout)->mistral chain measured 67.8s —
+            // slower than the slide dwell, so the card never showed. Racing
+            // makes latency the FASTEST model (16-25s typical) instead of the
+            // sum; the loser's request is simply dropped.
             raw = 'text' in input
                 ? await callNim(apiKeys, NIM_TEXT_MODELS, buildJargonMessages(input, lang), 900, { reasoningEffort: 'low' })
-                : await extractFromImage(apiKeys, input.imageBase64, lang);
+                : await Promise.any(NIM_VISION_MODELS.map(model =>
+                    callNim(apiKeys, [model], buildJargonMessages(input, lang), 900, { timeoutMs: VISION_TIMEOUT_MS })
+                ));
         } catch (error) {
             console.warn('Jargon generation failed:', error);
             return res.status(502).json({ success: false, error: 'AI processing failed' });
