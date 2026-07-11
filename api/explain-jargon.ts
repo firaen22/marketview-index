@@ -23,7 +23,7 @@ function sanitizeTerms(payload: any): JargonTerm[] {
         .filter((entry: any) => entry && typeof entry === 'object')
         .map((entry: any) => ({
             term: typeof entry.term === 'string' ? entry.term.trim().slice(0, 80) : '',
-            explanation: typeof entry.explanation === 'string' ? entry.explanation.trim().slice(0, 200) : '',
+            explanation: typeof entry.explanation === 'string' ? entry.explanation.trim().slice(0, 240) : '',
         }))
         .filter((entry: JargonTerm) => entry.term && entry.explanation)
         .slice(0, 4);
@@ -43,28 +43,35 @@ function buildJargonMessages(
     lang: 'en' | 'zh-TW'
 ): unknown[] {
     const outputLanguage = lang === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English';
-    const prompt = 'text' in input
-        ? `You assist a live financial-markets presentation. From the slide text below, identify up to 4
+    const lengthRule = lang === 'zh-TW' ? '50 個中文字' : '30 words';
+    const source = 'text' in input
+        ? 'From the slide text below, identify'
+        : 'From the slide IMAGE, read the visible text and identify';
+    const rules = `You assist a live financial-markets presentation. ${source} up to 4
 technical financial terms (jargon) that a general business audience may not know.
-For each, give a plain-language explanation of at most 25 words, written in
-${outputLanguage}. The term itself should be kept
-in its original language as it appears on the slide.
+
+For each term, write an explanation in ${outputLanguage} that:
+- uses plain everyday language a viewer with no finance background instantly understands — never
+  explain jargon with more jargon, and never just restate the term
+- where natural, anchors the idea with a concrete number, comparison, or everyday analogy
+  (e.g. "1 basis point = 0.01%, so 50 basis points is half a percent")
+- is at most ${lengthRule}
+
+Keep the term itself in its original language as it appears on the slide, and list the most
+important term first.
 Only include genuinely technical terms (e.g. duration, basis point, contango, EBITDA margin) —
-skip common words, company names, and numbers. If there is no jargon, return an empty list.
+skip common words, company names, and numbers. If there is no jargon, return an empty list.`;
+    const output = `OUTPUT (valid JSON only): { "terms": [ { "term": "...", "explanation": "..." } ] }`;
+    const prompt = 'text' in input
+        ? `${rules}
 
 SLIDE TEXT:
 ${input.text}
 
-OUTPUT (valid JSON only): { "terms": [ { "term": "...", "explanation": "..." } ] }`
-        : `You assist a live financial-markets presentation. From the slide IMAGE, read the visible text and identify up to 4
-technical financial terms (jargon) that a general business audience may not know.
-For each, give a plain-language explanation of at most 25 words, written in
-${outputLanguage}. The term itself should be kept
-in its original language as it appears on the slide.
-Only include genuinely technical terms (e.g. duration, basis point, contango, EBITDA margin) —
-skip common words, company names, and numbers. If there is no jargon, return an empty list.
+${output}`
+        : `${rules}
 
-OUTPUT (valid JSON only): { "terms": [ { "term": "...", "explanation": "..." } ] }`;
+${output}`;
     return 'text' in input
         ? [{ role: 'user', content: prompt }]
         : [{
