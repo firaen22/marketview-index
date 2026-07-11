@@ -3,12 +3,12 @@ import { MarketStatCard } from './components/MarketStatCard';
 import { MacroStatCard } from './components/MacroStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
 import { SlideErrorBoundary } from './components/SlideErrorBoundary';
-import { getSettings, setSetting } from './settings';
+import { getSettings, normalizePresentCycle, setSetting, type PresentCycle, type PresentView } from './settings';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
 import { getLocale } from './locales';
-import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp, Sunrise } from 'lucide-react';
+import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp, Sunrise, Grid3x3, Play, Pause } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
 import { STRIP_MODES, type StripMode } from './constants';
@@ -34,14 +34,21 @@ export default function PresentationPage() {
     const [showHints, setShowHints] = useState(false);
     const [stripMode, setStripMode] = useState<StripMode>('compact');
     const [pdfZoom, setPdfZoom] = useState(100);
-    const [mainView, setMainView] = useState<'slide' | 'index'>('slide');
+    const [mainView, setMainView] = useState<PresentView>('slide');
+    const [presentCycle, setPresentCycle] = useState<PresentCycle>(() => normalizePresentCycle(initialSettings.presentCycle));
+    const [dwellResetNonce, setDwellResetNonce] = useState(0);
+    const [kioskHidden, setKioskHidden] = useState(false);
     const clock = useClock();
     const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
     const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
     const [morningBrief, setMorningBrief] = useState<string[]>(initialSettings.morningBrief);
     const [briefPanelOpen, setBriefPanelOpen] = useState(false);
     const hintsTimerRef = useRef<number | null>(null);
+    const kioskTimerRef = useRef<number | null>(null);
+    const iframeCleanupRef = useRef<Partial<Record<'index' | 'heatmap', () => void>>>({});
     const pdfRef = useRef<PdfViewerHandle>(null);
+    const normalizedPresentCycle = React.useMemo(() => normalizePresentCycle(presentCycle), [presentCycle]);
+    const cycleRunning = normalizedPresentCycle.enabled && normalizedPresentCycle.views.length >= 2;
 
     useSettingsSync(({ lang: nextLang, tickerSymbols: nextSymbols }) => {
         if (nextLang) setLang(nextLang);
@@ -53,6 +60,7 @@ export default function PresentationPage() {
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
+    const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || !!qp.chartItem;
 
     const briefItems = React.useMemo(
         () => morningBrief
@@ -65,6 +73,41 @@ export default function PresentationPage() {
         setMorningBrief(next);
         setSetting('morningBrief', next);
     }, []);
+
+    const resetDwellCountdown = useCallback(() => {
+        setDwellResetNonce(n => n + 1);
+    }, []);
+
+    const persistPresentCycle = useCallback((next: PresentCycle) => {
+        const normalized = normalizePresentCycle(next);
+        setPresentCycle(normalized);
+        setSetting('presentCycle', normalized);
+        resetDwellCountdown();
+    }, [resetDwellCountdown]);
+
+    const cycleMainView = useCallback(() => {
+        setMainView(v => v === 'slide' ? 'index' : v === 'index' ? 'heatmap' : 'slide');
+        resetDwellCountdown();
+    }, [resetDwellCountdown]);
+
+    const toggleHeatmapView = useCallback(() => {
+        setMainView(v => v === 'heatmap' ? 'slide' : 'heatmap');
+        resetDwellCountdown();
+    }, [resetDwellCountdown]);
+
+    const toggleCycle = useCallback(() => {
+        persistPresentCycle({ ...normalizedPresentCycle, enabled: !normalizedPresentCycle.enabled });
+    }, [normalizedPresentCycle, persistPresentCycle]);
+
+    const cycleDwellPreset = useCallback(() => {
+        const presets = [15, 30, 45, 60, 120];
+        const current = normalizedPresentCycle.dwellSec;
+        const currentIndex = presets.indexOf(current);
+        const nextDwell = currentIndex >= 0
+            ? presets[(currentIndex + 1) % presets.length]
+            : presets.find(v => v > current) ?? presets[0];
+        persistPresentCycle({ ...normalizedPresentCycle, dwellSec: nextDwell });
+    }, [normalizedPresentCycle, persistPresentCycle]);
 
     // Auto-show hints overlay briefly on first mount, then auto-hide
     useEffect(() => {
@@ -81,16 +124,155 @@ export default function PresentationPage() {
     }, []);
 
     useEffect(() => {
-        const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+        const onFs = () => {
+            const next = !!document.fullscreenElement;
+            setIsFullscreen(next);
+            if (!next) {
+                if (kioskTimerRef.current) {
+                    window.clearTimeout(kioskTimerRef.current);
+                    kioskTimerRef.current = null;
+                }
+                setKioskHidden(false);
+            }
+        };
         document.addEventListener('fullscreenchange', onFs);
         return () => document.removeEventListener('fullscreenchange', onFs);
     }, []);
+
+    const wakeKiosk = useCallback(() => {
+        if (!isFullscreen) return;
+        setKioskHidden(false);
+        if (kioskTimerRef.current) window.clearTimeout(kioskTimerRef.current);
+        kioskTimerRef.current = window.setTimeout(() => setKioskHidden(true), 5000);
+    }, [isFullscreen]);
+
+    const handlePresenterKeydown = useCallback(() => {
+        resetDwellCountdown();
+        wakeKiosk();
+    }, [resetDwellCountdown, wakeKiosk]);
+
+    const handlePresenterPointerDown = useCallback(() => {
+        resetDwellCountdown();
+        wakeKiosk();
+    }, [resetDwellCountdown, wakeKiosk]);
+
+    const handlePresenterPointerMove = useCallback(() => {
+        wakeKiosk();
+    }, [wakeKiosk]);
+
+    useEffect(() => {
+        if (!isFullscreen) {
+            setKioskHidden(false);
+            if (kioskTimerRef.current) {
+                window.clearTimeout(kioskTimerRef.current);
+                kioskTimerRef.current = null;
+            }
+            return;
+        }
+        wakeKiosk();
+        return () => {
+            if (kioskTimerRef.current) {
+                window.clearTimeout(kioskTimerRef.current);
+                kioskTimerRef.current = null;
+            }
+        };
+    }, [isFullscreen, wakeKiosk]);
+
+    useEffect(() => {
+        window.addEventListener('keydown', handlePresenterKeydown, true);
+        window.addEventListener('pointerdown', handlePresenterPointerDown, true);
+        window.addEventListener('pointermove', handlePresenterPointerMove, true);
+        return () => {
+            window.removeEventListener('keydown', handlePresenterKeydown, true);
+            window.removeEventListener('pointerdown', handlePresenterPointerDown, true);
+            window.removeEventListener('pointermove', handlePresenterPointerMove, true);
+        };
+    }, [handlePresenterKeydown, handlePresenterPointerDown, handlePresenterPointerMove]);
+
+    useEffect(() => {
+        if (!cycleRunning || cyclePaused) return;
+        const timeout = window.setTimeout(() => {
+            const views = normalizedPresentCycle.views;
+            setMainView(prev => {
+                const currentIndex = views.indexOf(prev);
+                return currentIndex < 0 ? views[0] : views[(currentIndex + 1) % views.length];
+            });
+            setDwellResetNonce(n => n + 1);
+        }, normalizedPresentCycle.dwellSec * 1000);
+        return () => window.clearTimeout(timeout);
+    }, [cycleRunning, cyclePaused, normalizedPresentCycle, dwellResetNonce]);
+
+    const isTypingTarget = useCallback((target: EventTarget | null) => {
+        const element = target as HTMLElement | null;
+        return !!element && (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT' || element.isContentEditable);
+    }, []);
+
+    const attachIframeListeners = useCallback((view: 'index' | 'heatmap') => (node: HTMLIFrameElement | null) => {
+        iframeCleanupRef.current[view]?.();
+        delete iframeCleanupRef.current[view];
+        if (!node) return;
+
+        let cleanupContent: (() => void) | null = null;
+        const bindContentWindow = () => {
+            cleanupContent?.();
+            cleanupContent = null;
+            try {
+                const win = node.contentWindow;
+                if (!win) return;
+                const onKeydown = (event: KeyboardEvent) => {
+                    handlePresenterKeydown();
+                    if (event.key !== 'Escape' && isTypingTarget(event.target)) return;
+                    const forwarded = new KeyboardEvent('keydown', {
+                        key: event.key,
+                        code: event.code,
+                        ctrlKey: event.ctrlKey,
+                        metaKey: event.metaKey,
+                        altKey: event.altKey,
+                        shiftKey: event.shiftKey,
+                        bubbles: true,
+                        cancelable: true,
+                    });
+                    window.dispatchEvent(forwarded);
+                    if (forwarded.defaultPrevented) event.preventDefault();
+                };
+                const onPointerDown = () => handlePresenterPointerDown();
+                const onPointerMove = () => handlePresenterPointerMove();
+                win.addEventListener('keydown', onKeydown);
+                win.addEventListener('pointerdown', onPointerDown);
+                win.addEventListener('pointermove', onPointerMove);
+                cleanupContent = () => {
+                    win.removeEventListener('keydown', onKeydown);
+                    win.removeEventListener('pointerdown', onPointerDown);
+                    win.removeEventListener('pointermove', onPointerMove);
+                };
+            } catch {
+                cleanupContent = null;
+            }
+        };
+
+        node.addEventListener('load', bindContentWindow);
+        bindContentWindow();
+        iframeCleanupRef.current[view] = () => {
+            node.removeEventListener('load', bindContentWindow);
+            cleanupContent?.();
+        };
+    }, [handlePresenterKeydown, handlePresenterPointerDown, handlePresenterPointerMove, isTypingTarget]);
+
+    useEffect(() => {
+        return () => {
+            Object.values(iframeCleanupRef.current).forEach(cleanup => cleanup?.());
+            iframeCleanupRef.current = {};
+        };
+    }, []);
+    const attachIndexIframe = React.useMemo(() => attachIframeListeners('index'), [attachIframeListeners]);
+    const attachHeatmapIframe = React.useMemo(() => attachIframeListeners('heatmap'), [attachIframeListeners]);
 
     useKeyboardShortcuts({
         onEdit: useCallback(() => setEditorOpen(o => !o), []),
         onFullscreen: toggleFullscreen,
         onCycleStrip: useCallback(() => setStripMode(m => STRIP_MODES[(STRIP_MODES.indexOf(m) + 1) % STRIP_MODES.length]), []),
-        onToggleView: useCallback(() => setMainView(v => v === 'slide' ? 'index' : 'slide'), []),
+        onToggleView: cycleMainView,
+        onTogglePlay: toggleCycle,
         onToggleQuote: useCallback(() => {
             if (qp.isSearchOpen) { qp.closeSearch(); return; }
             if (qp.spotlight) { qp.dismissSpotlight(); return; }
@@ -146,21 +328,43 @@ export default function PresentationPage() {
     const pinned = pinnedRaw.length > 0 ? pinnedRaw : marketData;
 
     return (
-        <div className="min-h-screen w-full bg-black text-zinc-100 flex flex-col relative">
+        <div className={`min-h-screen w-full bg-black text-zinc-100 flex flex-col relative ${kioskHidden ? 'cursor-none' : ''}`}>
             {/* Top bar */}
-            <div className="flex items-center justify-between px-8 py-3 border-b border-zinc-900">
-                <div className="text-sm font-mono tracking-widest text-zinc-500">
-                    MARKETFLOW · PRESENT
-                </div>
-                <div className="flex items-center gap-4">
-                    <div className="text-sm font-mono text-zinc-400">{clock}</div>
-                    <div className="flex items-center gap-1">
+            <div className={`overflow-hidden transition-[max-height,opacity] duration-300 ${kioskHidden ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-20 opacity-100'}`}>
+                <div className="flex items-center justify-between px-8 py-3 border-b border-zinc-900">
+                    <div className="text-sm font-mono tracking-widest text-zinc-500">
+                        MARKETFLOW · PRESENT
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <div className="text-sm font-mono text-zinc-400">{clock}</div>
+                        <div className="flex items-center gap-1">
                         <button
-                            onClick={() => setMainView(v => v === 'slide' ? 'index' : 'slide')}
+                            onClick={cycleMainView}
                             className={`p-1.5 rounded hover:bg-zinc-800 transition ${mainView === 'index' ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
-                            title={`Toggle ${mainView === 'slide' ? 'Index' : 'Slide'} (I)`}
+                            title="Cycle slide, index, and heatmap views (I)"
                         >
                             {mainView === 'slide' ? <LayoutDashboard className="w-4 h-4" /> : <Presentation className="w-4 h-4" />}
+                        </button>
+                        <button
+                            onClick={toggleHeatmapView}
+                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${mainView === 'heatmap' ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
+                            title="Toggle heatmap view (heatmap ↔ slide)"
+                        >
+                            <Grid3x3 className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={toggleCycle}
+                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${cycleRunning ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
+                            title={normalizedPresentCycle.enabled && !cycleRunning ? 'Playlist needs at least 2 views' : `${cycleRunning ? 'Pause' : 'Play'} playlist (P)`}
+                        >
+                            {cycleRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        </button>
+                        <button
+                            onClick={cycleDwellPreset}
+                            className="px-2 py-1 rounded hover:bg-zinc-800 transition text-[11px] leading-none font-mono text-zinc-400"
+                            title="Cycle playlist dwell time"
+                        >
+                            {normalizedPresentCycle.dwellSec}s
                         </button>
                         <Link
                             to="/"
@@ -214,6 +418,7 @@ export default function PresentationPage() {
                         >
                             <Keyboard className="w-4 h-4" />
                         </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -276,17 +481,26 @@ export default function PresentationPage() {
                     </div>
                     {mainView === 'index' && (
                         <iframe
+                            ref={attachIndexIframe}
                             src="/?embed=1"
                             className="w-full h-full border-0 bg-black"
                             title="Market Index"
                         />
                     )}
+                    {mainView === 'heatmap' && (
+                        <iframe
+                            ref={attachHeatmapIframe}
+                            src="/heatmap?embed=1"
+                            className="w-full h-full border-0 bg-black"
+                            title="Market Heatmap"
+                        />
+                    )}
 
-                    {/* Index hint — shown on PDF slide to surface the toggle */}
+                    {/* View hint — shown on PDF slide to surface the toggle */}
                     {mainView === 'slide' && slide.mode === 'pdf' && slide.content && (
                         <div className="absolute top-3 left-3 z-20 pointer-events-none">
                             <span className="text-[10px] font-mono text-zinc-600 bg-black/60 px-2 py-0.5 rounded">
-                                Press <kbd className="text-emerald-500">I</kbd> or click <kbd className="text-emerald-500">⊞</kbd> to toggle index
+                                Press <kbd className="text-emerald-500">I</kbd> to cycle slide, index, and heatmap
                             </span>
                         </div>
                     )}
@@ -412,7 +626,9 @@ export default function PresentationPage() {
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">Q</kbd>
                         <span className="text-zinc-400">quote</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">I</kbd>
-                        <span className="text-zinc-400">index view</span>
+                        <span className="text-zinc-400">cycle view</span>
+                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">P</kbd>
+                        <span className="text-zinc-400">playlist</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">?</kbd>
                         <span className="text-zinc-400">toggle this</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">Esc</kbd>

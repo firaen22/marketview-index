@@ -26,12 +26,13 @@ export default function HeatmapPage() {
     const [viewSource, setViewSource] = useState<'market' | 'funds'>('market');
     const [timeRange, setTimeRange] = useState<string>('YTD');
     const [language, setLanguage] = useState<'en' | 'zh-TW'>(() => getSettings().lang);
+    const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
 
     useSettingsSync(({ lang }) => {
         if (lang) setLanguage(lang);
     });
 
-    const { data: marketData, isLoading, error, refresh: fetchData } = useMarketData({ range: timeRange });
+    const { data: marketData, isLoading, error, refresh: fetchData } = useMarketData({ range: timeRange, refreshMs: isEmbed ? 5 * 60 * 1000 : undefined });
 
     const changeViewSource = (next: 'market' | 'funds') => {
         setViewSource(next);
@@ -49,7 +50,8 @@ export default function HeatmapPage() {
     const t = { ...locale, ...locale.heatmapPage };
 
     return (
-        <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 lg:p-8 font-sans">
+        <div className={`min-h-screen bg-zinc-950 text-zinc-100 ${isEmbed ? 'p-2 lg:p-4' : 'p-4 lg:p-8'} font-sans`}>
+            {!isEmbed && (
             <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 border-b border-zinc-800 pb-8">
                 <div className="flex items-center gap-4">
                     <Link
@@ -156,6 +158,7 @@ export default function HeatmapPage() {
                     </button>
                 </div>
             </header>
+            )}
 
             <main className="max-w-7xl mx-auto">
                 {error && !isLoading && (
@@ -169,14 +172,14 @@ export default function HeatmapPage() {
                         </button>
                     </div>
                 )}
-                {isLoading ? (
+                {isLoading && marketData.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-[500px] text-zinc-600">
                         <Loader2 className="w-12 h-12 animate-spin mb-4 opacity-50 text-emerald-500" />
                         <p className="font-medium animate-pulse text-lg">{t.loading}</p>
                     </div>
                 ) : (
                     <div className="animate-in fade-in zoom-in duration-500">
-                        <div className="bg-zinc-900/20 border border-zinc-800/60 rounded-3xl p-6 backdrop-blur-sm relative overflow-hidden min-h-[750px] transition-all duration-500">
+                        <div className={cn("bg-zinc-900/20 border border-zinc-800/60 rounded-3xl p-6 backdrop-blur-sm relative overflow-hidden transition-all duration-500", isEmbed ? "" : "min-h-[750px]")}>
                             {/* Decorative glow */}
                             <div className={cn(
                                 "absolute -top-24 -left-24 w-64 h-64 rounded-full blur-[100px] pointer-events-none transition-colors duration-500",
@@ -187,12 +190,13 @@ export default function HeatmapPage() {
                                 viewSource === 'market' ? "bg-cyan-500/10" : "bg-purple-500/10"
                             )} />
 
-                            <div className="h-[650px] w-full">
+                            <div className={isEmbed ? "h-[calc(100vh-140px)] w-full" : "h-[650px] w-full"}>
                                 <MarketHeatmap rawData={filteredData} groupBy={viewMode} />
                             </div>
 
                             <HeatmapLegend />
 
+                            {!isEmbed && (
                             <div className="mt-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                                 {filteredData.map((item) => (
                                     <div key={item.symbol} className="bg-zinc-900/40 border border-zinc-800/50 p-3 rounded-xl flex items-center justify-between hover:border-zinc-700 transition-colors">
@@ -209,6 +213,7 @@ export default function HeatmapPage() {
                                     </div>
                                 ))}
                             </div>
+                            )}
                         </div>
                     </div>
                 )}
