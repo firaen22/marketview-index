@@ -58,7 +58,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
                     <iframe
                         key={slide.updatedAt}
                         srcDoc={html}
-                        sandbox="allow-scripts allow-same-origin"
+                        sandbox="allow-scripts"
                         className="w-full h-full border-0"
                     />
                 </div>
