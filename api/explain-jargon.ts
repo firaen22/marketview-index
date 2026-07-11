@@ -108,7 +108,7 @@ export default async function handler(req: any, res: any) {
         const models = 'text' in input ? NIM_TEXT_MODELS : NIM_VISION_MODELS;
         let raw: string;
         try {
-            raw = await callNim(apiKeys, models, buildJargonMessages(input, lang), 900);
+            raw = await callNim(apiKeys, models, buildJargonMessages(input, lang), 900, { reasoningEffort: 'low' });
         } catch (error) {
             console.warn('Jargon generation failed:', error);
             return res.status(502).json({ success: false, error: 'AI processing failed' });
