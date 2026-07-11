@@ -24,6 +24,8 @@ import { IndexChartModal } from './components/IndexChartModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { PdfViewerHandle } from './components/PdfViewer';
+import { getAllMarketStatuses } from './marketHours';
+import { MarketStatusChip } from './components/MarketStatusChip';
 
 
 export default function PresentationPage() {
@@ -38,6 +40,7 @@ export default function PresentationPage() {
     const [presentCycle, setPresentCycle] = useState<PresentCycle>(() => normalizePresentCycle(initialSettings.presentCycle));
     const [dwellResetNonce, setDwellResetNonce] = useState(0);
     const [kioskHidden, setKioskHidden] = useState(false);
+    const [statusNow, setStatusNow] = useState(() => Date.now());
     const clock = useClock();
     const [lang, setLang] = useState<'en' | 'zh-TW'>(initialSettings.lang);
     const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
@@ -45,6 +48,7 @@ export default function PresentationPage() {
     const [briefPanelOpen, setBriefPanelOpen] = useState(false);
     const hintsTimerRef = useRef<number | null>(null);
     const kioskTimerRef = useRef<number | null>(null);
+    const hasLoggedMarketStatusError = useRef(false);
     const iframeCleanupRef = useRef<Partial<Record<'index' | 'heatmap', () => void>>>({});
     const pdfRef = useRef<PdfViewerHandle>(null);
     const normalizedPresentCycle = React.useMemo(() => normalizePresentCycle(presentCycle), [presentCycle]);
@@ -61,6 +65,19 @@ export default function PresentationPage() {
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
     const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || !!qp.chartItem;
+    const dwellSec = normalizedPresentCycle.dwellSec;
+
+    const marketStatuses = React.useMemo(() => {
+        try {
+            return getAllMarketStatuses(new Date(statusNow));
+        } catch (error) {
+            if (!hasLoggedMarketStatusError.current) {
+                console.error('Failed to compute market statuses', error);
+                hasLoggedMarketStatusError.current = true;
+            }
+            return [];
+        }
+    }, [statusNow]);
 
     const briefItems = React.useMemo(
         () => morningBrief
@@ -198,9 +215,14 @@ export default function PresentationPage() {
                 return currentIndex < 0 ? views[0] : views[(currentIndex + 1) % views.length];
             });
             setDwellResetNonce(n => n + 1);
-        }, normalizedPresentCycle.dwellSec * 1000);
+        }, dwellSec * 1000);
         return () => window.clearTimeout(timeout);
-    }, [cycleRunning, cyclePaused, normalizedPresentCycle, dwellResetNonce]);
+    }, [cycleRunning, cyclePaused, normalizedPresentCycle, dwellResetNonce, dwellSec]);
+
+    useEffect(() => {
+        const interval = window.setInterval(() => setStatusNow(Date.now()), 10_000);
+        return () => window.clearInterval(interval);
+    }, []);
 
     const isTypingTarget = useCallback((target: EventTarget | null) => {
         const element = target as HTMLElement | null;
@@ -328,7 +350,7 @@ export default function PresentationPage() {
     const pinned = pinnedRaw.length > 0 ? pinnedRaw : marketData;
 
     return (
-        <div className={`min-h-screen w-full bg-black text-zinc-100 flex flex-col relative ${kioskHidden ? 'cursor-none' : ''}`}>
+        <div className={`h-screen overflow-hidden w-full bg-black text-zinc-100 flex flex-col relative ${kioskHidden ? 'cursor-none' : ''}`}>
             {/* Top bar */}
             <div className={`overflow-hidden transition-[max-height,opacity] duration-300 ${kioskHidden ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-20 opacity-100'}`}>
                 <div className="flex items-center justify-between px-8 py-3 border-b border-zinc-900">
@@ -423,22 +445,6 @@ export default function PresentationPage() {
                 </div>
             </div>
 
-            {/* Scrolling ticker strip */}
-            {stripMode === 'compact' && (
-                <div className="border-b border-zinc-900 bg-zinc-950/50 overflow-hidden relative h-9 flex items-center">
-                    {pinned.length > 0 ? (
-                        <div className="inline-flex animate-ticker whitespace-nowrap">
-                            {pinned.map((item) => <TickerItem key={item.symbol} item={item} t={t} />)}
-                            <span aria-hidden="true" className="inline-flex">
-                                {pinned.map((item) => <TickerItem key={`${item.symbol}-dup`} item={item} t={t} />)}
-                            </span>
-                        </div>
-                    ) : (
-                        <span className="text-xs text-zinc-600 px-8">Loading…</span>
-                    )}
-                </div>
-            )}
-
             {/* Card grid strip */}
             {stripMode === 'full' && (
                 <div className="flex flex-col gap-4 px-8 py-6 border-b border-zinc-900 bg-zinc-950/30">
@@ -495,6 +501,7 @@ export default function PresentationPage() {
                             title="Market Heatmap"
                         />
                     )}
+                    <div key={mainView} className="pointer-events-none absolute inset-0 view-unfade" aria-hidden="true" />
 
                     {/* View hint — shown on PDF slide to surface the toggle */}
                     {mainView === 'slide' && slide.mode === 'pdf' && slide.content && (
@@ -614,7 +621,7 @@ export default function PresentationPage() {
 
             {/* Shortcut hints overlay */}
             {showHints && (
-                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur border border-zinc-800 rounded-xl px-5 py-3 z-50 shadow-2xl animate-in fade-in slide-in-from-bottom-4">
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur border border-zinc-800 rounded-xl px-5 py-3 z-50 shadow-2xl hints-in">
                     <div className="flex items-center gap-5 text-xs">
                         <span className="text-zinc-500">Shortcuts:</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">E</kbd>
@@ -636,6 +643,40 @@ export default function PresentationPage() {
                     </div>
                 </div>
             )}
+
+            <div className="relative shrink-0 h-9 w-full bg-zinc-950/95 border-t border-zinc-800 flex items-center">
+                {cycleRunning && !cyclePaused && (
+                    <div
+                        key={`${dwellResetNonce}-${mainView}-${dwellSec}`}
+                        className="absolute -top-px left-0 h-0.5 bg-emerald-500/70 dwell-progress"
+                        style={{ animationDuration: `${dwellSec}s` }}
+                    />
+                )}
+                <div className="shrink-0 max-w-[520px] overflow-hidden flex items-center gap-3 px-4">
+                    <span className="font-mono text-xs text-zinc-300">{clock}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                        {marketStatuses.map(status => (
+                            <MarketStatusChip key={status.key} status={status} now={statusNow} />
+                        ))}
+                    </div>
+                </div>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                    {stripMode === 'compact' && (
+                        <div className="overflow-hidden relative h-9 flex items-center">
+                            {pinned.length > 0 ? (
+                                <div className="inline-flex animate-ticker whitespace-nowrap">
+                                    {pinned.map((item) => <TickerItem key={item.symbol} item={item} t={t} />)}
+                                    <span aria-hidden="true" className="inline-flex">
+                                        {pinned.map((item) => <TickerItem key={`${item.symbol}-dup`} item={item} t={t} />)}
+                                    </span>
+                                </div>
+                            ) : (
+                                <span className="text-xs text-zinc-600 px-8">Loading…</span>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
