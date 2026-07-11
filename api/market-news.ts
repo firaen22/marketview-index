@@ -1,53 +1,10 @@
 import YahooFinance from 'yahoo-finance2';
-import { GoogleGenAI } from '@google/genai';
 import { redis } from '../lib/redis.js';
-import crypto from 'crypto';
+import { getNimApiKeys, callNim, NIM_TEXT_MODELS } from '../lib/nim.js';
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const CACHE_KEY = 'global_market_news_v1';
 const NEWS_CACHE_TTL = 60 * 15; // 15 minutes in seconds
-
-// 2. Gemini GenAI Setup
-// Each env var may hold a single key or several comma-separated keys.
-function getServerApiKeys(): string[] {
-    return [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_FALLBACK]
-        .flatMap(value => (typeof value === 'string' ? value.split(',') : []))
-        .map(key => key.trim())
-        .filter(key => key.length > 0);
-}
-
-// Cache resolved model names to avoid calling models.list() on every request (Issue #16)
-const resolvedModelCache: Map<string, { model: string; ts: number }> = new Map();
-const MODEL_CACHE_TTL = 1000 * 60 * 60; // 1 hour
-
-async function resolveModel(client: any, cacheKey: string): Promise<string> {
-    const cached = resolvedModelCache.get(cacheKey);
-    if (cached && Date.now() - cached.ts < MODEL_CACHE_TTL) {
-        return cached.model;
-    }
-    let modelName = 'gemini-2.5-flash-lite';
-    try {
-        const modelListResult: any = await client.models.list();
-        const availableModels: string[] = [];
-        for await (const m of modelListResult) {
-            availableModels.push(m.name.replace('models/', ''));
-        }
-        const preferred = ['gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
-        for (const p of preferred) {
-            if (availableModels.includes(p)) {
-                modelName = p;
-                break;
-            }
-        }
-    } catch (listErr) {
-        console.warn('Fallback to gemini-2.5-flash-lite:', listErr);
-    }
-    if (resolvedModelCache.size >= 50) {
-        resolvedModelCache.clear();
-    }
-    resolvedModelCache.set(cacheKey, { model: modelName, ts: Date.now() });
-    return modelName;
-}
 
 export default async function handler(req: any, res: any) {
     try {
@@ -67,15 +24,7 @@ export default async function handler(req: any, res: any) {
             return res.status(200).json({ ...payload, source: 'cache' });
         };
 
-        // Check for custom Gemini API Key in Authorization header
-        const authHeader = req.headers.authorization;
-        const rawCustomApiKey = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
-        const customApiKey = rawCustomApiKey && /^[A-Za-z0-9._-]{20,128}$/.test(rawCustomApiKey) ? rawCustomApiKey : null;
-
-        // Use custom key if provided, otherwise fall back to server key(s)
-        const useCustomKey = !!customApiKey && customApiKey !== 'null' && customApiKey !== 'undefined';
-        const apiKeys = useCustomKey ? [customApiKey as string] : getServerApiKeys();
-        if (useCustomKey) console.log('Using custom Gemini API key from request.');
+        const apiKeys = getNimApiKeys();
         const hasAi = apiKeys.length > 0;
 
         // 1. Try to read from Redis Cache first (only if NO custom key is used)
@@ -89,7 +38,7 @@ export default async function handler(req: any, res: any) {
             await redis.set(throttleKey, '1', { ex: 60 });
         }
 
-        if (redis && !forceRefresh && !customApiKey) {
+        if (redis && !forceRefresh) {
             if (cachedNews) {
                 return returnCachedPayload(cachedNews);
             }
@@ -145,6 +94,7 @@ export default async function handler(req: any, res: any) {
         });
 
         let marketSummary = "";
+        let aiFailed = false;
 
         if (hasAi) {
             const combinedPrompt = `
@@ -175,26 +125,9 @@ OUTPUT FORMAT (Valid JSON only):
 `;
 
             try {
-                // Try each key until one succeeds; each key resolves its own model (cached).
-                let result: any = null;
-                for (const apiKey of apiKeys) {
-                    try {
-                        const client = new GoogleGenAI({ apiKey });
-                        const modelCacheKey = crypto.createHash('sha256').update(apiKey).digest('hex');
-                        const modelName = await resolveModel(client, modelCacheKey);
-                        result = await client.models.generateContent({
-                            model: modelName,
-                            contents: [{ role: 'user', parts: [{ text: combinedPrompt }] }],
-                            config: { responseMimeType: 'application/json' }
-                        });
-                        break;
-                    } catch (keyErr) {
-                        console.warn('Gemini news processing failed for a key, trying next:', keyErr);
-                    }
-                }
-                if (!result) throw new Error('All Gemini API keys failed');
-
-                const aiResponse = JSON.parse(result.text || "{}");
+                const raw = await callNim(apiKeys, NIM_TEXT_MODELS,
+                    [{ role: 'user', content: combinedPrompt }], 3000);
+                const aiResponse = JSON.parse(raw || "{}");
 
                 // Parse Market Pulse
                 if (aiResponse.pulse) {
@@ -221,6 +154,7 @@ OUTPUT FORMAT (Valid JSON only):
                 }
             } catch (err) {
                 console.error('Consolidated AI processing failed:', err);
+                aiFailed = true;
                 marketSummary = isChinese
                     ? "AI 摘要因配額或處理錯誤而無法使用。"
                     : "AI Summary unavailable due to quota or processing error.";
@@ -232,15 +166,16 @@ OUTPUT FORMAT (Valid JSON only):
             timestamp: new Date().toISOString(),
             data: processedNews,
             marketSummary: marketSummary,
-            isAiTranslated: hasAi ? true : false
+            isAiTranslated: hasAi && !aiFailed
         };
 
-        if (hasAi) console.log(`Processed ${processedNews.length} news items with Gemini. Lang: ${lang}`);
-        else console.log(`Returning ${processedNews.length} news items WITHOUT Gemini translation (No API Key).`);
+        if (hasAi && !aiFailed) console.log(`Processed ${processedNews.length} news items with NIM. Lang: ${lang}`);
+        else console.log(`Returning ${processedNews.length} news items WITHOUT NIM processing (no key or AI failed).`);
 
-        // 4. Save to Redis Cache (Valid for 15 minutes)
-        if (redis && !customApiKey) {
-            await redis.set(CURRENT_CACHE_KEY, JSON.stringify(responsePayload), { ex: NEWS_CACHE_TTL });
+        // 4. Save to Redis Cache (15 minutes; a failed AI result only for 60s so a
+        // transient outage isn't served for the full TTL)
+        if (redis) {
+            await redis.set(CURRENT_CACHE_KEY, JSON.stringify(responsePayload), { ex: aiFailed ? 60 : NEWS_CACHE_TTL });
             console.log('Cache updated in Redis.');
         }
 
