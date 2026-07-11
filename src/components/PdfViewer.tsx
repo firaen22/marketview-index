@@ -10,6 +10,7 @@ interface Props {
     zoom?: number;
     keyboardEnabled?: boolean;
     onPageText?: (page: number, text: string) => void;
+    onPageChange?: (page: number) => void;
 }
 
 export interface PdfViewerHandle {
@@ -17,7 +18,7 @@ export interface PdfViewerHandle {
     nextPage: () => void;
 }
 
-export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText }, ref) => {
+export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText, onPageChange }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pageNum, setPageNum] = useState(1);
@@ -70,6 +71,11 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         });
         return () => { cancelled = true; };
     }, [pdf, pageNum, zoom]);
+
+    useEffect(() => {
+        if (!pdf || !onPageChange) return;
+        onPageChange(pageNum);
+    }, [pdf, pageNum, onPageChange]);
 
     useEffect(() => {
         if (!pdf || !onPageText) return;

@@ -487,6 +487,7 @@ export default function PresentationPage() {
                                 pdfKeyboardEnabled={false}
                                 pdfRef={pdfRef}
                                 onPdfPageText={jargon.onPageText}
+                                onPdfPageChange={jargon.onPageChange}
                             />
                         </SlideErrorBoundary>
                     </div>

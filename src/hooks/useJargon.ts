@@ -21,7 +21,11 @@ interface LatestPageText {
     text: string;
 }
 
-export function useJargon(opts: Options): { terms: JargonTerm[]; onPageText: (page: number, text: string) => void } {
+export function useJargon(opts: Options): {
+    terms: JargonTerm[];
+    onPageText: (page: number, text: string) => void;
+    onPageChange: () => void;
+} {
     const { enabled, pdfUrl, lang, geminiKey } = opts;
     const [terms, setTerms] = useState<JargonTerm[]>([]);
     const cacheRef = useRef(new Map<string, JargonTerm[]>());
@@ -48,12 +52,11 @@ export function useJargon(opts: Options): { terms: JargonTerm[]; onPageText: (pa
     }, []);
 
     const runPipeline = useCallback((page: number, text: string) => {
-        if (!enabledRef.current) return;
-
         const currentPdfUrl = pdfUrlRef.current;
         const currentLang = langRef.current;
         const key = jargonCacheKey(currentPdfUrl, page, currentLang);
         latestRef.current = { key, pdfUrl: currentPdfUrl, page, text };
+        if (!enabledRef.current) return;
         clearDebounce();
 
         const cached = cacheRef.current.get(key);
@@ -64,7 +67,9 @@ export function useJargon(opts: Options): { terms: JargonTerm[]; onPageText: (pa
         }
 
         if (!isJargonEligible(text)) {
-            cacheRef.current.set(key, []);
+            // Not cached: extraction may have transiently failed with '' — a
+            // revisit re-extracts and gets a fresh chance. Skipping the fetch
+            // is free, so caching ineligible results saves nothing.
             activeRequestKeyRef.current = null;
             setTerms([]);
             return;
@@ -131,6 +136,15 @@ export function useJargon(opts: Options): { terms: JargonTerm[]; onPageText: (pa
         runPipeline(page, text);
     }, [runPipeline]);
 
+    // Fired synchronously when the displayed PDF page changes, BEFORE the new
+    // page's text extraction resolves — drops any in-flight response for the
+    // previous page so its terms can never appear over the new page.
+    const onPageChange = useCallback(() => {
+        clearDebounce();
+        activeRequestKeyRef.current = null;
+        setTerms([]);
+    }, [clearDebounce]);
+
     useEffect(() => {
         geminiKeyRef.current = geminiKey;
     }, [geminiKey]);
@@ -172,5 +186,5 @@ export function useJargon(opts: Options): { terms: JargonTerm[]; onPageText: (pa
         return () => clearDebounce();
     }, [clearDebounce]);
 
-    return { terms, onPageText };
+    return { terms, onPageText, onPageChange };
 }
