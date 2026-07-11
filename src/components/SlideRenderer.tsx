@@ -10,9 +10,10 @@ interface Props {
     pdfZoom?: number;
     pdfKeyboardEnabled?: boolean;
     pdfRef?: React.Ref<PdfViewerHandle>;
+    onPdfPageText?: (page: number, text: string) => void;
 }
 
-export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true, pdfRef }) => {
+export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true, pdfRef, onPdfPageText }) => {
     const injected = React.useMemo(() => {
         if (slide.mode !== 'markdown' && slide.mode !== 'html') return '';
         return injectMarketTokens(slide.content, marketData);
@@ -44,7 +45,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     if (slide.mode === 'pdf') {
-        return <PdfViewer ref={pdfRef} url={slide.content.trim()} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} />;
+        return <PdfViewer ref={pdfRef} url={slide.content.trim()} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} onPageText={onPdfPageText} />;
     }
 
     if (slide.mode === 'html') {
