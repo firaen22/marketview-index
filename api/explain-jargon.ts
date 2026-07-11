@@ -83,6 +83,58 @@ ${output}`;
         }];
 }
 
+// Vision models under-extract jargon when asked directly (1 term where the
+// text model finds 4 on the same slide, measured live 2026-07-11), so image
+// input is handled in two steps: a vision model transcribes the slide text,
+// then the stronger text model extracts jargon from the transcript. Returns ''
+// when nothing useful comes back so the caller can fall back to single-shot
+// vision extraction.
+async function transcribeSlideImage(apiKeys: string[], imageBase64: string): Promise<string> {
+    const messages = [{
+        role: 'user',
+        content: [
+            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+            {
+                type: 'text',
+                text: 'Transcribe ALL text visible in this slide image, in reading order, exactly as written. OUTPUT (valid JSON only): { "text": "..." }',
+            },
+        ],
+    }];
+    const raw = await callNim(apiKeys, NIM_VISION_MODELS, messages, 1200, { reasoningEffort: 'low' });
+    try {
+        const parsed = JSON.parse(raw || '{}');
+        return typeof parsed?.text === 'string' ? parsed.text.trim() : '';
+    } catch {
+        return '';
+    }
+}
+
+// Transcribe-then-extract, falling back to the old single-shot vision
+// extraction when transcription yields nothing or the text model is down —
+// an image request must not fail while the legacy path could still succeed.
+async function extractFromImage(apiKeys: string[], imageBase64: string, lang: 'en' | 'zh-TW'): Promise<string> {
+    let transcript = '';
+    try {
+        transcript = await transcribeSlideImage(apiKeys, imageBase64);
+    } catch (error) {
+        console.warn('Slide transcription failed:', error);
+    }
+    if (transcript) {
+        try {
+            return await callNim(
+                apiKeys,
+                NIM_TEXT_MODELS,
+                buildJargonMessages({ text: transcript.slice(0, 6000) }, lang),
+                900,
+                { reasoningEffort: 'low' }
+            );
+        } catch (error) {
+            console.warn('Jargon extraction from transcript failed:', error);
+        }
+    }
+    return callNim(apiKeys, NIM_VISION_MODELS, buildJargonMessages({ imageBase64 }, lang), 900, { reasoningEffort: 'low' });
+}
+
 export default async function handler(req: any, res: any) {
     try {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -112,10 +164,11 @@ export default async function handler(req: any, res: any) {
             return res.status(503).json({ success: false, error: 'No AI API key configured' });
         }
 
-        const models = 'text' in input ? NIM_TEXT_MODELS : NIM_VISION_MODELS;
         let raw: string;
         try {
-            raw = await callNim(apiKeys, models, buildJargonMessages(input, lang), 900, { reasoningEffort: 'low' });
+            raw = 'text' in input
+                ? await callNim(apiKeys, NIM_TEXT_MODELS, buildJargonMessages(input, lang), 900, { reasoningEffort: 'low' })
+                : await extractFromImage(apiKeys, input.imageBase64, lang);
         } catch (error) {
             console.warn('Jargon generation failed:', error);
             return res.status(502).json({ success: false, error: 'AI processing failed' });
