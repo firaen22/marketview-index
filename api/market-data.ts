@@ -87,14 +87,21 @@ export default async function handler(req: any, res: any) {
 
     const authHeader = req.headers.authorization;
     const cronSecret = process.env.CRON_SECRET;
-    const isCron = cronSecret
-      ? typeof authHeader === 'string' && authHeader === `Bearer ${cronSecret}`
-      : req.headers['user-agent']?.includes('Vercel-Cron');
+    const isCron = !!cronSecret && typeof authHeader === 'string' && authHeader === `Bearer ${cronSecret}`;
 
     // 1. 嘗試從 Redis 讀取全球快取資料
     let cachedPayload: any = redis ? await redis.get(RANGE_CACHE_KEY) : null;
-    const returnCachedPayload = (payload: any) => {
-      const resultPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    const parseCache = (payload: any) => {
+      if (!payload) return null;
+      if (typeof payload !== 'string') return payload;
+      try {
+        return JSON.parse(payload);
+      } catch {
+        return null;
+      }
+    };
+    const parsedCache = parseCache(cachedPayload);
+    const returnCachedPayload = (resultPayload: any) => {
       if (resultPayload) {
         resultPayload.source = 'server_cache';
       }
@@ -105,14 +112,14 @@ export default async function handler(req: any, res: any) {
     if (redis && forceRefresh && !isCron) {
       const throttleKey = `refresh_throttle_${RANGE_CACHE_KEY}`;
       const throttled = await redis.get(throttleKey);
-      if (throttled && cachedPayload) {
-        return returnCachedPayload(cachedPayload);
+      if (throttled && parsedCache) {
+        return returnCachedPayload(parsedCache);
       }
       await redis.set(throttleKey, '1', { ex: 60 });
     }
 
     // 2. 如果是 Cron 時段 (早上 9 點)、強制更新、或 Redis 內完全沒資料，就拉取新資料並寫入 Redis
-    if (isCron || forceRefresh || !cachedPayload) {
+    if (isCron || forceRefresh || !parsedCache) {
       console.log(`Fetching fresh data for range ${range} from Yahoo Finance...`);
       const freshData = await fetchAllIndices(range);
 
@@ -131,7 +138,7 @@ export default async function handler(req: any, res: any) {
     }
 
     // 3. 一般前端請求，直接回傳 Redis 上的資料（節省 API 額度與防 IP Ban）
-    return returnCachedPayload(cachedPayload);
+    return returnCachedPayload(parsedCache);
 
   } catch (error: any) {
     console.error('API Error:', error);
@@ -141,7 +148,13 @@ export default async function handler(req: any, res: any) {
       try {
         const fallbackPayload: any = await redis.get(RANGE_CACHE_KEY);
         if (fallbackPayload) {
-          const parsed = typeof fallbackPayload === 'string' ? JSON.parse(fallbackPayload) : fallbackPayload;
+          let parsed: any;
+          try {
+            parsed = typeof fallbackPayload === 'string' ? JSON.parse(fallbackPayload) : fallbackPayload;
+          } catch {
+            parsed = null;
+          }
+          if (!parsed) throw new Error('Invalid fallback cache payload');
           return res.status(200).json({
             ...parsed,
             success: false,
@@ -206,7 +219,7 @@ async function fetchAllIndices(range: string) {
     const high = quote.regularMarketDayHigh || price;
     const low = quote.regularMarketDayLow || price;
 
-    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt && pt.close !== null && pt.close !== 0);
+    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt && Number.isFinite(pt.close) && pt.close > 0);
     let history = [];
     let ytdChange = 0;
     let ytdChangePercent = 0;

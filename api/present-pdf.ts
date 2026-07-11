@@ -87,7 +87,7 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: 'Invalid JSON body' });
     }
 
-    const rawName = body?.filename || `slide-${Date.now()}.pdf`;
+    const rawName = typeof body?.filename === 'string' && body.filename.trim() ? body.filename : `slide-${Date.now()}.pdf`;
     const filename = sanitizeFilename(rawName);
     const suffix = crypto.randomBytes(6).toString('hex');
     const key = `${Date.now()}-${suffix}-${filename}`;

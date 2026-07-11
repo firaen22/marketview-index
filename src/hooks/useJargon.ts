@@ -108,7 +108,6 @@ export function useJargon(opts: Options): {
                 jargonDebug('fetchDone', { page, status: response.status });
                 if (!response.ok) {
                     if (response.status !== 503) warnFailure(requestKey, new Error(`HTTP ${response.status}`));
-                    cacheRef.current.set(requestKey, []);
                     if (activeRequestKeyRef.current === requestKey) {
                         const latest = latestRef.current;
                         const currentKey = latest && latest.pdfUrl === pdfUrlRef.current
@@ -140,7 +139,6 @@ export function useJargon(opts: Options): {
             } catch (error) {
                 jargonDebug('fetchError', { page, err: String(error).slice(0, 200) });
                 warnFailure(requestKey, error);
-                cacheRef.current.set(requestKey, []);
                 const latest = latestRef.current;
                 const currentKey = latest && latest.pdfUrl === pdfUrlRef.current
                     ? jargonCacheKey(pdfUrlRef.current, latest.page, langRef.current, requestPath)

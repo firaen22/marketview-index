@@ -18,8 +18,16 @@ export default async function handler(req: any, res: any) {
 
         const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
         const forceRefresh = searchParams.get('refresh') === 'true';
-        const returnCachedPayload = (cached: any) => {
-            const payload = typeof cached === 'string' ? JSON.parse(cached) : cached;
+        const parseCache = (cached: any): any | null => {
+            if (!cached) return null;
+            if (typeof cached !== 'string') return cached;
+            try {
+                return JSON.parse(cached);
+            } catch {
+                return null;
+            }
+        };
+        const returnCachedPayload = (payload: any) => {
             return res.status(200).json({ ...payload, source: 'cache' });
         };
 
@@ -33,18 +41,19 @@ export default async function handler(req: any, res: any) {
         }
 
         let cached: any = redis ? await redis.get(CACHE_KEY) : null;
+        const parsedCache = parseCache(cached);
         if (redis && forceRefresh) {
             const throttleKey = `refresh_throttle_${CACHE_KEY}`;
             const throttled = await redis.get(throttleKey);
-            if (throttled && cached) {
-                return returnCachedPayload(cached);
+            if (throttled && parsedCache) {
+                return returnCachedPayload(parsedCache);
             }
             await redis.set(throttleKey, '1', { ex: 60 });
         }
 
         if (redis && !forceRefresh) {
-            if (cached) {
-                return returnCachedPayload(cached);
+            if (parsedCache) {
+                return returnCachedPayload(parsedCache);
             }
         }
 

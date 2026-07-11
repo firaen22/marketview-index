@@ -30,7 +30,7 @@ export const transformToTreemap = (
             acc[cat].children.push({
                 name: item.name,
                 symbol: item.symbol,
-                size: item.category === 'Crypto' ? Math.log10(item.price) * 10 : 100,
+                size: item.category === 'Crypto' && Number.isFinite(item.price) && item.price > 0 ? Math.log10(item.price) * 10 : 100,
                 change: item.changePercent,
                 isPositive: item.changePercent >= 0,
             });

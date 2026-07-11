@@ -19,8 +19,16 @@ export default async function handler(req: any, res: any) {
         const lang = requestedLang === 'en' || requestedLang === 'zh-TW' ? requestedLang : 'en';
 
         const CURRENT_CACHE_KEY = lang === 'en' ? CACHE_KEY : `${CACHE_KEY}_${lang}`;
-        const returnCachedPayload = (cachedNews: any) => {
-            const payload = typeof cachedNews === 'string' ? JSON.parse(cachedNews) : cachedNews;
+        const parseCache = (cachedNews: any): any | null => {
+            if (!cachedNews) return null;
+            if (typeof cachedNews !== 'string') return cachedNews;
+            try {
+                return JSON.parse(cachedNews);
+            } catch {
+                return null;
+            }
+        };
+        const returnCachedPayload = (payload: any) => {
             return res.status(200).json({ ...payload, source: 'cache' });
         };
 
@@ -29,18 +37,19 @@ export default async function handler(req: any, res: any) {
 
         // 1. Try to read from Redis Cache first (only if NO custom key is used)
         let cachedNews: any = redis ? await redis.get(CURRENT_CACHE_KEY) : null;
+        const parsedCache = parseCache(cachedNews);
         if (redis && forceRefresh) {
             const throttleKey = `refresh_throttle_${CURRENT_CACHE_KEY}`;
             const throttled = await redis.get(throttleKey);
-            if (throttled && cachedNews) {
-                return returnCachedPayload(cachedNews);
+            if (throttled && parsedCache) {
+                return returnCachedPayload(parsedCache);
             }
             await redis.set(throttleKey, '1', { ex: 60 });
         }
 
         if (redis && !forceRefresh) {
-            if (cachedNews) {
-                return returnCachedPayload(cachedNews);
+            if (parsedCache) {
+                return returnCachedPayload(parsedCache);
             }
         }
 
@@ -56,8 +65,8 @@ export default async function handler(req: any, res: any) {
 
         const searchResults = await Promise.all(searchTasks);
         let allNews: any[] = [];
-        searchResults.forEach(res => {
-            if (res.news) allNews = [...allNews, ...res.news];
+        searchResults.forEach(searchResult => {
+            if (searchResult.news) allNews = [...allNews, ...searchResult.news];
         });
 
         // Deduplicate by UUID
