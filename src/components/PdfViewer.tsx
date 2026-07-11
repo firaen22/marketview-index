@@ -7,6 +7,7 @@ import {
     JARGON_MIN_TEXT_LEN,
     jargonImageDims,
 } from '../jargon';
+import { jargonDebug } from '../jargonDebug';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl as string;
 
@@ -90,6 +91,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
             .then(tc => {
                 if (cancelled) return;
                 const text = tc.items.map((it: any) => (typeof it.str === 'string' ? it.str : '')).join(' ');
+                jargonDebug('textExtracted', { page: pageNum, len: text.trim().length });
                 onPageText(pageNum, text);
                 if (text.trim().length >= JARGON_MIN_TEXT_LEN) return;
 
@@ -97,27 +99,34 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
                     .then(async page => {
                         const sourceViewport = page.getViewport({ scale: 1 });
                         const target = jargonImageDims(sourceViewport.width, sourceViewport.height);
+                        jargonDebug('captureStart', { page: pageNum, w: target.width, h: target.height });
                         const scale = sourceViewport.width > 0 ? target.width / sourceViewport.width : 1;
                         const viewport = page.getViewport({ scale });
                         const canvas = document.createElement('canvas');
                         canvas.width = target.width;
                         canvas.height = target.height;
                         const context = canvas.getContext('2d');
-                        if (!context) return;
+                        if (!context) { jargonDebug('captureNoContext', { page: pageNum }); return; }
                         await page.render({ canvasContext: context, canvas, viewport }).promise;
                         if (cancelled) return;
 
                         let imageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
                         if (!extractJargonImageBase64(imageDataUrl)) {
+                            jargonDebug('captureRetryLowQ', { page: pageNum, len: imageDataUrl.length, prefix: imageDataUrl.slice(0, 30) });
                             imageDataUrl = canvas.toDataURL('image/jpeg', 0.5);
                         }
-                        if (!cancelled && extractJargonImageBase64(imageDataUrl)) {
+                        const valid = extractJargonImageBase64(imageDataUrl);
+                        jargonDebug('captureDone', { page: pageNum, b64len: valid ? valid.length : null, prefix: imageDataUrl.slice(0, 30) });
+                        if (!cancelled && valid) {
                             onPageText(pageNum, text, imageDataUrl);
                         }
                     })
-                    .catch(() => {});
+                    .catch((err) => { jargonDebug('captureError', { page: pageNum, err: String(err).slice(0, 200) }); });
             })
-            .catch(() => { if (!cancelled) onPageText(pageNum, ''); });
+            .catch((err) => {
+                jargonDebug('textError', { page: pageNum, err: String(err).slice(0, 200) });
+                if (!cancelled) onPageText(pageNum, '');
+            });
         return () => { cancelled = true; };
     }, [pdf, pageNum, onPageText]);
 
