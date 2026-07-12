@@ -27,7 +27,7 @@ export function JargonSpotlight({ terms, lang }: Props) {
             <div key={index} className="hints-in">
                 <div className="flex items-center justify-between gap-4 mb-1">
                     <span className="text-[9px] font-mono uppercase tracking-widest text-emerald-500">
-                        {lang === 'zh-TW' ? '術語解說' : 'Jargon'}
+                        {lang === 'zh-TW' ? '關鍵詞解釋' : 'Jargon'}
                     </span>
                     {terms.length > 1 && (
                         <span className="text-[9px] font-mono text-zinc-600">
