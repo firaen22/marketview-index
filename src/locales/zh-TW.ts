@@ -116,6 +116,7 @@ export default {
         scFullscreen: "全螢幕",
         scStrip: "資訊列大小",
         scQuote: "報價",
+        scJargon: "關鍵詞",
         scCycleView: "切換視圖",
         scPlaylist: "輪播清單",
         scToggleHints: "切換提示",

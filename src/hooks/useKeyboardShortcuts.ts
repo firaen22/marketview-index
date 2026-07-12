@@ -7,6 +7,7 @@ interface Handlers {
     onToggleView: () => void;
     onTogglePlay?: () => void;
     onToggleQuote: () => void;
+    onToggleJargon?: () => void;
     onToggleHints: () => void;
     onEscape: () => void;
     onArrowLeft?: () => void;
@@ -30,6 +31,7 @@ export function useKeyboardShortcuts(handlers: Handlers) {
             if (e.key === 'i' || e.key === 'I') { e.preventDefault(); handlers.onToggleView(); }
             if ((e.key === 'p' || e.key === 'P') && handlers.onTogglePlay) { e.preventDefault(); handlers.onTogglePlay(); }
             if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); handlers.onToggleQuote(); }
+            if ((e.key === 'j' || e.key === 'J') && handlers.onToggleJargon) { e.preventDefault(); handlers.onToggleJargon(); }
             if (e.key === '?' || e.key === '/') { e.preventDefault(); handlers.onToggleHints(); }
             if (e.key === 'ArrowLeft' && handlers.onArrowLeft) { e.preventDefault(); handlers.onArrowLeft(); }
             if (e.key === 'ArrowRight' && handlers.onArrowRight) { e.preventDefault(); handlers.onArrowRight(); }
@@ -47,6 +49,7 @@ export function useKeyboardShortcuts(handlers: Handlers) {
         handlers.onToggleView,
         handlers.onTogglePlay,
         handlers.onToggleQuote,
+        handlers.onToggleJargon,
         handlers.onToggleHints,
         handlers.onEscape,
         handlers.onArrowLeft,
