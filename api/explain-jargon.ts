@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 import { getNimApiKeys, callNim, callNimHedged, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
 import { redis } from '../lib/redis.js';
+import { applyGlossaryOverride } from '../lib/jargonGlossary.js';
 
 interface JargonTerm {
     term: string;
@@ -246,7 +247,10 @@ export default async function handler(req: any, res: any) {
                 if (cached) {
                     const terms = typeof cached === 'string' ? JSON.parse(cached) : cached;
                     if (Array.isArray(terms)) {
-                        return res.status(200).json({ success: true, terms, source: 'cache' });
+                        // Override at response time (not bake time) so vetted
+                        // glossary edits take effect immediately, without waiting
+                        // for the 30-day model-output cache to expire.
+                        return res.status(200).json({ success: true, terms: applyGlossaryOverride(terms, lang), source: 'cache' });
                     }
                 }
             } catch (err) {
@@ -304,6 +308,8 @@ export default async function handler(req: any, res: any) {
         // Cache only non-empty results: vision latency swings and can return an
         // empty read on a slide that DOES have jargon, so we never want to lock
         // in a bad empty result for 30 days. Cache write failures are ignored.
+        // The raw model terms are cached; the glossary override is applied on the
+        // way out (below) so edits to vetted wording don't require a cache flush.
         if (cacheKey && terms.length > 0) {
             try {
                 await redis!.set(cacheKey, JSON.stringify(terms), { ex: JARGON_CACHE_TTL_S });
@@ -312,7 +318,7 @@ export default async function handler(req: any, res: any) {
             }
         }
 
-        return res.status(200).json({ success: true, terms });
+        return res.status(200).json({ success: true, terms: applyGlossaryOverride(terms, lang) });
     } catch (error) {
         console.error('Jargon API Error:', error);
         if (!res.headersSent) {
