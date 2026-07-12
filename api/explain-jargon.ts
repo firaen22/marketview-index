@@ -103,7 +103,10 @@ function buildJargonPrompt(
     lang: 'en' | 'zh-TW'
 ): string {
     const outputLanguage = lang === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English';
-    const lengthRule = lang === 'zh-TW' ? '50 個中文字' : '30 words';
+    const lengthRule = lang === 'zh-TW' ? '18 至 35 個中文字' : '25 words';
+    const noIntro = lang === 'zh-TW'
+        ? '，也不要以「這個詞的意思是」、「簡單來說」、「指的是」等開場'
+        : '';
     const source = 'text' in input
         ? 'From the slide text below, identify'
         : 'Read ALL text visible in this slide IMAGE, then identify';
@@ -121,16 +124,19 @@ NEVER pick: fund/ticker codes (like B12, X03#), row numbers, percentages, or dat
 technical financial terms (jargon) that a general business audience may not know.${imageGuidance}
 
 For each term, write an explanation in ${outputLanguage} that:
-- uses plain everyday language a viewer with no finance background instantly understands — never
-  explain jargon with more jargon, and never just restate the term
-- where natural, anchors the idea with a concrete number, comparison, or everyday analogy
-  (e.g. "1 basis point = 0.01%, so 50 basis points is half a percent")
-- is at most ${lengthRule}
+- explains the term AS IT IS USED ON THIS SLIDE — its meaning in this specific context, not just a
+  generic dictionary definition
+- uses plain everyday language a viewer with no finance background grasps in a few seconds; never
+  explain jargon with another unexplained financial term, and never restate the term as its own definition${noIntro}
+- prefers concrete over abstract wording — where natural, anchor with a specific number, comparison,
+  or everyday analogy (e.g. "1 basis point = 0.01%, so 50 basis points is half a percent")
+- is at most ${lengthRule}, in no more than 2 short sentences
+- adds no forecasts, advice, or claims the slide does not support
 
 Keep the term itself in its original language as it appears on the slide, and list the most
 important term first.
 Only include genuinely technical terms (e.g. duration, basis point, contango, EBITDA margin) —
-skip common words, company names, and numbers. If there is no jargon, return an empty list.`;
+skip common words, company names, ticker/fund codes, and numbers. If there is no jargon, return an empty list.`;
     const output = `OUTPUT (valid JSON only): { "terms": [ { "term": "...", "explanation": "..." } ] }`;
     return 'text' in input
         ? `${rules}
