@@ -288,7 +288,10 @@ export default function Dashboard() {
           t={t}
           onClose={() => setShowSettings(false)}
           onSave={saveGeminiKey}
-          onShowFundsChange={setShowFundsInDashboard}
+          onShowFundsChange={(next) => {
+            setShowFundsInDashboard(next);
+            if (!next && selectedCategory === 'Fund') setSelectedCategory('All');
+          }}
         />
       )}
     </div>

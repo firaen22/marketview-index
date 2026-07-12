@@ -42,7 +42,7 @@ export function useFocusTrap<T extends HTMLElement>() {
         if (e.shiftKey && (active === first || !container.contains(active))) {
             e.preventDefault();
             last.focus();
-        } else if (!e.shiftKey && active === last) {
+        } else if (!e.shiftKey && (active === last || !container.contains(active))) {
             e.preventDefault();
             first.focus();
         }

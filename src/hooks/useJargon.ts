@@ -182,6 +182,7 @@ export function useJargon(opts: Options): {
         pdfUrlRef.current = pdfUrl.trim();
         clearDebounce();
         activeRequestKeyRef.current = null;
+        cacheRef.current.clear();
         setTerms([]);
     }, [pdfUrl, clearDebounce]);
 

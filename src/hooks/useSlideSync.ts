@@ -34,6 +34,11 @@ export function useSlideSync(): UseSlideSyncResult {
     const statusTimerRef = useRef<number | null>(null);
     const slideRef = useRef(slide);
     slideRef.current = slide;
+    const mountedRef = useRef(true);
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => { mountedRef.current = false; };
+    }, []);
 
     // Periodic tick to keep "saved Ns ago" label fresh
     useEffect(() => {
@@ -83,10 +88,12 @@ export function useSlideSync(): UseSlideSyncResult {
         }
         setCloudStatus('saving');
         saveRemoteSlide(target).then(() => {
+            if (!mountedRef.current) return;
             setCloudStatus('ok');
             setLastSavedAt(Date.now());
             statusTimerRef.current = window.setTimeout(() => setCloudStatus('idle'), 2000);
         }).catch((e) => {
+            if (!mountedRef.current) return;
             // Superseded by newer save — not a real failure, let the newer one drive UI state
             if (e instanceof StaleSaveError) return;
             setCloudStatus('error');
@@ -105,6 +112,7 @@ export function useSlideSync(): UseSlideSyncResult {
         }
         const byteSize = new Blob([merged.content]).size;
         if (byteSize > MAX_CONTENT_BYTES) {
+            if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
             setSizeWarning(`Content is ${(byteSize / 1024).toFixed(0)} KB — max ${MAX_CONTENT_BYTES / 1024} KB. Not synced to cloud.`);
             setCloudStatus('error');
             return;

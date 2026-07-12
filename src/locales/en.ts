@@ -107,5 +107,22 @@ export default {
         selectAll: 'Select all',
         clear: 'Clear',
         cancel: 'Cancel'
-    }
+    },
+    present: {
+        viewHintBefore: "Press",
+        viewHintAfter: "to cycle slide, index, and heatmap",
+        shortcuts: "Shortcuts:",
+        scEdit: "edit",
+        scFullscreen: "fullscreen",
+        scStrip: "strip size",
+        scQuote: "quote",
+        scCycleView: "cycle view",
+        scPlaylist: "playlist",
+        scToggleHints: "toggle this",
+        scClose: "close",
+        pdfLoading: "Loading PDF…",
+        pdfLoadError: "Failed to load PDF",
+        pdfPageError: "Failed to load PDF page",
+        pdfRenderError: "Failed to render PDF page",
+    },
 };

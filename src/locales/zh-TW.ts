@@ -107,5 +107,22 @@ export default {
         selectAll: '全選',
         clear: '清除',
         cancel: '取消'
-    }
+    },
+    present: {
+        viewHintBefore: "按",
+        viewHintAfter: "切換簡報、指數及熱力圖",
+        shortcuts: "快捷鍵：",
+        scEdit: "編輯",
+        scFullscreen: "全螢幕",
+        scStrip: "資訊列大小",
+        scQuote: "報價",
+        scCycleView: "切換視圖",
+        scPlaylist: "輪播清單",
+        scToggleHints: "切換提示",
+        scClose: "關閉",
+        pdfLoading: "PDF 載入中…",
+        pdfLoadError: "PDF 載入失敗",
+        pdfPageError: "PDF 頁面載入失敗",
+        pdfRenderError: "PDF 頁面渲染失敗",
+    },
 };
