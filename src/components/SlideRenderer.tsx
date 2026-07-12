@@ -12,9 +12,10 @@ interface Props {
     pdfRef?: React.Ref<PdfViewerHandle>;
     onPdfPageText?: (page: number, text: string, imageDataUrl?: string) => void;
     onPdfPageChange?: (page: number) => void;
+    lang?: 'en' | 'zh-TW';
 }
 
-export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true, pdfRef, onPdfPageText, onPdfPageChange }) => {
+export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true, pdfRef, onPdfPageText, onPdfPageChange, lang = 'en' }) => {
     const injected = React.useMemo(() => {
         if (slide.mode !== 'markdown' && slide.mode !== 'html') return '';
         return injectMarketTokens(slide.content, marketData);
@@ -46,7 +47,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     if (slide.mode === 'pdf') {
-        return <PdfViewer ref={pdfRef} url={slide.content.trim()} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} onPageText={onPdfPageText} onPageChange={onPdfPageChange} />;
+        return <PdfViewer ref={pdfRef} url={slide.content.trim()} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} onPageText={onPdfPageText} onPageChange={onPdfPageChange} lang={lang} />;
     }
 
     if (slide.mode === 'html') {
@@ -56,7 +57,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
             <div className="absolute inset-0 w-full h-full overflow-auto bg-white flex items-start justify-center">
                 <div style={{ width: '100%', height: '100%', transform: `scale(${scale})`, transformOrigin: 'top center', flexShrink: 0 }}>
                     <iframe
-                        key={slide.updatedAt}
+                        key={slide.mode}
                         srcDoc={html}
                         sandbox="allow-scripts"
                         className="w-full h-full border-0"

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { NewsItem } from '../types';
 
 interface Options {
@@ -20,6 +20,7 @@ export function useNewsData({ language, geminiKey }: Options): UseNewsDataResult
     const [isNewsLoading, setIsNewsLoading] = useState(true);
     const [isAiTranslated, setIsAiTranslated] = useState(true);
     const [marketSummary, setMarketSummary] = useState<string>('');
+    const requestSeqRef = useRef(0);
 
     const fetchNews = useCallback(async (
         langStr: 'en' | 'zh-TW',
@@ -30,11 +31,14 @@ export function useNewsData({ language, geminiKey }: Options): UseNewsDataResult
         if (!isBackground) setIsNewsLoading(true);
         const activeKey = overrideKey !== undefined ? overrideKey : geminiKey;
         try {
+            const seq = ++requestSeqRef.current;
             const headers: HeadersInit = { 'Content-Type': 'application/json' };
             if (activeKey) headers['Authorization'] = `Bearer ${activeKey}`;
             const url = `/api/market-news?t=${Date.now()}&lang=${langStr}${forceRefresh ? '&refresh=true' : ''}`;
             const response = await fetch(url, { headers });
+            if (!response.ok) return;
             const result = await response.json();
+            if (seq !== requestSeqRef.current) return;
             setIsAiTranslated(result.isAiTranslated !== false);
             setMarketSummary(result.marketSummary || '');
             if (result.data && Array.isArray(result.data)) {

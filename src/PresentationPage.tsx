@@ -140,8 +140,8 @@ export default function PresentationPage() {
     }, []);
 
     const toggleFullscreen = useCallback(() => {
-        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
-        else document.exitFullscreen();
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+        else document.exitFullscreen().catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -488,6 +488,7 @@ export default function PresentationPage() {
                                 pdfRef={pdfRef}
                                 onPdfPageText={jargon.onPageText}
                                 onPdfPageChange={jargon.onPageChange}
+                                lang={lang}
                             />
                         </SlideErrorBoundary>
                     </div>
@@ -513,7 +514,7 @@ export default function PresentationPage() {
                     {mainView === 'slide' && slide.mode === 'pdf' && slide.content && (
                         <div className="absolute top-3 left-3 z-20 pointer-events-none">
                             <span className="text-[10px] font-mono text-zinc-600 bg-black/60 px-2 py-0.5 rounded">
-                                Press <kbd className="text-emerald-500">I</kbd> to cycle slide, index, and heatmap
+                                {t.present.viewHintBefore} <kbd className="text-emerald-500">I</kbd> {t.present.viewHintAfter}
                             </span>
                         </div>
                     )}
@@ -631,23 +632,23 @@ export default function PresentationPage() {
             {showHints && (
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900/95 backdrop-blur border border-zinc-800 rounded-xl px-5 py-3 z-50 shadow-2xl hints-in">
                     <div className="flex items-center gap-5 text-xs">
-                        <span className="text-zinc-500">Shortcuts:</span>
+                        <span className="text-zinc-500">{t.present.shortcuts}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">E</kbd>
-                        <span className="text-zinc-400">edit</span>
+                        <span className="text-zinc-400">{t.present.scEdit}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">F</kbd>
-                        <span className="text-zinc-400">fullscreen</span>
+                        <span className="text-zinc-400">{t.present.scFullscreen}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">S</kbd>
-                        <span className="text-zinc-400">strip size</span>
+                        <span className="text-zinc-400">{t.present.scStrip}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">Q</kbd>
-                        <span className="text-zinc-400">quote</span>
+                        <span className="text-zinc-400">{t.present.scQuote}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">I</kbd>
-                        <span className="text-zinc-400">cycle view</span>
+                        <span className="text-zinc-400">{t.present.scCycleView}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">P</kbd>
-                        <span className="text-zinc-400">playlist</span>
+                        <span className="text-zinc-400">{t.present.scPlaylist}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">?</kbd>
-                        <span className="text-zinc-400">toggle this</span>
+                        <span className="text-zinc-400">{t.present.scToggleHints}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">Esc</kbd>
-                        <span className="text-zinc-400">close</span>
+                        <span className="text-zinc-400">{t.present.scClose}</span>
                     </div>
                 </div>
             )}

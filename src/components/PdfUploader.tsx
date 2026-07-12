@@ -64,7 +64,7 @@ export const PdfUploader: React.FC<Props> = ({ onUploaded }) => {
                 type="file"
                 accept=".pdf,application/pdf"
                 className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFile(f); }}
             />
             {status === 'uploading' ? (
                 <>

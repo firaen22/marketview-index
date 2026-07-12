@@ -118,7 +118,7 @@ export const MarketHeatmap = ({ rawData, groupBy = 'category' }: { rawData: Inde
     }
 
     return (
-        <div className="h-[400px] w-full bg-zinc-900/30 rounded-xl border border-zinc-800 p-2 overflow-hidden">
+        <div className="h-full min-h-[400px] w-full bg-zinc-900/30 rounded-xl border border-zinc-800 p-2 overflow-hidden">
             <ResponsiveContainer width="100%" height="100%">
                 <Treemap
                     data={data}

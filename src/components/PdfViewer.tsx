@@ -8,6 +8,7 @@ import {
     jargonImageDims,
 } from '../jargon';
 import { jargonDebug } from '../jargonDebug';
+import { getLocale } from '../locales';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl as string;
 
@@ -17,6 +18,7 @@ interface Props {
     keyboardEnabled?: boolean;
     onPageText?: (page: number, text: string, imageDataUrl?: string) => void;
     onPageChange?: (page: number) => void;
+    lang?: 'en' | 'zh-TW';
 }
 
 export interface PdfViewerHandle {
@@ -24,8 +26,9 @@ export interface PdfViewerHandle {
     nextPage: () => void;
 }
 
-export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText, onPageChange }, ref) => {
+export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText, onPageChange, lang = 'en' }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const L = getLocale(lang).present;
     const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pageNum, setPageNum] = useState(1);
     const [numPages, setNumPages] = useState(0);
@@ -38,6 +41,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         setLoading(true);
         setError('');
         setPageNum(1);
+        setNumPages(0);
         setPdf(null);
         const task = pdfjsLib.getDocument(url);
         task.promise
@@ -47,10 +51,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
             })
             .catch(err => {
                 if (cancelled) return;
-                setError(err?.message || 'Failed to load PDF'); setLoading(false);
+                setError(err?.message || L.pdfLoadError); setLoading(false);
             });
         return () => { cancelled = true; task.destroy(); };
-    }, [url]);
+    }, [url, L.pdfLoadError]);
 
     useEffect(() => {
         if (!pdf || !canvasRef.current) return;
@@ -71,12 +75,20 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
             rt.promise.catch(err => {
                 if (err?.name !== 'RenderingCancelledException') {
                     console.error('PDF render error:', err);
-                    if (!cancelled) setError(err?.message || 'Failed to render PDF page');
+                    if (!cancelled) setError(err?.message || L.pdfRenderError);
                 }
             });
+        }).catch(err => {
+            if (cancelled) return;
+            if (err?.name === 'RenderingCancelledException') return;
+            console.error('PDF page load error:', err);
+            setError(err?.message || L.pdfPageError);
         });
-        return () => { cancelled = true; };
-    }, [pdf, pageNum, zoom]);
+        return () => {
+            cancelled = true;
+            if (renderTaskRef.current) { renderTaskRef.current.cancel(); renderTaskRef.current = null; }
+        };
+    }, [pdf, pageNum, zoom, L.pdfPageError, L.pdfRenderError]);
 
     useEffect(() => {
         if (!pdf || !onPageChange) return;
@@ -140,7 +152,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     }, [pdf, pageNum, onPageText]);
 
     const prev = useCallback(() => setPageNum(p => Math.max(1, p - 1)), []);
-    const next = useCallback(() => setPageNum(p => Math.min(numPages, p + 1)), [numPages]);
+    const next = useCallback(() => setPageNum(p => Math.max(1, Math.min(numPages, p + 1))), [numPages]);
 
     useImperativeHandle(ref, () => ({ prevPage: prev, nextPage: next }), [prev, next]);
 
@@ -166,7 +178,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         <div className="absolute inset-0 bg-zinc-950 overflow-auto">
             <div className="min-h-full flex items-start justify-center py-6 px-4 pb-20">
                 {loading
-                    ? <div className="text-zinc-500 text-sm">Loading PDF…</div>
+                    ? <div className="text-zinc-500 text-sm">{L.pdfLoading}</div>
                     : <canvas ref={canvasRef} className="shadow-2xl" />
                 }
             </div>
