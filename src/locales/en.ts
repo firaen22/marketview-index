@@ -116,6 +116,7 @@ export default {
         scFullscreen: "fullscreen",
         scStrip: "strip size",
         scQuote: "quote",
+        scJargon: "jargon",
         scCycleView: "cycle view",
         scPlaylist: "playlist",
         scToggleHints: "toggle this",

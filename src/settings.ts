@@ -33,6 +33,7 @@ interface MarketFlowSettings {
     tickerSymbols: string[] | null;
     morningBrief: string[];
     presentCycle: PresentCycle;
+    jargonEnabled: boolean;
 }
 
 const DEFAULT_SLIDE: PresentSlide = {
@@ -60,6 +61,7 @@ const DEFAULTS: MarketFlowSettings = {
     tickerSymbols: null,
     morningBrief: [],
     presentCycle: DEFAULT_PRESENT_CYCLE,
+    jargonEnabled: true,
 };
 
 export function normalizePresentCycle(value: unknown): PresentCycle {
@@ -121,6 +123,7 @@ function loadFromStorage(): MarketFlowSettings {
         tickerSymbols: DEFAULTS.tickerSymbols,
         morningBrief: DEFAULTS.morningBrief,
         presentCycle: DEFAULTS.presentCycle,
+        jargonEnabled: DEFAULTS.jargonEnabled,
     };
     if (migrated.lang !== 'en' && migrated.lang !== 'zh-TW') migrated.lang = DEFAULTS.lang;
     if (migrated.chartMode !== 'nominal' && migrated.chartMode !== 'percent') migrated.chartMode = DEFAULTS.chartMode;

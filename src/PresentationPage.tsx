@@ -41,6 +41,7 @@ export default function PresentationPage() {
     const [pdfZoom, setPdfZoom] = useState(100);
     const [mainView, setMainView] = useState<PresentView>('slide');
     const [presentCycle, setPresentCycle] = useState<PresentCycle>(() => normalizePresentCycle(initialSettings.presentCycle));
+    const [jargonEnabled, setJargonEnabled] = useState(initialSettings.jargonEnabled);
     const [dwellResetNonce, setDwellResetNonce] = useState(0);
     const [kioskHidden, setKioskHidden] = useState(false);
     const [statusNow, setStatusNow] = useState(() => Date.now());
@@ -67,7 +68,7 @@ export default function PresentationPage() {
     const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
-    const jargon = useJargon({ enabled: mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey, slideVersion: slide.mode === 'pdf' ? slide.updatedAt : undefined });
+    const jargon = useJargon({ enabled: jargonEnabled && mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey, slideVersion: slide.mode === 'pdf' ? slide.updatedAt : undefined });
     const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || !!qp.chartItem;
     const dwellSec = normalizedPresentCycle.dwellSec;
 
@@ -105,6 +106,14 @@ export default function PresentationPage() {
         setSetting('presentCycle', normalized);
         resetDwellCountdown();
     }, [resetDwellCountdown]);
+
+    const toggleJargon = useCallback(() => {
+        setJargonEnabled(prev => {
+            const next = !prev;
+            setSetting('jargonEnabled', next);
+            return next;
+        });
+    }, []);
 
     const cycleMainView = useCallback(() => {
         setMainView(v => v === 'slide' ? 'index' : v === 'index' ? 'heatmap' : 'slide');
@@ -305,6 +314,7 @@ export default function PresentationPage() {
             if (briefItems.length > 0) { qp.openSpotlight(briefItems[0]); return; }
             qp.openSearch();
         }, [qp, briefItems]),
+        onToggleJargon: toggleJargon,
         onToggleHints: useCallback(() => setShowHints(s => !s), []),
         // Escape closes the topmost overlay only. IndexChartModal owns its own
         // Escape (it layers an internal compare-picker we can't see from here).
@@ -519,7 +529,7 @@ export default function PresentationPage() {
                         </div>
                     )}
 
-                    {mainView === 'slide' && slide.mode === 'pdf' && <JargonSpotlight terms={jargon.terms} lang={lang} />}
+                    {jargonEnabled && mainView === 'slide' && slide.mode === 'pdf' && <JargonSpotlight terms={jargon.terms} lang={lang} />}
 
                     {/* Quote spotlight — lower-third overlay */}
                     {qp.spotlight && (() => {
@@ -641,6 +651,8 @@ export default function PresentationPage() {
                         <span className="text-zinc-400">{t.present.scStrip}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">Q</kbd>
                         <span className="text-zinc-400">{t.present.scQuote}</span>
+                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">J</kbd>
+                        <span className="text-zinc-400">{t.present.scJargon}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">I</kbd>
                         <span className="text-zinc-400">{t.present.scCycleView}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">P</kbd>
