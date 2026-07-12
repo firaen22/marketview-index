@@ -1,10 +1,41 @@
 import crypto from 'crypto';
+import { GoogleGenAI } from '@google/genai';
 import { getNimApiKeys, callNim, callNimHedged, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
 import { redis } from '../lib/redis.js';
 
 interface JargonTerm {
     term: string;
     explanation: string;
+}
+
+// Gemini is the primary backend for jargon. NIM (see the fallback in the handler)
+// only runs if Gemini returns nothing, cushioning the free-tier quota blips that
+// originally motivated the NIM switch. The user's own Gemini key (sent as a
+// Bearer header by the client) takes precedence over the server keys.
+const GEMINI_API_KEY_PATTERN = /^[A-Za-z0-9._-]{20,128}$/;
+// Fallback is a different model generation with its own quota pool, so a
+// 3.1-side quota or outage issue doesn't take out both legs.
+const GEMINI_MODEL_CHAIN = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
+
+// Each env var may hold a single key or several comma-separated keys.
+function getGeminiServerKeys(): string[] {
+    return [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_FALLBACK]
+        .flatMap(value => (typeof value === 'string' ? value.split(',') : []))
+        .map(key => key.trim())
+        .filter(key => key.length > 0);
+}
+
+function getCustomGeminiKey(req: any): string | null {
+    const authHeader = req.headers?.authorization;
+    const rawCustomApiKey = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+        ? authHeader.substring(7)
+        : null;
+    return rawCustomApiKey
+        && GEMINI_API_KEY_PATTERN.test(rawCustomApiKey)
+        && rawCustomApiKey !== 'null'
+        && rawCustomApiKey !== 'undefined'
+        ? rawCustomApiKey
+        : null;
 }
 
 function sha(value: string): string {
@@ -66,10 +97,10 @@ function validateImageBase64(value: unknown): string | null {
     return value;
 }
 
-function buildJargonMessages(
+function buildJargonPrompt(
     input: { text: string } | { imageBase64: string },
     lang: 'en' | 'zh-TW'
-): unknown[] {
+): string {
     const outputLanguage = lang === 'zh-TW' ? 'Traditional Chinese (繁體中文)' : 'English';
     const lengthRule = lang === 'zh-TW' ? '50 個中文字' : '30 words';
     const source = 'text' in input
@@ -100,7 +131,7 @@ important term first.
 Only include genuinely technical terms (e.g. duration, basis point, contango, EBITDA margin) —
 skip common words, company names, and numbers. If there is no jargon, return an empty list.`;
     const output = `OUTPUT (valid JSON only): { "terms": [ { "term": "...", "explanation": "..." } ] }`;
-    const prompt = 'text' in input
+    return 'text' in input
         ? `${rules}
 
 SLIDE TEXT:
@@ -110,6 +141,14 @@ ${output}`
         : `${rules}
 
 ${output}`;
+}
+
+// NIM (OpenAI-compatible) message shape — used only by the NIM fallback path.
+function buildNimMessages(
+    input: { text: string } | { imageBase64: string },
+    lang: 'en' | 'zh-TW'
+): unknown[] {
+    const prompt = buildJargonPrompt(input, lang);
     return 'text' in input
         ? [{ role: 'user', content: prompt }]
         : [{
@@ -119,6 +158,41 @@ ${output}`;
                 { type: 'text', text: prompt },
             ],
         }];
+}
+
+// Primary backend. Tries each key against the model chain and returns the first
+// raw JSON string, or null if every key/model combination failed (so the handler
+// can fall through to NIM).
+async function generateJargonGemini(
+    apiKeys: string[],
+    input: { text: string } | { imageBase64: string },
+    lang: 'en' | 'zh-TW'
+): Promise<string | null> {
+    const prompt = buildJargonPrompt(input, lang);
+    const parts = 'text' in input
+        ? [{ text: prompt }]
+        : [
+            { inlineData: { mimeType: 'image/jpeg', data: input.imageBase64 } },
+            { text: prompt },
+        ];
+    for (const apiKey of apiKeys) {
+        const client = new GoogleGenAI({ apiKey });
+        for (const model of GEMINI_MODEL_CHAIN) {
+            try {
+                const result = await client.models.generateContent({
+                    model,
+                    contents: [{ role: 'user', parts }],
+                    config: { responseMimeType: 'application/json' },
+                });
+                if (typeof result?.text === 'string' && result.text.trim().length > 0) {
+                    return result.text;
+                }
+            } catch (error) {
+                console.warn(`Gemini jargon generation failed (model ${model}):`, error);
+            }
+        }
+    }
+    return null;
 }
 
 // Image input is a SINGLE vision call. A serial transcribe-then-extract chain
@@ -164,7 +238,7 @@ export default async function handler(req: any, res: any) {
 
         // Serve from the shared server-side cache if this slide (any device, any
         // prior session) was explained before. Cache read failures must never
-        // break the request — fall through to a fresh NIM call.
+        // break the request — fall through to a fresh AI call.
         const cacheKey = redis ? jargonCacheKey(input, lang, slideId) : null;
         if (cacheKey) {
             try {
@@ -180,27 +254,42 @@ export default async function handler(req: any, res: any) {
             }
         }
 
-        const apiKeys = getNimApiKeys();
+        // Gemini is primary: prefer the user's own key (Bearer header), else the
+        // server keys. NIM is only consulted if Gemini yields nothing.
+        const customGeminiKey = getCustomGeminiKey(req);
+        const geminiKeys = customGeminiKey ? [customGeminiKey] : getGeminiServerKeys();
+        const nimKeys = getNimApiKeys();
 
-        if (apiKeys.length === 0) {
+        if (geminiKeys.length === 0 && nimKeys.length === 0) {
             return res.status(503).json({ success: false, error: 'No AI API key configured' });
         }
 
-        let raw: string;
-        try {
-            // Vision models race, but HEDGED: fire the primary first and only
-            // add the backups if it's slow/fails (callNimHedged). /present
-            // auto-advances every 45s and a serial llama(50s)->mistral chain
-            // measured 67.8s — too slow — so latency must be the FASTEST model,
-            // not the sum. A full 3-way race achieved that but fired 3 calls
-            // every time; the hedge keeps the fast-path latency while firing 1
-            // call on the healthy path and escalating to the full race only
-            // when the primary lags past HEDGE_DELAY_MS.
-            raw = 'text' in input
-                ? await callNim(apiKeys, NIM_TEXT_MODELS, buildJargonMessages(input, lang), 900, { reasoningEffort: 'low' })
-                : await callNimHedged(apiKeys, NIM_VISION_MODELS, buildJargonMessages(input, lang), 900, { timeoutMs: VISION_TIMEOUT_MS, hedgeDelayMs: HEDGE_DELAY_MS });
-        } catch (error) {
-            console.warn('Jargon generation failed:', error);
+        let raw: string | null = null;
+
+        // Primary path — Gemini.
+        if (geminiKeys.length > 0) {
+            raw = await generateJargonGemini(geminiKeys, input, lang);
+        }
+
+        // Fallback path — NIM. Vision models race, but HEDGED: fire the primary
+        // first and only add the backups if it's slow/fails (callNimHedged).
+        // /present auto-advances every 45s and a serial llama(50s)->mistral chain
+        // measured 67.8s — too slow — so latency must be the FASTEST model, not
+        // the sum. A full 3-way race achieved that but fired 3 calls every time;
+        // the hedge keeps the fast-path latency while firing 1 call on the
+        // healthy path and escalating to the full race only when the primary
+        // lags past HEDGE_DELAY_MS.
+        if (raw == null && nimKeys.length > 0) {
+            try {
+                raw = 'text' in input
+                    ? await callNim(nimKeys, NIM_TEXT_MODELS, buildNimMessages(input, lang), 900, { reasoningEffort: 'low' })
+                    : await callNimHedged(nimKeys, NIM_VISION_MODELS, buildNimMessages(input, lang), 900, { timeoutMs: VISION_TIMEOUT_MS, hedgeDelayMs: HEDGE_DELAY_MS });
+            } catch (error) {
+                console.warn('NIM jargon fallback failed:', error);
+            }
+        }
+
+        if (raw == null) {
             return res.status(502).json({ success: false, error: 'AI processing failed' });
         }
 
