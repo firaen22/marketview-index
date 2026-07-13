@@ -84,9 +84,17 @@ export default function PresentationPage() {
         glossaryReportPage(page);
         jargon.onPageText(page, text, imageDataUrl);
     }, [glossaryReportPage, jargon.onPageText]);
+    // Depend on jargon.terms only, NOT lang: on a mid-session language flip the
+    // new lang commits a render before useJargon clears the old-language terms,
+    // so firing on `lang` would push old-language text under the new label —
+    // and mergeTerms only fills an empty slot, making that corruption stick.
+    // reportTerms takes lang as an argument and the effect closes over the
+    // current lang whenever the terms themselves change, so the correct push
+    // still lands when the refetched terms arrive.
     useEffect(() => {
         if (jargon.terms.length > 0) glossaryReportTerms(jargon.terms, lang);
-    }, [jargon.terms, lang, glossaryReportTerms]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [jargon.terms, glossaryReportTerms]);
     const dwellSec = normalizedPresentCycle.dwellSec;
 
     const marketStatuses = React.useMemo(() => {
