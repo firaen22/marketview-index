@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { getNimApiKeys, extractNimText, callNimHedged } from '../lib/nim';
+import { getNimApiKeys, extractNimText, callNim, callNimHedged } from '../lib/nim';
 
 const ORIGINAL_KEY = process.env.NVIDIA_NIM_API_KEY;
 const ORIGINAL_FALLBACK = process.env.NVIDIA_NIM_API_KEY_FALLBACK;
@@ -184,5 +184,10 @@ describe('callNimHedged', () => {
         const result = await callNimHedged(KEYS, ['A'], [], 10, OPTS);
         expect(result).toBe('WON:A');
         expect(calls).toEqual({ A: 1 });
+    });
+
+    it('fails fast when no models are configured', async () => {
+        await expect(callNim(KEYS, [], [], 10)).rejects.toThrow('No NIM models configured');
+        await expect(callNimHedged(KEYS, [], [], 10, OPTS)).rejects.toThrow('No NIM models configured');
     });
 });

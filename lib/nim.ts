@@ -57,6 +57,9 @@ export async function callNim(
     maxTokens: number,
     opts?: { reasoningEffort?: 'low'; timeoutMs?: number }
 ): Promise<string> {
+    if (models.length === 0) {
+        throw new Error('No NIM models configured');
+    }
     for (const apiKey of apiKeys) {
         for (const model of models) {
             try {
@@ -112,6 +115,9 @@ export async function callNimHedged(
     maxTokens: number,
     opts: { timeoutMs?: number; hedgeDelayMs: number }
 ): Promise<string> {
+    if (models.length === 0) {
+        throw new Error('No NIM models configured');
+    }
     const { hedgeDelayMs, ...callOpts } = opts;
     const [primaryModel, ...backupModels] = models;
     const fire = (model: string) => callNim(apiKeys, [model], messages, maxTokens, callOpts);

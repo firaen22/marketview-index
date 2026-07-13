@@ -17,6 +17,7 @@ export interface GlossaryTermSnapshot {
 
 export interface GlossarySession {
     joinCode: string;
+    version: number;
     status: 'live' | 'ended';
     mode: 'all' | 'gradual';
     currentPage: number;

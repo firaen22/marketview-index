@@ -22,6 +22,7 @@ export default async function handler(req: any, res: any) {
                 }
             } catch (rateLimitError) {
                 console.error('Verify key rate limit error:', rateLimitError);
+                return res.status(503).json({ success: false, message: 'Verification temporarily unavailable' });
             }
         }
 
@@ -59,7 +60,7 @@ export default async function handler(req: any, res: any) {
                 }
             }
         } catch (listErr: any) {
-            const errMsg = listErr.message || '';
+            const errMsg = listErr?.message || '';
             if (errMsg.includes('apiKey expired')) {
                 return res.status(200).json({ success: false, keyValid: false, errorCode: 'KEY_EXPIRED', message: 'The API key has expired. Please renew it in Google AI Studio.' });
             }
@@ -91,7 +92,7 @@ export default async function handler(req: any, res: any) {
                 contents: [{ role: 'user', parts: [{ text: 'Ping' }] }]
             });
         } catch (genErr: any) {
-            const msg = typeof genErr === 'string' ? genErr : (genErr.message || JSON.stringify(genErr));
+            const msg = typeof genErr === 'string' ? genErr : (genErr?.message || JSON.stringify(genErr));
             if (msg.includes('rate limit') || msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
                 return res.status(200).json({
                     success: true,
@@ -123,7 +124,7 @@ export default async function handler(req: any, res: any) {
 
         // Final comprehensive error parsing
         let friendlyMessage = 'An unexpected error occurred during verification.';
-        const raw = error.message || '';
+        const raw = error?.message || '';
 
         if (raw.includes('apiKey expired')) friendlyMessage = '您的 API 金鑰已過期，請更換。 (Key Expired)';
         else if (raw.includes('not found')) friendlyMessage = '找不到此金鑰，請檢查輸入是否正確。 (Key Not Found)';

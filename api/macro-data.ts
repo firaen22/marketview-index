@@ -10,6 +10,17 @@ const MACRO_SERIES = [
     { symbol: 'PPIFES', name: '核心 PPI', nameEn: 'Core PPI', category: 'Inflation' },
 ];
 
+// Module-level so both the handler and its catch block's stale-cache fallback can use it.
+const parseCache = (cached: any): any | null => {
+    if (!cached) return null;
+    if (typeof cached !== 'string') return cached;
+    try {
+        return JSON.parse(cached);
+    } catch {
+        return null;
+    }
+};
+
 export default async function handler(req: any, res: any) {
     try {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -18,27 +29,9 @@ export default async function handler(req: any, res: any) {
 
         const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
         const forceRefresh = searchParams.get('refresh') === 'true';
-        const parseCache = (cached: any): any | null => {
-            if (!cached) return null;
-            if (typeof cached !== 'string') return cached;
-            try {
-                return JSON.parse(cached);
-            } catch {
-                return null;
-            }
-        };
         const returnCachedPayload = (payload: any) => {
             return res.status(200).json({ ...payload, source: 'cache' });
         };
-
-        const apiKey = process.env.FRED_API_KEY;
-        if (!apiKey) {
-            return res.status(500).json({
-                success: false,
-                error: 'Missing FRED_API_KEY',
-                message: 'Set FRED_API_KEY in the server environment.'
-            });
-        }
 
         let cached: any = redis ? await redis.get(CACHE_KEY) : null;
         const parsedCache = parseCache(cached);
@@ -55,6 +48,15 @@ export default async function handler(req: any, res: any) {
             if (parsedCache) {
                 return returnCachedPayload(parsedCache);
             }
+        }
+
+        const apiKey = process.env.FRED_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({
+                success: false,
+                error: 'Missing FRED_API_KEY',
+                message: 'Set FRED_API_KEY in the server environment.'
+            });
         }
 
         console.log('Fetching fresh macro data from FRED...');
@@ -146,7 +148,7 @@ export default async function handler(req: any, res: any) {
                 const prevYearValue = parseFloat(data.observations[12].value);
                 // FRED encodes missing observations as "." — drop the series when the
                 // current or year-ago value is missing (same contract as fetchGdp).
-                if (isNaN(currentValue) || isNaN(prevYearValue)) return null;
+                if (isNaN(currentValue) || isNaN(prevYearValue) || prevYearValue === 0) return null;
 
                 const momChangePercent = isNaN(prevMonthValue)
                     ? undefined
@@ -190,6 +192,18 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json(payload);
     } catch (error: any) {
         console.error('Macro API Error:', error);
+        // Attempt to serve stale cache if possible
+        if (redis) {
+            try {
+                const stale = await redis.get(CACHE_KEY);
+                const parsed = parseCache(stale);
+                if (parsed) {
+                    return res.status(200).json({ ...parsed, source: 'server_stale_cache', success: false });
+                }
+            } catch (_) {
+                // ignore fallback errors
+            }
+        }
         return res.status(500).json({
             success: false,
             error: 'Failed to fetch macroeconomic data',

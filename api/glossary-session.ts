@@ -10,6 +10,10 @@ import {
     publicSessionView,
 } from '../lib/glossarySession.js';
 
+type MutationTtl = { mode: 'EX'; seconds: number } | { mode: 'KEEPTTL' };
+type MutationStatus = 'not_found' | 'conflict' | 'session_ended';
+type SessionEndedMutation = { error: 'session_ended' };
+
 const SESSION_PREFIX = 'glossary:sess:';
 const LIVE_TTL_SECONDS = 12 * 60 * 60;
 const ENDED_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -17,6 +21,30 @@ const RATE_LIMIT_WINDOW_SECONDS = 60;
 const RATE_LIMIT_MAX = 30;
 const MODES = ['all', 'gradual'];
 const LANGS = ['en', 'zh-TW'];
+const CAS_MAX_ATTEMPTS = 4;
+
+const CAS_WRITE_SCRIPT = `
+local key = KEYS[1]
+local expected = tonumber(ARGV[1])
+local next_json = ARGV[2]
+local ttl_mode = ARGV[3]
+local ttl = tonumber(ARGV[4])
+local stored = redis.call('GET', key)
+if not stored then
+    return -1
+end
+local decoded = cjson.decode(stored)
+local version = tonumber(decoded['version']) or 0
+if version ~= expected then
+    return 0
+end
+if ttl_mode == 'EX' then
+    redis.call('SET', key, next_json, 'EX', ttl)
+else
+    redis.call('SET', key, next_json, 'KEEPTTL')
+end
+return 1
+`;
 
 function sessionKey(code: string): string {
     return `${SESSION_PREFIX}${code}`;
@@ -69,12 +97,51 @@ async function rateLimit(req: any): Promise<boolean> {
 async function readSession(code: string): Promise<GlossarySession | null> {
     const stored = await redis!.get(sessionKey(code));
     if (!stored) return null;
-    if (typeof stored === 'string') return JSON.parse(stored) as GlossarySession;
-    return stored as GlossarySession;
+    const session = typeof stored === 'string' ? JSON.parse(stored) as GlossarySession : stored as GlossarySession;
+    session.version = typeof session.version === 'number' && Number.isFinite(session.version) ? session.version : 0;
+    return session;
 }
 
-async function writeSession(session: GlossarySession, ttl: number): Promise<void> {
-    await redis!.set(sessionKey(session.joinCode), JSON.stringify(session), { ex: ttl });
+async function casWriteSession(
+    session: GlossarySession,
+    expectedVersion: number,
+    ttl: MutationTtl,
+): Promise<-1 | 0 | 1> {
+    session.version = expectedVersion + 1;
+    const result = await redis!.eval(
+        CAS_WRITE_SCRIPT,
+        [sessionKey(session.joinCode)],
+        [
+            String(expectedVersion),
+            JSON.stringify(session),
+            ttl.mode,
+            ttl.mode === 'EX' ? String(ttl.seconds) : '0',
+        ],
+    );
+    return Number(result) as -1 | 0 | 1;
+}
+
+async function mutateSession<T>(
+    code: string,
+    ttl: MutationTtl | ((session: GlossarySession) => MutationTtl),
+    mutate: (session: GlossarySession) => T | SessionEndedMutation,
+): Promise<
+    { ok: true; session: GlossarySession; result: T }
+    | { ok: false; status: MutationStatus }
+> {
+    for (let attempt = 0; attempt < CAS_MAX_ATTEMPTS; attempt += 1) {
+        const session = await readSession(code);
+        if (!session) return { ok: false, status: 'not_found' };
+        const expectedVersion = session.version;
+        const result = mutate(session);
+        if (result && typeof result === 'object' && 'error' in result && result.error === 'session_ended') {
+            return { ok: false, status: 'session_ended' };
+        }
+        const casResult = await casWriteSession(session, expectedVersion, typeof ttl === 'function' ? ttl(session) : ttl);
+        if (casResult === 1) return { ok: true, session, result: result as T };
+        if (casResult === -1) return { ok: false, status: 'not_found' };
+    }
+    return { ok: false, status: 'conflict' };
 }
 
 function validTerms(value: unknown): value is { term: string; explanation: string }[] {
@@ -148,16 +215,10 @@ export default async function handler(req: any, res: any) {
             }
 
             let code = generateJoinCode();
-            if (await redis.get(sessionKey(code))) {
-                code = generateJoinCode();
-                if (await redis.get(sessionKey(code))) {
-                    return json(res, 500, { error: 'Could not allocate join code' });
-                }
-            }
-
             const now = Date.now();
-            const session: GlossarySession = {
+            let session: GlossarySession = {
                 joinCode: code,
+                version: 0,
                 status: 'live',
                 mode: parsed.body.mode,
                 currentPage: 0,
@@ -169,7 +230,16 @@ export default async function handler(req: any, res: any) {
                 terms: [],
                 updatedAt: now,
             };
-            await writeSession(session, LIVE_TTL_SECONDS);
+            let claimed = await redis.set(sessionKey(code), JSON.stringify(session), { ex: LIVE_TTL_SECONDS, nx: true });
+            if (!claimed) {
+                code = generateJoinCode();
+                session = { ...session, joinCode: code };
+                claimed = await redis.set(sessionKey(code), JSON.stringify(session), { ex: LIVE_TTL_SECONDS, nx: true });
+                if (!claimed) {
+                    return json(res, 500, { error: 'Could not allocate join code' });
+                }
+            }
+
             return json(res, 200, { success: true, session });
         }
 
@@ -181,17 +251,24 @@ export default async function handler(req: any, res: any) {
             if (!LANGS.includes(lang)) return json(res, 400, { error: 'Invalid lang' });
             if (!validTerms(parsed.body.terms)) return json(res, 400, { error: 'Invalid terms' });
 
-            const session = await readSession(code);
-            if (!session) return json(res, 404, { error: 'not_found' });
-            if (session.status === 'ended') return json(res, 409, { error: 'session_ended' });
-
-            const now = Date.now();
-            const merged = mergeTerms(session.terms, parsed.body.terms, lang, parsed.body.page, now);
-            session.terms = merged.terms;
-            session.currentPage = parsed.body.page;
-            session.updatedAt = now;
-            await writeSession(session, LIVE_TTL_SECONDS);
-            return json(res, 200, { success: true, session, termLimitReached: merged.termLimitReached });
+            const result = await mutateSession(code, session => ({
+                mode: 'EX',
+                seconds: session.status === 'ended' ? ENDED_TTL_SECONDS : LIVE_TTL_SECONDS,
+            }), session => {
+                if (session.status === 'ended') return { error: 'session_ended' };
+                const now = Date.now();
+                const merged = mergeTerms(session.terms, parsed.body.terms, lang, parsed.body.page, now);
+                session.terms = merged.terms;
+                session.currentPage = parsed.body.page;
+                session.updatedAt = now;
+                return merged;
+            });
+            if (result.ok === false) {
+                if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
+                if (result.status === 'session_ended') return json(res, 409, { error: 'session_ended' });
+                return json(res, 409, { error: 'conflict' });
+            }
+            return json(res, 200, { success: true, session: result.session, termLimitReached: result.result.termLimitReached });
         }
 
         if (action === 'config') {
@@ -204,13 +281,20 @@ export default async function handler(req: any, res: any) {
                 return json(res, 400, { error: 'Invalid keepAfter' });
             }
 
-            const session = await readSession(code);
-            if (!session) return json(res, 404, { error: 'not_found' });
-            if (parsed.body.mode !== undefined) session.mode = parsed.body.mode;
-            if (parsed.body.keepAfter !== undefined) session.keepAfter = parsed.body.keepAfter;
-            session.updatedAt = Date.now();
-            await writeSession(session, session.status === 'ended' ? ENDED_TTL_SECONDS : LIVE_TTL_SECONDS);
-            return json(res, 200, { success: true, session });
+            const result = await mutateSession(code, session => ({
+                mode: 'EX',
+                seconds: session.status === 'ended' ? ENDED_TTL_SECONDS : LIVE_TTL_SECONDS,
+            }), session => {
+                if (parsed.body.mode !== undefined) session.mode = parsed.body.mode;
+                if (parsed.body.keepAfter !== undefined) session.keepAfter = parsed.body.keepAfter;
+                session.updatedAt = Date.now();
+                return null;
+            });
+            if (result.ok === false) {
+                if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
+                return json(res, 409, { error: 'conflict' });
+            }
+            return json(res, 200, { success: true, session: result.session });
         }
 
         if (action === 'end') {
@@ -220,11 +304,17 @@ export default async function handler(req: any, res: any) {
             const session = await readSession(code);
             if (!session) return json(res, 404, { error: 'not_found' });
             if (session.keepAfter) {
-                const now = Date.now();
-                session.status = 'ended';
-                session.endedAt = now;
-                session.updatedAt = now;
-                await writeSession(session, ENDED_TTL_SECONDS);
+                const result = await mutateSession(code, { mode: 'EX', seconds: ENDED_TTL_SECONDS }, freshSession => {
+                    const now = Date.now();
+                    freshSession.status = 'ended';
+                    freshSession.endedAt = now;
+                    freshSession.updatedAt = now;
+                    return null;
+                });
+                if (result.ok === false) {
+                    if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
+                    return json(res, 409, { error: 'conflict' });
+                }
             } else {
                 await redis.del(sessionKey(code));
             }
@@ -235,14 +325,18 @@ export default async function handler(req: any, res: any) {
             const code = normalizeJoinCode(parsed.body.code);
             if (!code) return json(res, 400, { error: 'invalid_code' });
 
-            const session = await readSession(code);
-            if (!session) return json(res, 404, { error: 'not_found' });
-            const now = Date.now();
-            session.status = 'live';
-            session.endedAt = null;
-            session.updatedAt = now;
-            await writeSession(session, LIVE_TTL_SECONDS);
-            return json(res, 200, { success: true, session });
+            const result = await mutateSession(code, { mode: 'EX', seconds: LIVE_TTL_SECONDS }, session => {
+                const now = Date.now();
+                session.status = 'live';
+                session.endedAt = null;
+                session.updatedAt = now;
+                return null;
+            });
+            if (result.ok === false) {
+                if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
+                return json(res, 409, { error: 'conflict' });
+            }
+            return json(res, 200, { success: true, session: result.session });
         }
 
         if (action === 'join') {
@@ -250,14 +344,18 @@ export default async function handler(req: any, res: any) {
             if (!await rateLimit(req)) return json(res, 429, { error: 'rate_limited' });
             if (!code) return json(res, 400, { error: 'invalid_code' });
 
-            const session = await readSession(code);
-            if (!session) return json(res, 404, { error: 'not_found' });
-            session.joins += 1;
-            session.updatedAt = Date.now();
             // keepTtl, not a fresh ex: the unauthenticated beacon must never
             // extend a session's lifetime, or public joins could keep an ended
             // session alive forever.
-            await redis.set(sessionKey(code), JSON.stringify(session), { keepTtl: true });
+            const result = await mutateSession(code, { mode: 'KEEPTTL' }, session => {
+                session.joins += 1;
+                session.updatedAt = Date.now();
+                return null;
+            });
+            if (result.ok === false) {
+                if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
+                return json(res, 409, { error: 'conflict' });
+            }
             return json(res, 200, { success: true });
         }
 
