@@ -5,6 +5,7 @@ const redisState = vi.hoisted(() => ({
     current: {
         get: vi.fn(),
         set: vi.fn(),
+        eval: vi.fn(),
         del: vi.fn(),
         incr: vi.fn(),
         ttl: vi.fn(),
@@ -33,6 +34,7 @@ function makeSession(partial: Partial<GlossarySession> = {}): GlossarySession {
         joins: 0,
         terms: [],
         updatedAt: 1000,
+        version: 0,
         ...partial,
     };
 }
@@ -78,8 +80,17 @@ function sessionJson(partial: Partial<GlossarySession> = {}) {
     return JSON.stringify(makeSession(partial));
 }
 
+function legacySessionJson(partial: Partial<GlossarySession> = {}) {
+    const { version: _version, ...session } = makeSession(partial);
+    return JSON.stringify(session);
+}
+
 function lastSetSession(): GlossarySession {
     return JSON.parse(redisState.current.set.mock.calls.at(-1)[1]);
+}
+
+function lastEvalSession(): GlossarySession {
+    return JSON.parse(redisState.current.eval.mock.calls.at(-1)[2][1]);
 }
 
 describe('glossary-session API handler', () => {
@@ -89,7 +100,8 @@ describe('glossary-session API handler', () => {
         process.env.PRESENT_API_KEY = 'secret';
         redisState.current = {
             get: vi.fn(),
-            set: vi.fn(),
+            set: vi.fn().mockResolvedValue('OK'),
+            eval: vi.fn().mockResolvedValue(1),
             del: vi.fn(),
             incr: vi.fn().mockResolvedValue(1),
             ttl: vi.fn().mockResolvedValue(60),
@@ -166,13 +178,9 @@ describe('glossary-session API handler', () => {
         }));
 
         expect(res.statusCode).toBe(200);
-        expect(lastSetSession()).toMatchObject({ joins: 5, status: 'ended' });
+        expect(lastEvalSession()).toMatchObject({ joins: 5, status: 'ended', version: 1 });
         // keepTtl: the unauthenticated beacon must never extend a session's lifetime.
-        expect(redisState.current.set).toHaveBeenCalledWith(
-            'glossary:sess:ABCD2345',
-            expect.any(String),
-            { keepTtl: true },
-        );
+        expect(redisState.current.eval.mock.calls.at(-1)[2][2]).toBe('KEEPTTL');
     });
 
     it('POST 200 responses are never publicly cacheable', async () => {
@@ -203,7 +211,7 @@ describe('glossary-session API handler', () => {
     });
 
     it('push accepts empty terms and still updates currentPage, updatedAt, and TTL', async () => {
-        redisState.current.get.mockResolvedValue(sessionJson({
+        redisState.current.get.mockResolvedValue(legacySessionJson({
             terms: [{ id: 'duration', term: 'Duration', explanation: { en: 'Old' }, firstPage: 1, unlockedAt: 1000 }],
         }));
 
@@ -215,13 +223,10 @@ describe('glossary-session API handler', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.body.termLimitReached).toBe(false);
-        expect(lastSetSession()).toMatchObject({ currentPage: 3, updatedAt: 5000 });
-        expect(lastSetSession().terms).toHaveLength(1);
-        expect(redisState.current.set).toHaveBeenCalledWith(
-            'glossary:sess:ABCD2345',
-            expect.any(String),
-            { ex: 43200 },
-        );
+        expect(lastEvalSession()).toMatchObject({ currentPage: 3, updatedAt: 5000, version: 1 });
+        expect(lastEvalSession().terms).toHaveLength(1);
+        expect(redisState.current.eval.mock.calls.at(-1)[2][0]).toBe('0');
+        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '43200']);
     });
 
     it('push merges duplicates, fills other languages, enriches aliases, and flags term cap overflow', async () => {
@@ -251,9 +256,9 @@ describe('glossary-session API handler', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.body.termLimitReached).toBe(true);
-        expect(lastSetSession().terms).toHaveLength(200);
-        expect(lastSetSession().terms[5].firstPage).toBe(1);
-        expect(lastSetSession().terms[5].explanation).toEqual({ en: 'English 5', 'zh-TW': '中文 5' });
+        expect(lastEvalSession().terms).toHaveLength(200);
+        expect(lastEvalSession().terms[5].firstPage).toBe(1);
+        expect(lastEvalSession().terms[5].explanation).toEqual({ en: 'English 5', 'zh-TW': '中文 5' });
     });
 
     it.each([
@@ -326,7 +331,7 @@ describe('glossary-session API handler', () => {
         expect(res.statusCode).toBe(409);
     });
 
-    it('start, config, end keepAfter, and reopen write sessions with TTL in the set call', async () => {
+    it('start uses NX allocation; config, end keepAfter, and reopen use CAS with TTL', async () => {
         redisState.current.get.mockResolvedValue(null);
         let res = await call(makeReq({
             method: 'POST',
@@ -334,7 +339,8 @@ describe('glossary-session API handler', () => {
             body: { action: 'start', mode: 'all', slideVersion: 123, keepAfter: true },
         }));
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenLastCalledWith(expect.stringMatching(/^glossary:sess:/), expect.any(String), { ex: 43200 });
+        expect(redisState.current.set).toHaveBeenLastCalledWith(expect.stringMatching(/^glossary:sess:/), expect.any(String), { ex: 43200, nx: true });
+        expect(lastSetSession()).toMatchObject({ version: 0 });
 
         redisState.current.get.mockResolvedValue(sessionJson());
         res = await call(makeReq({
@@ -343,7 +349,8 @@ describe('glossary-session API handler', () => {
             body: { action: 'config', code: 'ABCD2345', mode: 'all', keepAfter: false },
         }));
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenLastCalledWith('glossary:sess:ABCD2345', expect.any(String), { ex: 43200 });
+        expect(lastEvalSession()).toMatchObject({ mode: 'all', keepAfter: false, version: 1 });
+        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '43200']);
 
         redisState.current.get.mockResolvedValue(sessionJson({ keepAfter: true }));
         res = await call(makeReq({
@@ -352,7 +359,8 @@ describe('glossary-session API handler', () => {
             body: { action: 'end', code: 'ABCD2345' },
         }));
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenLastCalledWith('glossary:sess:ABCD2345', expect.any(String), { ex: 604800 });
+        expect(lastEvalSession()).toMatchObject({ status: 'ended', endedAt: 5000, version: 1 });
+        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '604800']);
 
         redisState.current.get.mockResolvedValue(sessionJson({ status: 'ended', endedAt: 4000 }));
         res = await call(makeReq({
@@ -361,8 +369,75 @@ describe('glossary-session API handler', () => {
             body: { action: 'reopen', code: 'ABCD2345' },
         }));
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenLastCalledWith('glossary:sess:ABCD2345', expect.any(String), { ex: 43200 });
+        expect(lastEvalSession()).toMatchObject({ status: 'live', endedAt: null, version: 1 });
+        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '43200']);
         expect(redisState.current.expire.mock.calls.some(call => String(call[0]).startsWith('glossary:sess:'))).toBe(false);
+    });
+
+    it('start retries once with a fresh code when the atomic NX claim collides', async () => {
+        redisState.current.set
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce('OK');
+
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: { action: 'start', mode: 'all' },
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.set).toHaveBeenCalledTimes(2);
+        expect(redisState.current.set.mock.calls[0][2]).toEqual({ ex: 43200, nx: true });
+        expect(redisState.current.set.mock.calls[1][2]).toEqual({ ex: 43200, nx: true });
+    });
+
+    it('retries a stale push against the fresh session so both interleaved pushes survive', async () => {
+        redisState.current.get
+            .mockResolvedValueOnce(sessionJson())
+            .mockResolvedValueOnce(sessionJson({
+                version: 1,
+                terms: [{ id: 'duration', term: 'Duration', explanation: { en: 'Old' }, firstPage: 1, unlockedAt: 4000 }],
+            }));
+        redisState.current.eval
+            .mockResolvedValueOnce(0)
+            .mockResolvedValueOnce(1);
+
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: {
+                action: 'push',
+                code: 'ABCD2345',
+                page: 2,
+                lang: 'en',
+                terms: [{ term: 'basis point', explanation: 'One hundredth of a percentage point' }],
+            },
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.eval).toHaveBeenCalledTimes(2);
+        expect(lastEvalSession().version).toBe(2);
+        expect(lastEvalSession().terms.map(term => term.id)).toEqual(['duration', 'basis point']);
+    });
+
+    it('returns 404 when CAS reports the session disappeared and 409 after retry exhaustion', async () => {
+        redisState.current.get.mockResolvedValue(sessionJson());
+        redisState.current.eval.mockResolvedValueOnce(-1);
+        let res = await call(makeReq({
+            method: 'POST',
+            body: { action: 'join', code: 'ABCD2345' },
+        }));
+        expect(res.statusCode).toBe(404);
+
+        redisState.current.get.mockResolvedValue(sessionJson());
+        redisState.current.eval.mockResolvedValue(0);
+        res = await call(makeReq({
+            method: 'POST',
+            body: { action: 'join', code: 'ABCD2345' },
+        }));
+        expect(res.statusCode).toBe(409);
+        expect(res.body).toEqual({ error: 'conflict' });
+        expect(redisState.current.eval).toHaveBeenCalledTimes(5);
     });
 
     it('end deletes immediately when keepAfter is false', async () => {

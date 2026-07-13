@@ -7,6 +7,8 @@ const CACHE_KEY = 'global_market_news_v1';
 const NEWS_CACHE_TTL = 60 * 15; // 15 minutes in seconds
 
 export default async function handler(req: any, res: any) {
+    // Hoisted above the try so the catch block's stale-cache fallback can see it.
+    let staleCacheKey: string | null = null;
     try {
         // Disable Vercel Edge caching to rely on Redis
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -19,6 +21,7 @@ export default async function handler(req: any, res: any) {
         const lang = requestedLang === 'en' || requestedLang === 'zh-TW' ? requestedLang : 'en';
 
         const CURRENT_CACHE_KEY = lang === 'en' ? CACHE_KEY : `${CACHE_KEY}_${lang}`;
+        staleCacheKey = CURRENT_CACHE_KEY;
         const parseCache = (cachedNews: any): any | null => {
             if (!cachedNews) return null;
             if (typeof cachedNews !== 'string') return cachedNews;
@@ -63,11 +66,16 @@ export default async function handler(req: any, res: any) {
             yahooFinance.search('Seeking Alpha Investing.com', { newsCount: 5, quotesCount: 0 })
         ];
 
-        const searchResults = await Promise.all(searchTasks);
+        const settledResults = await Promise.allSettled(searchTasks);
         let allNews: any[] = [];
-        searchResults.forEach(searchResult => {
-            if (searchResult.news) allNews = [...allNews, ...searchResult.news];
+        let allRejected = true;
+        settledResults.forEach(result => {
+            if (result.status === 'fulfilled' && result.value.news) {
+                allNews = [...allNews, ...result.value.news];
+                allRejected = false;
+            }
         });
+        if (allRejected) throw new Error('All news searches failed');
 
         // Deduplicate by UUID
         const seen = new Set();
@@ -140,7 +148,9 @@ OUTPUT FORMAT (Valid JSON only):
 
                 // Parse Market Pulse
                 if (aiResponse.pulse) {
-                    marketSummary = `[OVERVIEW]\n${aiResponse.pulse.overview}\n[HIGHLIGHTS]\n${aiResponse.pulse.highlights.map((h: string) => `- ${h}`).join('\n')}`;
+                    const overview = aiResponse.pulse.overview ?? '';
+                    const highlights = Array.isArray(aiResponse.pulse.highlights) ? aiResponse.pulse.highlights : [];
+                    marketSummary = `[OVERVIEW]\n${overview}\n[HIGHLIGHTS]\n${highlights.map((h: string) => `- ${h}`).join('\n')}`;
                 }
 
                 // Map results back to articles
@@ -192,6 +202,30 @@ OUTPUT FORMAT (Valid JSON only):
 
     } catch (error: any) {
         console.error('News API Error:', error);
+
+        // Fallback: serve stale cache if available
+        if (redis && staleCacheKey) {
+            try {
+                const fallbackPayload: any = await redis.get(staleCacheKey);
+                if (fallbackPayload) {
+                    let parsed: any;
+                    try {
+                        parsed = typeof fallbackPayload === 'string' ? JSON.parse(fallbackPayload) : fallbackPayload;
+                    } catch {
+                        parsed = null;
+                    }
+                    if (!parsed) throw new Error('Invalid fallback cache payload');
+                    return res.status(200).json({
+                        ...parsed,
+                        source: 'server_stale_cache',
+                        success: false,
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to read fallback from redis:', e);
+            }
+        }
+
         return res.status(500).json({
             success: false,
             error: 'Failed to fetch or process market news',

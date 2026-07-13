@@ -13,6 +13,7 @@ import {
 function makeSession(partial: Partial<GlossarySession> = {}): GlossarySession {
     return {
         joinCode: 'ABCD2345',
+        version: 0,
         status: 'live',
         mode: 'gradual',
         currentPage: 0,

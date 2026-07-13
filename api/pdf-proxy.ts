@@ -4,6 +4,10 @@ import { PDF_KEY_PATTERN } from '../lib/pdfKey.js';
 export { PDF_KEY_PATTERN } from '../lib/pdfKey.js';
 
 export default async function handler(req: any, res: any) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return res.status(405).json({ error: 'Method not allowed' });
+    }
+
     const key = req.query?.key as string | undefined;
     if (!key) return res.status(400).json({ error: 'key query param required' });
     if (!PDF_KEY_PATTERN.test(key)) {

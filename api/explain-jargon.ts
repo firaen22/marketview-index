@@ -17,6 +17,7 @@ const GEMINI_API_KEY_PATTERN = /^[A-Za-z0-9._-]{20,128}$/;
 // Fallback is a different model generation with its own quota pool, so a
 // 3.1-side quota or outage issue doesn't take out both legs.
 const GEMINI_MODEL_CHAIN = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
+const GEMINI_TEXT_TIMEOUT_MS = 20_000;
 
 // Each env var may hold a single key or several comma-separated keys.
 function getGeminiServerKeys(): string[] {
@@ -182,8 +183,9 @@ async function generateJargonGemini(
             { inlineData: { mimeType: 'image/jpeg', data: input.imageBase64 } },
             { text: prompt },
         ];
+    const timeout = 'text' in input ? GEMINI_TEXT_TIMEOUT_MS : VISION_TIMEOUT_MS;
     for (const apiKey of apiKeys) {
-        const client = new GoogleGenAI({ apiKey });
+        const client = new GoogleGenAI({ apiKey, httpOptions: { timeout } });
         for (const model of GEMINI_MODEL_CHAIN) {
             try {
                 const result = await client.models.generateContent({
@@ -192,6 +194,12 @@ async function generateJargonGemini(
                     config: { responseMimeType: 'application/json' },
                 });
                 if (typeof result?.text === 'string' && result.text.trim().length > 0) {
+                    try {
+                        JSON.parse(result.text);
+                    } catch (error) {
+                        console.warn(`Gemini jargon generation returned malformed JSON (model ${model}):`, error);
+                        continue;
+                    }
                     return result.text;
                 }
             } catch (error) {
@@ -307,7 +315,7 @@ export default async function handler(req: any, res: any) {
         try {
             parsed = JSON.parse(raw || '{}');
         } catch {
-            return res.status(200).json({ success: true, terms: [] });
+            return res.status(502).json({ success: false, error: 'AI processing failed' });
         }
 
         const terms = sanitizeTerms(parsed);

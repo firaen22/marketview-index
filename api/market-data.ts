@@ -210,7 +210,7 @@ export async function fetchAllIndices(range: string) {
   for (let idx = 0; idx < INDICES_TO_FETCH.length; idx++) {
     const index = INDICES_TO_FETCH[idx] as any;
     const quote = quotes.find((q: any) => q.symbol === index.symbol);
-    if (!quote) continue;
+    if (!quote) { console.warn(`Skipping symbol ${index.symbol}: quote not found in batch response`); continue; }
 
     let price = quote.regularMarketPrice || 0;
     let change = quote.regularMarketChange || 0;
