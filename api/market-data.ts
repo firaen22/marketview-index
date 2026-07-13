@@ -2,7 +2,7 @@ import YahooFinance from 'yahoo-finance2';
 import { redis } from '../lib/redis.js';
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
-const CACHE_KEY = 'global_market_cache_yfinance_v1';
+export const CACHE_KEY = 'global_market_cache_yfinance_v1';
 
 const INDICES_TO_FETCH = [
   { symbol: '^GSPC', category: 'US', subCategory: 'Large Cap', name: 'S&P 500' },
@@ -176,7 +176,7 @@ export default async function handler(req: any, res: any) {
   }
 }
 
-async function fetchAllIndices(range: string) {
+export async function fetchAllIndices(range: string) {
   const symbols = INDICES_TO_FETCH.map(i => i.symbol);
   let quotes: any[] = [];
   try {

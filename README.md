@@ -26,11 +26,12 @@ This contains everything you need to run your app locally.
    npm start
    ```
 
-## 📊 數據獲取 (Alpha Vantage & Redis 快取)
+## 📊 數據獲取 (Yahoo Finance & Redis 快取)
 
-為了避免 Alpha Vantage 免費版每日 25 次呼叫的嚴格限制，專案使用了 **Vercel KV (Redis)** 進行快取，並透過 **Vercel Cron Jobs** 定時從 API 獲取最新資料寫入快取。
+專案透過 `yahoo-finance2` 獲取行情，並使用 **Upstash Redis (Vercel KV)** 進行快取（每組 range 快取 1 小時），以減少對 Yahoo Finance 的呼叫次數並防止 IP Ban。
 
-- **Cron 執行時間 (HKT)**: 10:30 PM, 9:30 AM, 5:00 PM。
+- **Cron 執行時間 (HKT)**: 每日 9:30 AM（`/api/cron/update-market-data`，預先寫入 1M / 3M / YTD / 1Y 四組快取；需設定 `CRON_SECRET` 環境變數）。
+- **On-demand 更新**: 快取過期或前端帶 `refresh=true` 時即時向 Yahoo Finance 拉取新資料並回寫 Redis（60 秒 throttle）。
 - **優雅降級 (Fallback)**: 若直接呼叫 API 失敗（例如超過 25 次限制），或是伺服器錯誤，前端將會自動讀取並凍結在 **最後一次成功寫入 Redis** 的大盤數據，不再顯示錯誤的 Mock Data。
 
 ## 📂 版本控制與安全 (.gitignore)
