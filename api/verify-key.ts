@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { redis } from '../lib/redis.js';
+import { getClientIp } from '../lib/clientIp.js';
 
 export default async function handler(req: any, res: any) {
     if (req.method !== 'POST') {
@@ -9,10 +10,7 @@ export default async function handler(req: any, res: any) {
     try {
         if (redis) {
             try {
-                const forwardedFor = req.headers['x-forwarded-for'];
-                const ip = typeof forwardedFor === 'string'
-                    ? forwardedFor.split(',')[0].trim()
-                    : (req.socket?.remoteAddress || 'unknown');
+                const ip = getClientIp(req);
                 const key = `verify_key_rl_${ip || 'unknown'}`;
                 const count = await redis.incr(key);
                 // -1 TTL = counter survived a crash between incr and expire; re-arm it

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { redis } from '../lib/redis.js';
+import { getClientIp } from '../lib/clientIp.js';
 import {
     type GlossaryLang,
     type GlossarySession,
@@ -50,16 +51,10 @@ function json(res: any, status: number, body: any, cacheable = false) {
     return res.status(status).json(body);
 }
 
-function getIp(req: any): string {
-    const forwardedFor = req.headers?.['x-forwarded-for'];
-    if (typeof forwardedFor === 'string') return forwardedFor.split(',')[0].trim() || 'unknown';
-    return req.socket?.remoteAddress || 'unknown';
-}
-
 async function rateLimit(req: any): Promise<boolean> {
     if (!redis) return true;
     try {
-        const key = `glossary_rl_${getIp(req)}`;
+        const key = `glossary_rl_${getClientIp(req)}`;
         const count = await redis.incr(key);
         if (count === 1 || (await redis.ttl(key)) === -1) {
             await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS);
