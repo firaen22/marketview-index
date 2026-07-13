@@ -1,0 +1,6 @@
+# Vercel deploys every file under api/ as a serverless function. Test files
+# are not endpoints — exclude them so they don't count against the Hobby-plan
+# 12-function limit. (api/*.test.ts covers the current top-level tests;
+# api/**/*.test.ts covers any future nested ones.)
+api/*.test.ts
+api/**/*.test.ts
