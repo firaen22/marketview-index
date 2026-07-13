@@ -39,4 +39,5 @@ build
 .stylelintcache
 .vercel
 .env*.local
-.claude/
+.claude/*
+!.claude/skills/
