@@ -64,11 +64,18 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
 
     useEffect(() => {
         if (!fullscreenQr) return;
+        // Modal-owns-its-Esc (Modal.tsx / IndexChartModal.tsx precedent).
+        // Capture phase + stopPropagation so useKeyboardShortcuts' bubble
+        // handler in PresentationPage doesn't also close the panel beneath
+        // this overlay — Escape must dismiss the topmost layer only.
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') setFullscreenQr(false);
+            if (event.key === 'Escape') {
+                event.stopPropagation();
+                setFullscreenQr(false);
+            }
         };
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
     }, [fullscreenQr]);
 
     useEffect(() => {

@@ -8,7 +8,7 @@ import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
 import { getLocale } from './locales';
-import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp, Sunrise, Grid3x3, Play, Pause } from 'lucide-react';
+import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp, Sunrise, Grid3x3, Play, Pause, QrCode } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
 import { Link } from 'react-router-dom';
 import { STRIP_MODES, type StripMode } from './constants';
@@ -22,6 +22,8 @@ import { QuoteSpotlightSearch } from './components/QuoteSpotlightSearch';
 import { MorningBriefPanel } from './components/MorningBriefPanel';
 import { IndexChartModal } from './components/IndexChartModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
+import { GlossarySessionPanel } from './components/GlossarySessionPanel';
+import { useGlossarySession } from './hooks/useGlossarySession';
 import { JargonSpotlight } from './components/JargonSpotlight';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useJargon } from './hooks/useJargon';
@@ -50,6 +52,7 @@ export default function PresentationPage() {
     const [tickerSymbols, setTickerSymbols] = useState<string[] | null>(initialSettings.tickerSymbols);
     const [morningBrief, setMorningBrief] = useState<string[]>(initialSettings.morningBrief);
     const [briefPanelOpen, setBriefPanelOpen] = useState(false);
+    const [glossaryPanelOpen, setGlossaryPanelOpen] = useState(false);
     const hintsTimerRef = useRef<number | null>(null);
     const kioskTimerRef = useRef<number | null>(null);
     const hasLoggedMarketStatusError = useRef(false);
@@ -69,7 +72,21 @@ export default function PresentationPage() {
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
     const jargon = useJargon({ enabled: jargonEnabled && mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey, slideVersion: slide.mode === 'pdf' ? slide.updatedAt : undefined });
-    const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || !!qp.chartItem;
+    const glossary = useGlossarySession();
+    const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || glossaryPanelOpen || !!qp.chartItem;
+
+    // Session-glossary attribution: useJargon clears its terms synchronously on
+    // page flip and drops stale in-flight responses, so jargon.terms is only
+    // ever non-empty for the page reportPage last recorded — a term can never
+    // be attributed to the wrong page.
+    const { reportPage: glossaryReportPage, reportTerms: glossaryReportTerms } = glossary;
+    const glossaryOnPageText = useCallback((page: number, text: string, imageDataUrl?: string) => {
+        glossaryReportPage(page);
+        jargon.onPageText(page, text, imageDataUrl);
+    }, [glossaryReportPage, jargon.onPageText]);
+    useEffect(() => {
+        if (jargon.terms.length > 0) glossaryReportTerms(jargon.terms, lang);
+    }, [jargon.terms, lang, glossaryReportTerms]);
     const dwellSec = normalizedPresentCycle.dwellSec;
 
     const marketStatuses = React.useMemo(() => {
@@ -324,9 +341,12 @@ export default function PresentationPage() {
             if (qp.spotlight) { qp.dismissSpotlight(); return; }
             if (qp.isPickerOpen) { qp.closePicker(); return; }
             if (briefPanelOpen) { setBriefPanelOpen(false); return; }
+            // The panel's fullscreen QR overlay owns its own Escape (capture +
+            // stopPropagation), so reaching here means only the panel is open.
+            if (glossaryPanelOpen) { setGlossaryPanelOpen(false); return; }
             if (editorOpen) { setEditorOpen(false); return; }
             setShowHints(false);
-        }, [qp, briefPanelOpen, editorOpen]),
+        }, [qp, briefPanelOpen, glossaryPanelOpen, editorOpen]),
         onArrowLeft: useCallback(() => {
             if (!qp.spotlight) {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.prevPage();
@@ -434,6 +454,13 @@ export default function PresentationPage() {
                             <Sunrise className="w-4 h-4" />
                         </button>
                         <button
+                            onClick={() => setGlossaryPanelOpen(o => !o)}
+                            className={`p-1.5 rounded hover:bg-zinc-800 transition ${glossary.session?.status === 'live' || glossaryPanelOpen ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
+                            title={t.glossary.presenter.title}
+                        >
+                            <QrCode className="w-4 h-4" />
+                        </button>
+                        <button
                             onClick={() => setEditorOpen(o => !o)}
                             className={`p-1.5 rounded hover:bg-zinc-800 transition ${editorOpen ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400'}`}
                             title="Edit slide (E)"
@@ -496,7 +523,7 @@ export default function PresentationPage() {
                                 pdfZoom={pdfZoom}
                                 pdfKeyboardEnabled={false}
                                 pdfRef={pdfRef}
-                                onPdfPageText={jargon.onPageText}
+                                onPdfPageText={glossaryOnPageText}
                                 onPdfPageChange={jargon.onPageChange}
                                 lang={lang}
                             />
@@ -581,6 +608,14 @@ export default function PresentationPage() {
                     />
                 )}
             </div>
+
+            {/* Slide-in session-glossary panel */}
+            <GlossarySessionPanel
+                open={glossaryPanelOpen}
+                onClose={() => setGlossaryPanelOpen(false)}
+                glossary={glossary}
+                lang={lang}
+            />
 
             {/* Slide-in editor panel */}
             <SlideEditorPanel
