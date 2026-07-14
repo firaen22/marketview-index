@@ -250,6 +250,22 @@ export default async function handler(req: any, res: any) {
             if (!validPage(parsed.body.page)) return json(res, 400, { error: 'Invalid page' });
             if (!LANGS.includes(lang)) return json(res, 400, { error: 'Invalid lang' });
             if (!validTerms(parsed.body.terms)) return json(res, 400, { error: 'Invalid terms' });
+            const hasPushEpoch = parsed.body.pushEpoch !== undefined;
+            const hasPushSeq = parsed.body.pushSeq !== undefined;
+            if (hasPushEpoch !== hasPushSeq) return json(res, 400, { error: 'Invalid push sequence' });
+            if (hasPushEpoch && (
+                typeof parsed.body.pushEpoch !== 'string'
+                || parsed.body.pushEpoch.length < 1
+                || parsed.body.pushEpoch.length > 64
+                || typeof parsed.body.pushSeq !== 'number'
+                || !Number.isInteger(parsed.body.pushSeq)
+                || parsed.body.pushSeq < 1
+                || parsed.body.pushSeq > Number.MAX_SAFE_INTEGER
+            )) {
+                return json(res, 400, { error: 'Invalid push sequence' });
+            }
+            const pushEpoch = hasPushEpoch ? parsed.body.pushEpoch as string : undefined;
+            const pushSeq = hasPushSeq ? parsed.body.pushSeq as number : undefined;
 
             const result = await mutateSession(code, session => ({
                 mode: 'EX',
@@ -258,8 +274,15 @@ export default async function handler(req: any, res: any) {
                 if (session.status === 'ended') return { error: 'session_ended' };
                 const now = Date.now();
                 const merged = mergeTerms(session.terms, parsed.body.terms, lang, parsed.body.page, now);
+                const stale = typeof pushSeq === 'number' && typeof pushEpoch === 'string'
+                    && session.push?.epoch === pushEpoch && pushSeq <= session.push.seq;
                 session.terms = merged.terms;
-                session.currentPage = parsed.body.page;
+                if (!stale) {
+                    session.currentPage = parsed.body.page;
+                    if (typeof pushSeq === 'number' && typeof pushEpoch === 'string') {
+                        session.push = { epoch: pushEpoch, seq: pushSeq };
+                    }
+                }
                 session.updatedAt = now;
                 return merged;
             });

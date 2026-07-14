@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GlossaryPollState, PollResult } from './useGlossaryPoll';
 import {
+    isValidAudienceSession,
     nextPollDelayMs,
     normalizeAudienceCode,
     reconnectDelayMs,
@@ -51,6 +52,39 @@ describe('glossary poll pure helpers', () => {
             error: null,
         });
         expect(nextPollDelayMs(result, state)).toBe(5000);
+    });
+
+    describe('isValidAudienceSession guard', () => {
+        it('accepts valid live and ended sessions', () => {
+            expect(isValidAudienceSession(liveSession)).toBe(true);
+            expect(isValidAudienceSession({ ...liveSession, status: 'ended' })).toBe(true);
+        });
+
+        it('rejects null and non-object payloads', () => {
+            expect(isValidAudienceSession(null)).toBe(false);
+            expect(isValidAudienceSession('live')).toBe(false);
+        });
+
+        it('rejects terms that are not an array', () => {
+            expect(isValidAudienceSession({ ...liveSession, terms: {} })).toBe(false);
+        });
+
+        it('rejects term items missing explanation or with non-string term', () => {
+            expect(isValidAudienceSession({
+                ...liveSession,
+                terms: [{ id: 'x', term: 'x', explanation: undefined }],
+            })).toBe(false);
+            expect(isValidAudienceSession({
+                ...liveSession,
+                terms: [{ id: 'x', term: 123, explanation: { en: 'x' } }],
+            })).toBe(false);
+        });
+
+        it('rejects invalid status, mode, and non-finite currentPage', () => {
+            expect(isValidAudienceSession({ ...liveSession, status: 'weird' })).toBe(false);
+            expect(isValidAudienceSession({ ...liveSession, mode: 'other' })).toBe(false);
+            expect(isValidAudienceSession({ ...liveSession, currentPage: NaN })).toBe(false);
+        });
     });
 
     it('stops polling after an ended session success', () => {

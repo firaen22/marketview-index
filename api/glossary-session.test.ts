@@ -261,6 +261,96 @@ describe('glossary-session API handler', () => {
         expect(lastEvalSession().terms[5].explanation).toEqual({ en: 'English 5', 'zh-TW': '中文 5' });
     });
 
+    it('push with same epoch and lower pushSeq merges terms without changing currentPage', async () => {
+        redisState.current.get.mockResolvedValue(sessionJson({
+            currentPage: 7,
+            push: { epoch: 'epoch-a', seq: 5 },
+        }));
+
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: {
+                action: 'push',
+                code: 'ABCD2345',
+                page: 3,
+                lang: 'en',
+                terms: [{ term: 'duration', explanation: 'Duration' }],
+                pushEpoch: 'epoch-a',
+                pushSeq: 4,
+            },
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(lastEvalSession()).toMatchObject({ currentPage: 7, push: { epoch: 'epoch-a', seq: 5 }, updatedAt: 5000 });
+        expect(lastEvalSession().terms.map(term => term.id)).toEqual(['duration']);
+    });
+
+    it('push with a different epoch always updates currentPage', async () => {
+        redisState.current.get.mockResolvedValue(sessionJson({
+            currentPage: 7,
+            push: { epoch: 'epoch-a', seq: 5 },
+        }));
+
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: {
+                action: 'push',
+                code: 'ABCD2345',
+                page: 3,
+                lang: 'en',
+                terms: [],
+                pushEpoch: 'epoch-b',
+                pushSeq: 1,
+            },
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(lastEvalSession()).toMatchObject({ currentPage: 3, push: { epoch: 'epoch-b', seq: 1 }, updatedAt: 5000 });
+    });
+
+    it('push without pushEpoch or pushSeq updates currentPage as before', async () => {
+        redisState.current.get.mockResolvedValue(sessionJson({
+            currentPage: 7,
+            push: { epoch: 'epoch-a', seq: 5 },
+        }));
+
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: { action: 'push', code: 'ABCD2345', page: 3, lang: 'en', terms: [] },
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(lastEvalSession()).toMatchObject({ currentPage: 3, push: { epoch: 'epoch-a', seq: 5 }, updatedAt: 5000 });
+    });
+
+    it('rejects pushSeq without pushEpoch', async () => {
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: { action: 'push', code: 'ABCD2345', page: 1, lang: 'en', terms: [], pushSeq: 1 },
+        }));
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'Invalid push sequence' });
+    });
+
+    it.each([
+        ['non-integer', 1.2],
+        ['zero', 0],
+    ])('rejects invalid pushSeq: %s', async (_label, pushSeq) => {
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: { action: 'push', code: 'ABCD2345', page: 1, lang: 'en', terms: [], pushEpoch: 'epoch-a', pushSeq },
+        }));
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'Invalid push sequence' });
+    });
+
     it.each([
         ['bad JSON body', '{bad'],
         ['non-object body', 'null'],

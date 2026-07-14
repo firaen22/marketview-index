@@ -55,6 +55,20 @@ export function nextPollDelayMs(result: PollResult, state: GlossaryPollState): n
     return null;
 }
 
+export function isValidAudienceSession(value: unknown): value is AudienceSessionView {
+    if (!value || typeof value !== 'object') return false;
+    const s = value as Record<string, unknown>;
+    if (s.status !== 'live' && s.status !== 'ended') return false;
+    if (s.mode !== 'all' && s.mode !== 'gradual') return false;
+    if (typeof s.currentPage !== 'number' || !Number.isFinite(s.currentPage)) return false;
+    if (!Array.isArray(s.terms)) return false;
+    return (s.terms as unknown[]).every(item => !!item
+        && typeof item === 'object'
+        && typeof (item as { term?: unknown }).term === 'string'
+        && !!(item as { explanation?: unknown }).explanation
+        && typeof (item as { explanation?: unknown }).explanation === 'object');
+}
+
 export function reducePollState(state: GlossaryPollState, result: PollResult): GlossaryPollState {
     if (result.type === 'success' && result.session) {
         return {
@@ -110,8 +124,8 @@ async function fetchSession(code: string, signal: AbortSignal): Promise<PollResu
         if (response.status === 404) return { type: 'not_found' };
         if (response.status === 429) return { type: 'rate_limited' };
         if (!response.ok) return { type: 'server_error', message: `http_${response.status}` };
-        const payload = await response.json() as { session?: AudienceSessionView };
-        if (!payload.session) return { type: 'server_error', message: 'missing_session' };
+        const payload = await response.json() as { session?: unknown };
+        if (!isValidAudienceSession(payload.session)) return { type: 'server_error', message: 'malformed_session' };
         return { type: 'success', session: payload.session };
     } catch (error) {
         if ((error as DOMException).name === 'AbortError') return { type: 'server_error', message: 'aborted' };
@@ -150,6 +164,7 @@ export function useGlossaryPoll(rawCode: string | undefined) {
         error: code ? null : 'invalid_code',
     }));
     const stateRef = useRef(state);
+    const prevCodeRef = useRef<string | null>(null);
 
     useEffect(() => {
         stateRef.current = state;
@@ -157,6 +172,7 @@ export function useGlossaryPoll(rawCode: string | undefined) {
 
     useEffect(() => {
         if (!code) {
+            prevCodeRef.current = null;
             setState({
                 status: 'invalid',
                 session: null,
@@ -167,6 +183,8 @@ export function useGlossaryPoll(rawCode: string | undefined) {
             return;
         }
 
+        const codeChanged = prevCodeRef.current !== null && prevCodeRef.current !== code;
+        prevCodeRef.current = code;
         fireJoinBeacon(code);
         const controller = new AbortController();
         let timeout: number | null = null;
@@ -188,13 +206,17 @@ export function useGlossaryPoll(rawCode: string | undefined) {
             }
         };
 
-        setState(current => ({
-            status: current.session ? 'ready' : 'loading',
-            session: current.session,
-            reconnecting: false,
-            failureCount: 0,
-            error: null,
-        }));
+        const initialState: GlossaryPollState = codeChanged
+            ? { status: 'loading', session: null, reconnecting: false, failureCount: 0, error: null }
+            : {
+                status: stateRef.current.session ? 'ready' : 'loading',
+                session: stateRef.current.session,
+                reconnecting: false,
+                failureCount: 0,
+                error: null,
+            };
+        stateRef.current = initialState;
+        setState(initialState);
         void run();
 
         return () => {

@@ -27,6 +27,7 @@ export interface GlossarySession {
     keepAfter: boolean;
     joins: number;
     terms: GlossaryTermSnapshot[];
+    push?: { epoch: string; seq: number };
     updatedAt: number;
 }
 

@@ -62,6 +62,17 @@ export function shouldSchedulePush(
     return !isDuplicatePushPayload(lastSent, next) && !isDuplicatePushPayload(pending, next);
 }
 
+export function shouldFlushBeforeReplace(
+    pending: GlossaryPushPayload | null,
+    next: GlossaryPushPayload,
+): boolean {
+    if (!pending || pending.terms.length === 0) return false;
+    const sameKey = pending.code === next.code && pending.page === next.page && pending.lang === next.lang;
+    if (!sameKey) return true;
+    const nextTerms = new Set(next.terms.map(term => term.term));
+    return !pending.terms.every(term => nextTerms.has(term.term));
+}
+
 export function shouldClearStoredSession(status: number | null, session: ClientGlossarySession | null): boolean {
     return status === 404 || session === null;
 }
@@ -99,6 +110,9 @@ export function useGlossarySession() {
     const lastSessionCodeRef = useRef<string | null>(null);
     const startInFlightRef = useRef(false);
     const sessionRef = useRef<ClientGlossarySession | null>(null);
+    const mountedRef = useRef(true);
+    const pushEpochRef = useRef(`${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
+    const pushSeqRef = useRef(0);
 
     useEffect(() => {
         sessionRef.current = session;
@@ -112,6 +126,13 @@ export function useGlossarySession() {
     }, [session]);
 
     useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
+
+    useEffect(() => {
         const code = readStoredJoinCode();
         if (!code) return;
 
@@ -119,7 +140,7 @@ export function useGlossarySession() {
         void (async () => {
             try {
                 const loaded = await fetchGlossarySession(code);
-                if (cancelled) return;
+                if (cancelled || sessionRef.current || startInFlightRef.current) return;
                 if (shouldClearStoredSession(null, loaded)) {
                     clearStoredJoinCode();
                     setSession(null);
@@ -128,7 +149,7 @@ export function useGlossarySession() {
                 setSession(loaded);
                 currentPageRef.current = loaded?.currentPage ?? 0;
             } catch (caught) {
-                if (cancelled) return;
+                if (cancelled || sessionRef.current || startInFlightRef.current) return;
                 if (caught instanceof GlossaryApiError && (caught.status === 404 || caught.status === 400)) {
                     // 404: expired/deleted. 400: the stored code is corrupt —
                     // clear it too, or every /present load shows an error banner.
@@ -153,22 +174,58 @@ export function useGlossarySession() {
         const payload = pendingRef.current;
         pendingRef.current = null;
         if (!payload || isDuplicatePushPayload(lastSentRef.current, payload)) return;
+        const seq = pushSeqRef.current + 1;
+        pushSeqRef.current = seq;
 
         try {
-            const result = await pushGlossaryTerms(payload.code, payload.page, payload.lang, payload.terms);
+            const result = await pushGlossaryTerms(
+                payload.code,
+                payload.page,
+                payload.lang,
+                payload.terms,
+                { epoch: pushEpochRef.current, seq },
+            );
             lastSentRef.current = payload;
-            setSession(result.session);
-            setError(null);
+            if (seq === pushSeqRef.current && mountedRef.current) {
+                setSession(result.session);
+                setError(null);
+            }
         } catch (caught) {
+            if (seq !== pushSeqRef.current) return;
+            if (caught instanceof GlossaryApiError && caught.status === 404) {
+                clearStoredJoinCode();
+                if (mountedRef.current) {
+                    setSession(null);
+                    setError('Glossary session expired');
+                }
+                return;
+            }
+            if (caught instanceof GlossaryApiError && caught.status === 409 && caught.message === 'session_ended') {
+                if (mountedRef.current) {
+                    setSession(current => current ? { ...current, status: 'ended' } as ClientGlossarySession : current);
+                    setError(null);
+                }
+                return;
+            }
             if (pushWarnedForRef.current !== payload.code) {
                 console.warn('Glossary session push failed:', caught);
                 pushWarnedForRef.current = payload.code;
+            }
+            if (mountedRef.current) {
+                setError(caught instanceof Error ? caught.message : 'Failed to push glossary update');
             }
         }
     }, []);
 
     const schedulePush = useCallback((payload: GlossaryPushPayload) => {
         if (!shouldSchedulePush(payload, lastSentRef.current, pendingRef.current)) return;
+        if (shouldFlushBeforeReplace(pendingRef.current, payload)) {
+            if (debounceRef.current !== null) {
+                window.clearTimeout(debounceRef.current);
+                debounceRef.current = null;
+            }
+            void flushPush();
+        }
         pendingRef.current = payload;
         if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
         debounceRef.current = window.setTimeout(() => {
@@ -184,14 +241,17 @@ export function useGlossarySession() {
         setError(null);
         try {
             const next = await startGlossarySession(mode, keepAfter);
+            if (!mountedRef.current) return;
             setSession(next);
             writeStoredJoinCode(next.joinCode);
             currentPageRef.current = next.currentPage ?? 0;
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Failed to start glossary session');
+            if (mountedRef.current) {
+                setError(caught instanceof Error ? caught.message : 'Failed to start glossary session');
+            }
         } finally {
             startInFlightRef.current = false;
-            setLoading(false);
+            if (mountedRef.current) setLoading(false);
         }
     }, []);
 
@@ -212,6 +272,7 @@ export function useGlossarySession() {
                     // Transient error — keep showing the ended state locally.
                 }
             }
+            if (!mountedRef.current) return;
             if (!kept) {
                 clearStoredJoinCode();
                 setSession(null);
@@ -219,9 +280,11 @@ export function useGlossarySession() {
                 setSession({ ...current, status: 'ended', endedAt: Date.now(), updatedAt: Date.now() } as ClientGlossarySession);
             }
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Failed to end glossary session');
+            if (mountedRef.current) {
+                setError(caught instanceof Error ? caught.message : 'Failed to end glossary session');
+            }
         } finally {
-            setLoading(false);
+            if (mountedRef.current) setLoading(false);
         }
     }, []);
 
@@ -232,12 +295,15 @@ export function useGlossarySession() {
         setError(null);
         try {
             const next = await reopenGlossarySession(current.joinCode);
+            if (!mountedRef.current) return;
             setSession(next);
             writeStoredJoinCode(next.joinCode);
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Failed to reopen glossary session');
+            if (mountedRef.current) {
+                setError(caught instanceof Error ? caught.message : 'Failed to reopen glossary session');
+            }
         } finally {
-            setLoading(false);
+            if (mountedRef.current) setLoading(false);
         }
     }, []);
 
@@ -247,11 +313,15 @@ export function useGlossarySession() {
         setSession({ ...current, mode });
         try {
             const next = await configGlossarySession(current.joinCode, { mode });
-            setSession(next);
-            setError(null);
+            if (mountedRef.current) {
+                setSession(next);
+                setError(null);
+            }
         } catch (caught) {
-            setSession(current);
-            setError(caught instanceof Error ? caught.message : 'Failed to update glossary mode');
+            if (mountedRef.current) {
+                setSession(current);
+                setError(caught instanceof Error ? caught.message : 'Failed to update glossary mode');
+            }
         }
     }, []);
 
