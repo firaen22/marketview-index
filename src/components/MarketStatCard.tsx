@@ -37,7 +37,8 @@ export const MarketStatCard: React.FC<{
     const chartData = React.useMemo(() => {
         if (chartMode === 'percent' && item.history.length > 0) {
             const baseValue = item.history[0].value;
-            if (baseValue === 0) return item.history;
+            // NaN/undefined base (e.g. stale cached data) must not poison the series
+            if (!Number.isFinite(baseValue) || baseValue === 0) return item.history;
             return item.history.map(pt => ({
                 ...pt,
                 value: ((pt.value - baseValue) / baseValue) * 100

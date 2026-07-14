@@ -148,3 +148,10 @@ export function setSetting<K extends keyof MarketFlowSettings>(key: K, value: Ma
 export function getSetting<K extends keyof MarketFlowSettings>(key: K): MarketFlowSettings[K] {
     return getSettings()[key];
 }
+
+// cross-tab writes must invalidate the read cache
+if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (e) => {
+        if (e.key === SETTINGS_KEY) _cache = null;
+    });
+}
