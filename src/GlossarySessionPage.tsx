@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertCircle, Bookmark, Languages, Search, SlidersHorizontal, WifiOff } from 'lucide-react';
+import { AlertCircle, Bookmark, Languages, Radio, Search, SlidersHorizontal, WifiOff } from 'lucide-react';
 import type { GlossaryLang, GlossaryTermSnapshot } from '../lib/glossarySession';
 import { getLocale } from './locales';
 import { useGlossaryPoll } from './hooks/useGlossaryPoll';
@@ -9,7 +9,7 @@ import { EmptyState } from './components/glossary/EmptyState';
 import { Tabs, type GlossaryTab } from './components/glossary/Tabs';
 import { TermCard } from './components/glossary/TermCard';
 
-type SortMode = 'appearance' | 'alpha';
+type SortMode = 'page' | 'alpha';
 
 function termText(term: GlossaryTermSnapshot, lang: GlossaryLang): string {
     return term.explanation[lang] ?? term.explanation.en ?? term.explanation['zh-TW'] ?? '';
@@ -23,7 +23,9 @@ function sortAll(terms: GlossaryTermSnapshot[], sortMode: SortMode): GlossaryTer
     if (sortMode === 'alpha') {
         return [...terms].sort((a, b) => a.term.localeCompare(b.term, undefined, { sensitivity: 'base' }));
     }
-    return terms;
+    // 'page' — top-down by the page each term first appeared on. Array.sort is
+    // stable, so terms sharing a page keep their original push order.
+    return [...terms].sort((a, b) => a.firstPage - b.firstPage);
 }
 
 function filterTerms(terms: GlossaryTermSnapshot[], query: string, lang: GlossaryLang): GlossaryTermSnapshot[] {
@@ -41,7 +43,10 @@ export default function GlossarySessionPage() {
     const [lang, setLang] = useState<GlossaryLang>('zh-TW');
     const [tab, setTab] = useState<GlossaryTab>('latest');
     const [query, setQuery] = useState('');
-    const [sortMode, setSortMode] = useState<SortMode>('appearance');
+    const [sortMode, setSortMode] = useState<SortMode>('page');
+    // Page filter for the All tab: 'all' = every page, 'live' = follow the
+    // presenter's current page, or a specific page number.
+    const [pageMode, setPageMode] = useState<'all' | 'live' | number>('all');
     const [savedTerms, setSavedTerms] = useState<GlossaryTermSnapshot[]>([]);
     const [savingEnabled, setSavingEnabled] = useState(true);
     const t = getLocale(lang).glossary;
@@ -58,11 +63,22 @@ export default function GlossarySessionPage() {
     }, [poll.status, savedTerms.length]);
 
     const liveTerms = poll.session?.terms ?? [];
-    const latestTerms = useMemo(() => sortLatest(liveTerms), [liveTerms]);
-    const allTerms = useMemo(
-        () => filterTerms(sortAll(liveTerms, sortMode), query, lang),
-        [liveTerms, sortMode, query, lang],
+    const currentPage = poll.session?.currentPage ?? 0;
+    const pagesWithTerms = useMemo(
+        () => [...new Set(liveTerms.map(term => term.firstPage))].filter(page => page > 0).sort((a, b) => a - b),
+        [liveTerms],
     );
+    // 'live' follows the presenter; if they haven't reached a page yet, fall
+    // back to showing every page rather than a blank list.
+    const effectivePage =
+        pageMode === 'live' ? (currentPage > 0 ? currentPage : null)
+        : pageMode === 'all' ? null
+        : pageMode;
+    const latestTerms = useMemo(() => sortLatest(liveTerms), [liveTerms]);
+    const allTerms = useMemo(() => {
+        const byPage = effectivePage == null ? liveTerms : liveTerms.filter(term => term.firstPage === effectivePage);
+        return filterTerms(sortAll(byPage, sortMode), query, lang);
+    }, [liveTerms, sortMode, query, lang, effectivePage]);
     const visibleTerms = tab === 'latest' ? latestTerms : tab === 'all' ? allTerms : savedTerms;
 
     const toggleSaved = (term: GlossaryTermSnapshot) => {
@@ -76,7 +92,7 @@ export default function GlossarySessionPage() {
     const savedIds = useMemo(() => new Set(savedTerms.map(term => term.id)), [savedTerms]);
     const counts = {
         latest: latestTerms.length,
-        all: liveTerms.length,
+        all: allTerms.length,
         saved: savedTerms.length,
     };
 
@@ -91,6 +107,12 @@ export default function GlossarySessionPage() {
     })();
 
     const pageLabel = (page: number) => lang === 'zh-TW' ? `第 ${page} 頁` : `Page ${page}`;
+    const pageChip = (active: boolean) =>
+        `flex h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition ${
+            active
+                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300'
+                : 'border-zinc-800 bg-zinc-900 text-zinc-300'
+        }`;
 
     return (
         <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -146,7 +168,23 @@ export default function GlossarySessionPage() {
                         />
                         {poll.session && (
                             <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
-                                <span>{t.currentPage}: {poll.session.currentPage || '-'}</span>
+                                {currentPage > 0 ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => { setTab('all'); setPageMode('live'); }}
+                                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-medium transition ${
+                                            pageMode === 'live'
+                                                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300'
+                                                : 'border-zinc-800 bg-zinc-900 text-zinc-300'
+                                        }`}
+                                        aria-label={`${t.livePage} · ${pageLabel(currentPage)}`}
+                                    >
+                                        <Radio className="h-3.5 w-3.5" />
+                                        {t.livePage} · {pageLabel(currentPage)}
+                                    </button>
+                                ) : (
+                                    <span>{t.currentPage}: -</span>
+                                )}
                                 <span>{t.termCount}: {poll.session.termCount}</span>
                             </div>
                         )}
@@ -174,6 +212,37 @@ export default function GlossarySessionPage() {
                                 <>
                                     {tab === 'all' && (
                                         <div className="mb-4 space-y-3">
+                                            {pagesWithTerms.length > 0 && (
+                                                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                                                    {currentPage > 0 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setPageMode('live')}
+                                                            className={pageChip(pageMode === 'live')}
+                                                        >
+                                                            <Radio className="h-3.5 w-3.5" />
+                                                            {t.livePage}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPageMode('all')}
+                                                        className={pageChip(pageMode === 'all')}
+                                                    >
+                                                        {t.allPages}
+                                                    </button>
+                                                    {pagesWithTerms.map(page => (
+                                                        <button
+                                                            key={page}
+                                                            type="button"
+                                                            onClick={() => setPageMode(page)}
+                                                            className={pageChip(pageMode === page)}
+                                                        >
+                                                            {page}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
                                             <label className="flex min-h-11 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-zinc-400">
                                                 <Search className="h-4 w-4" />
                                                 <input
@@ -185,11 +254,11 @@ export default function GlossarySessionPage() {
                                             </label>
                                             <button
                                                 type="button"
-                                                onClick={() => setSortMode(current => current === 'appearance' ? 'alpha' : 'appearance')}
+                                                onClick={() => setSortMode(current => current === 'page' ? 'alpha' : 'page')}
                                                 className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-sm font-semibold text-zinc-200"
                                             >
                                                 <SlidersHorizontal className="h-4 w-4 text-emerald-400" />
-                                                {sortMode === 'appearance' ? t.sortAppearance : t.sortAlpha}
+                                                {sortMode === 'page' ? t.sortPage : t.sortAlpha}
                                             </button>
                                         </div>
                                     )}

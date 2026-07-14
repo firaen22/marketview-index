@@ -80,10 +80,27 @@ export default function PresentationPage() {
     // ever non-empty for the page reportPage last recorded — a term can never
     // be attributed to the wrong page.
     const { reportPage: glossaryReportPage, reportTerms: glossaryReportTerms } = glossary;
+    // Last PDF page the presenter has rendered, so a session started AFTER the
+    // page was already on screen can re-report it (see the session-start effect).
+    const lastPdfPageRef = useRef(0);
     const glossaryOnPageText = useCallback((page: number, text: string, imageDataUrl?: string) => {
+        lastPdfPageRef.current = page;
         glossaryReportPage(page);
         jargon.onPageText(page, text, imageDataUrl);
     }, [glossaryReportPage, jargon.onPageText]);
+    // PdfViewer fires onPageChange with the page number as soon as the page
+    // renders — well before the slower onPageText extraction — so track the ref
+    // here too, or a session started in that window reports the previous page.
+    const glossaryOnPdfPageChange = useCallback((page: number) => {
+        lastPdfPageRef.current = page;
+        jargon.onPageChange();
+    }, [jargon.onPageChange]);
+    // A deck swap must not let a session started before the new PDF renders
+    // report the OLD deck's page number.
+    const currentPdfUrl = slide.mode === 'pdf' ? slide.content : '';
+    useEffect(() => {
+        lastPdfPageRef.current = 0;
+    }, [currentPdfUrl]);
     // Depend on jargon.terms only, NOT lang: on a mid-session language flip the
     // new lang commits a render before useJargon clears the old-language terms,
     // so firing on `lang` would push old-language text under the new label —
@@ -95,6 +112,24 @@ export default function PresentationPage() {
         if (jargon.terms.length > 0) glossaryReportTerms(jargon.terms, lang);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [jargon.terms, glossaryReportTerms]);
+    // When a session goes live (or the presenter switches to a PDF slide while
+    // live), re-report the page already on screen. Term extraction only fires on
+    // PDF load/page-change, so a session started while parked on a page would
+    // otherwise stay at currentPage 0 and never push a term until the next flip.
+    // If the server already has this page, skip both pushes; successful pushes
+    // update session.currentPage, so the dependency re-run lands here and stops.
+    const glossaryStatus = glossary.session?.status;
+    const glossaryCurrentPage = glossary.session?.currentPage ?? 0;
+    useEffect(() => {
+        if (glossaryStatus !== 'live') return;
+        if (!(mainView === 'slide' && slide.mode === 'pdf')) return;
+        const page = lastPdfPageRef.current;
+        if (page < 1) return;
+        if (glossaryCurrentPage === page) return;
+        glossaryReportPage(page);
+        if (jargon.terms.length > 0) glossaryReportTerms(jargon.terms, lang);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [glossaryStatus, glossaryCurrentPage, mainView, slide.mode, glossaryReportPage, glossaryReportTerms]);
     const dwellSec = normalizedPresentCycle.dwellSec;
 
     const marketStatuses = React.useMemo(() => {
@@ -532,7 +567,7 @@ export default function PresentationPage() {
                                 pdfKeyboardEnabled={false}
                                 pdfRef={pdfRef}
                                 onPdfPageText={glossaryOnPageText}
-                                onPdfPageChange={jargon.onPageChange}
+                                onPdfPageChange={glossaryOnPdfPageChange}
                                 lang={lang}
                             />
                         </SlideErrorBoundary>
