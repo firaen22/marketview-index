@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { X, Search } from 'lucide-react';
 import type { QuoteItem } from '../types/QuoteItem';
-import { displayName } from '../utils';
+import { displayName, formatSigned } from '../utils';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Props {
@@ -139,7 +139,7 @@ function ItemButton({ item, lang, isPinned, onClick }: { item: QuoteItem; lang: 
                 <div className="text-[10px] text-zinc-500 font-mono">{item.id}</div>
             </div>
             <div className={`text-xs font-mono font-bold shrink-0 ml-2 ${up ? 'text-emerald-400' : 'text-red-400'}`}>
-                {up ? '+' : ''}{item.changePct?.toFixed(2)}%{item.changeLabel ? ` ${item.changeLabel}` : ''}
+                {formatSigned(item.changePct)}%{item.changeLabel ? ` ${item.changeLabel}` : ''}
             </div>
         </button>
     );

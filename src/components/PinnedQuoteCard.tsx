@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import type { QuoteItem } from '../types/QuoteItem';
-import { displayName } from '../utils';
+import { displayName, formatSigned } from '../utils';
 
 interface Props {
     item: QuoteItem;
@@ -45,11 +45,11 @@ export function PinnedQuoteCard({ item, lang, showDivider, onRemove, onClick }: 
                 {item.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </div>
             <div className={`text-xs font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
-                {isPositive ? '▲' : '▼'} {Math.abs(item.changePct).toFixed(2)}%{item.changeLabel ? ` ${item.changeLabel}` : ''}
+                {isPositive ? '▲' : '▼'} {Number.isFinite(item.changePct) ? `${Math.abs(item.changePct).toFixed(2)}%` : '—'}{item.changeLabel ? ` ${item.changeLabel}` : ''}
             </div>
-            {item.secondaryPct !== undefined && (
+            {Number.isFinite(item.secondaryPct) && (
                 <div className={`text-[10px] font-mono ${isSecondaryPositive ? 'text-emerald-500/70' : 'text-red-400/70'}`}>
-                    {isSecondaryPositive ? '+' : ''}{item.secondaryPct.toFixed(2)}%{item.secondaryLabel ? ` ${item.secondaryLabel}` : ''}
+                    {formatSigned(item.secondaryPct as number)}%{item.secondaryLabel ? ` ${item.secondaryLabel}` : ''}
                 </div>
             )}
             {hasHistory && (
