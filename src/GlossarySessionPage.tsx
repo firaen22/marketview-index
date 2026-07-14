@@ -92,7 +92,7 @@ export default function GlossarySessionPage() {
     const savedIds = useMemo(() => new Set(savedTerms.map(term => term.id)), [savedTerms]);
     const counts = {
         latest: latestTerms.length,
-        all: liveTerms.length,
+        all: allTerms.length,
         saved: savedTerms.length,
     };
 

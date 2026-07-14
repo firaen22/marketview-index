@@ -116,16 +116,20 @@ export default function PresentationPage() {
     // live), re-report the page already on screen. Term extraction only fires on
     // PDF load/page-change, so a session started while parked on a page would
     // otherwise stay at currentPage 0 and never push a term until the next flip.
+    // If the server already has this page, skip both pushes; successful pushes
+    // update session.currentPage, so the dependency re-run lands here and stops.
     const glossaryStatus = glossary.session?.status;
+    const glossaryCurrentPage = glossary.session?.currentPage ?? 0;
     useEffect(() => {
         if (glossaryStatus !== 'live') return;
         if (!(mainView === 'slide' && slide.mode === 'pdf')) return;
         const page = lastPdfPageRef.current;
         if (page < 1) return;
+        if (glossaryCurrentPage === page) return;
         glossaryReportPage(page);
         if (jargon.terms.length > 0) glossaryReportTerms(jargon.terms, lang);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [glossaryStatus, mainView, slide.mode, glossaryReportPage, glossaryReportTerms]);
+    }, [glossaryStatus, glossaryCurrentPage, mainView, slide.mode, glossaryReportPage, glossaryReportTerms]);
     const dwellSec = normalizedPresentCycle.dwellSec;
 
     const marketStatuses = React.useMemo(() => {
