@@ -80,7 +80,11 @@ export default function PresentationPage() {
     // ever non-empty for the page reportPage last recorded — a term can never
     // be attributed to the wrong page.
     const { reportPage: glossaryReportPage, reportTerms: glossaryReportTerms } = glossary;
+    // Last PDF page the presenter has rendered, so a session started AFTER the
+    // page was already on screen can re-report it (see the session-start effect).
+    const lastPdfPageRef = useRef(0);
     const glossaryOnPageText = useCallback((page: number, text: string, imageDataUrl?: string) => {
+        lastPdfPageRef.current = page;
         glossaryReportPage(page);
         jargon.onPageText(page, text, imageDataUrl);
     }, [glossaryReportPage, jargon.onPageText]);
@@ -95,6 +99,20 @@ export default function PresentationPage() {
         if (jargon.terms.length > 0) glossaryReportTerms(jargon.terms, lang);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [jargon.terms, glossaryReportTerms]);
+    // When a session goes live (or the presenter switches to a PDF slide while
+    // live), re-report the page already on screen. Term extraction only fires on
+    // PDF load/page-change, so a session started while parked on a page would
+    // otherwise stay at currentPage 0 and never push a term until the next flip.
+    const glossaryStatus = glossary.session?.status;
+    useEffect(() => {
+        if (glossaryStatus !== 'live') return;
+        if (!(mainView === 'slide' && slide.mode === 'pdf')) return;
+        const page = lastPdfPageRef.current;
+        if (page < 1) return;
+        glossaryReportPage(page);
+        if (jargon.terms.length > 0) glossaryReportTerms(jargon.terms, lang);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [glossaryStatus, mainView, slide.mode, glossaryReportPage, glossaryReportTerms]);
     const dwellSec = normalizedPresentCycle.dwellSec;
 
     const marketStatuses = React.useMemo(() => {
