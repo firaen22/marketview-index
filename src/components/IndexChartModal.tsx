@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Search } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import type { IndexData } from '../types';
-import { displayName, formatPrice, formatWhole } from '../utils';
+import { displayName, formatPrice, formatSigned, formatWhole } from '../utils';
 
 interface Props {
     item: IndexData;
@@ -47,12 +47,26 @@ type Series = { item: IndexData; color: string };
 
 export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) {
     const L = LABELS[lang];
-    const [compareItems, setCompareItems] = useState<IndexData[]>([]);
+    const [compareSymbols, setCompareSymbols] = useState<string[]>([]);
     const [pickerOpen, setPickerOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [chartMode, setChartMode] = useState<'percent' | 'nominal'>('nominal');
 
-    const hasCompare = compareItems.length > 0;
+    const compareColor = (index: number) => PALETTE[(index + 1) % PALETTE.length];
+
+    // Chip and line colors share one positional source: the symbol's index in
+    // compareSymbols. A symbol absent from allData keeps its chip (and color
+    // slot) but contributes no series.
+    const comparedSeries: Series[] = useMemo(() => {
+        return compareSymbols
+            .map((sym, i) => {
+                const d = allData.find(x => x.symbol === sym);
+                return d ? { item: d, color: PALETTE[(i + 1) % PALETTE.length] } : null;
+            })
+            .filter((s): s is Series => s !== null);
+    }, [allData, compareSymbols]);
+
+    const hasCompare = comparedSeries.length > 0;
     const effectiveMode: 'percent' | 'nominal' = hasCompare ? 'percent' : chartMode;
 
     useEffect(() => {
@@ -68,11 +82,8 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
     }, [onClose, pickerOpen]);
 
     const series: Series[] = useMemo(() => {
-        return [
-            { item, color: PALETTE[0] },
-            ...compareItems.map((c, i) => ({ item: c, color: PALETTE[(i + 1) % PALETTE.length] })),
-        ];
-    }, [item, compareItems]);
+        return [{ item, color: PALETTE[0] }, ...comparedSeries];
+    }, [item, comparedSeries]);
 
     const chartData = useMemo(() => {
         const dateMap = new Map<string, Record<string, number | string>>();
@@ -102,7 +113,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
     const primaryHasHistory = (item.history?.length ?? 0) > 0;
 
     const available = useMemo(() => {
-        const pickedSymbols = new Set([item.symbol, ...compareItems.map(c => c.symbol)]);
+        const pickedSymbols = new Set([item.symbol, ...compareSymbols]);
         const q = search.trim().toLowerCase();
         return allData
             .filter(d => !pickedSymbols.has(d.symbol))
@@ -113,17 +124,17 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                 (d.nameEn || '').toLowerCase().includes(q)
             )
             .slice(0, 50);
-    }, [allData, item.symbol, compareItems, search]);
+    }, [allData, item.symbol, compareSymbols, search]);
 
-    const addCompare = (d: IndexData) => {
-        if (compareItems.length >= MAX_COMPARE) return;
-        setCompareItems(prev => [...prev, d]);
+    const addCompare = (symbol: string) => {
+        if (compareSymbols.length >= MAX_COMPARE) return;
+        setCompareSymbols(prev => prev.includes(symbol) ? prev : [...prev, symbol]);
         setSearch('');
         setPickerOpen(false);
     };
 
     const removeCompare = (symbol: string) => {
-        setCompareItems(prev => prev.filter(c => c.symbol !== symbol));
+        setCompareSymbols(prev => prev.filter(s => s !== symbol));
     };
 
     const isPositive = item.change >= 0;
@@ -149,7 +160,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                 {formatPrice(item.price)}
                             </span>
                             <span className={`text-sm font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
+                                {formatSigned(item.changePercent)}%
                             </span>
                         </div>
                     </div>
@@ -233,28 +244,28 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                             {L.compare}:
                         </span>
 
-                        {compareItems.map((c, i) => (
+                        {compareSymbols.map((symbol, i) => (
                             <span
-                                key={c.symbol}
+                                key={symbol}
                                 className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs bg-zinc-900 border border-zinc-800"
-                                style={{ borderColor: PALETTE[(i + 1) % PALETTE.length] + '55' }}
+                                style={{ borderColor: compareColor(i) + '55' }}
                             >
                                 <span
                                     className="w-2 h-2 rounded-full"
-                                    style={{ background: PALETTE[(i + 1) % PALETTE.length] }}
+                                    style={{ background: compareColor(i) }}
                                 />
-                                <span className="text-zinc-300">{c.symbol}</span>
+                                <span className="text-zinc-300">{symbol}</span>
                                 <button
-                                    onClick={() => removeCompare(c.symbol)}
+                                    onClick={() => removeCompare(symbol)}
                                     className="text-zinc-500 hover:text-zinc-200"
-                                    aria-label={`Remove ${c.symbol}`}
+                                    aria-label={`Remove ${symbol}`}
                                 >
                                     <X className="w-3 h-3" />
                                 </button>
                             </span>
                         ))}
 
-                        {compareItems.length < MAX_COMPARE ? (
+                        {compareSymbols.length < MAX_COMPARE ? (
                             <button
                                 onClick={() => setPickerOpen(o => !o)}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
@@ -314,7 +325,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                     return (
                                         <button
                                             key={d.symbol}
-                                            onClick={() => addCompare(d)}
+                                            onClick={() => addCompare(d.symbol)}
                                             className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border bg-zinc-900 border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700 transition text-left"
                                         >
                                             <div className="min-w-0">
@@ -324,7 +335,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                                                 <div className="text-[10px] text-zinc-500 font-mono">{d.symbol}</div>
                                             </div>
                                             <div className={`text-[10px] font-mono font-bold shrink-0 ml-2 ${up ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                {up ? '+' : ''}{d.changePercent?.toFixed(2)}%
+                                                {formatSigned(d.changePercent)}%
                                             </div>
                                         </button>
                                     );
