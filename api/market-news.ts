@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import YahooFinance from 'yahoo-finance2';
 import { redis } from '../lib/redis.js';
 import { getNimApiKeys, callNim, NIM_TEXT_MODELS } from '../lib/nim.js';
@@ -6,7 +7,7 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 const CACHE_KEY = 'global_market_news_v1';
 const NEWS_CACHE_TTL = 60 * 15; // 15 minutes in seconds
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Hoisted above the try so the catch block's stale-cache fallback can see it.
     let staleCacheKey: string | null = null;
     try {

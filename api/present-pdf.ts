@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { S3Client, DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
@@ -41,7 +42,7 @@ export function sanitizeFilename(name: string): string {
     return cleaned || `slide-${Date.now()}.pdf`;
 }
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!isR2Configured()) {
         return res.status(503).json({ error: 'R2 storage not configured' });
     }

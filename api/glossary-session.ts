@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
 import { redis } from '../lib/redis.js';
 import { getClientIp } from '../lib/clientIp.js';
@@ -159,7 +160,7 @@ function validPage(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 10000;
 }
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!redis) {
         return json(res, 503, { error: 'Storage not configured' });
     }

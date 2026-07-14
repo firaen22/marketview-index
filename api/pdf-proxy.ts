@@ -1,9 +1,10 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { PDF_KEY_PATTERN } from '../lib/pdfKey.js';
 
 export { PDF_KEY_PATTERN } from '../lib/pdfKey.js';
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
         return res.status(405).json({ error: 'Method not allowed' });
     }

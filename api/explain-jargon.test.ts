@@ -61,7 +61,7 @@ function makeRes() {
 
 async function call(body: any) {
     const res = makeRes();
-    await handler(makeReq(body), res);
+    await handler(makeReq(body) as any, res);
     return res;
 }
 

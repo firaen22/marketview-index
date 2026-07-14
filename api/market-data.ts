@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import YahooFinance from 'yahoo-finance2';
 import { redis } from '../lib/redis.js';
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
@@ -70,7 +71,7 @@ const INDICES_TO_FETCH = [
   }
 ];
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
   const forceRefresh = searchParams.get('refresh') === 'true';
   const requestedRange = searchParams.get('range') || 'YTD';

@@ -1,3 +1,4 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 import { getNimApiKeys, callNim, callNimHedged, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
@@ -226,7 +227,7 @@ const VISION_TIMEOUT_MS = 50_000;
 // into the full race — still inside the 45s slide window.
 const HEDGE_DELAY_MS = 10_000;
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
         res.setHeader('Pragma', 'no-cache');
