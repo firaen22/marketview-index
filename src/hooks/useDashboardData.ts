@@ -38,15 +38,48 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
     const { newsData, isNewsLoading, isAiTranslated, marketSummary, fetchNews, refreshNewsWithKey } =
         useNewsData({ language, geminiKey });
 
+    // Sanitize cached index data from localStorage
+    function sanitizeCachedIndexData(data: any): any {
+        if (!Array.isArray(data)) {
+            return null;
+        }
+        const numFields = ['price','change','changePercent','ytdChange','ytdChangePercent','high','low'];
+        return data
+            .filter((item: any) => item && typeof item === 'object')
+            .map((item: any) => {
+                const out: any = { ...item };
+                for (const f of numFields) {
+                    if (!Number.isFinite(out[f])) out[f] = 0;
+                }
+                if (!Array.isArray(out.history)) {
+                    out.history = [];
+                } else {
+                    out.history = out.history.filter((h: any) => h && typeof h === 'object' && Number.isFinite(h.value));
+                }
+                return out;
+            });
+    }
+
     const handleFallback = useCallback((cacheKey: string, message: string) => {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
             try {
                 const { data, timestamp } = JSON.parse(cached);
-                const timeStr = new Date(timestamp).toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined);
-                setMarketData(data);
-                setLastUpdated(new Date(timestamp));
+                const sanitized = sanitizeCachedIndexData(data);
+                if (!sanitized) {
+                    setIsError(true);
+                    setMarketData([]);
+                    return;
+                }
+                setMarketData(sanitized);
+                // Malformed cached timestamp must not render "Invalid Date"
+                const hasValidTs = Number.isFinite(timestamp);
+                if (hasValidTs) setLastUpdated(new Date(timestamp));
+                const timeStr = hasValidTs
+                    ? new Date(timestamp).toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined)
+                    : '—';
                 setFallbackMessage(`${message} (${lastUpdatedLabel}: ${timeStr})`);
+                setIsError(false);
             } catch {
                 setIsError(true);
                 setMarketData([]);
@@ -81,6 +114,7 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
             if (requestSequence !== requestSequenceRef.current) return;
             if (result.data && Array.isArray(result.data)) {
                 setMarketData(result.data);
+                setIsError(false);
                 if (!result.success || result.source === 'server_stale_cache') {
                     const timestamp = new Date(result.timestamp || '');
                     const timeStr = Number.isNaN(timestamp.getTime())
@@ -91,7 +125,6 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
                         : `無法取得最新資料，顯示後端最後更新時間${timeStr ? `：${timeStr}` : ''} (全局資料已凍結)`);
                 } else {
                     setFallbackMessage(null);
-                    setIsError(false);
                     const timestamp = new Date(result.timestamp || '');
                     setLastUpdated(Number.isNaN(timestamp.getTime()) ? null : timestamp);
                     localStorage.setItem(CACHE_KEY, JSON.stringify({

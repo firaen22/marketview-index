@@ -164,8 +164,10 @@ export function useJargon(opts: Options): {
     // Fired synchronously when the displayed PDF page changes, BEFORE the new
     // page's text extraction resolves — drops any in-flight response for the
     // previous page so its terms can never appear over the new page.
+    // Also clears the latest page snapshot so enabled/lang toggles cannot replay it.
     const onPageChange = useCallback(() => {
         clearDebounce();
+        latestRef.current = null;
         activeRequestKeyRef.current = null;
         setTerms([]);
     }, [clearDebounce]);

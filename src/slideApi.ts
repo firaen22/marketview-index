@@ -9,6 +9,16 @@ if (import.meta.env.DEV && import.meta.env.MODE !== 'test' && !API_KEY) {
 // Max payload size for slide content (HTML/markdown). PDFs use separate blob upload path.
 export const MAX_CONTENT_BYTES = 256 * 1024;
 
+export function isValidPresentSlide(v: unknown): v is PresentSlide {
+    if (!v || typeof v !== 'object') return false;
+    const slide = v as Record<string, unknown>;
+    // Keep in sync with PresentSlideMode in settings.ts and ALLOWED_MODES in api/present-slide.ts.
+    const allowedModes = ['markdown', 'html', 'url', 'pdf'];
+    return allowedModes.includes(slide.mode as string)
+        && typeof slide.content === 'string'
+        && Number.isFinite(slide.updatedAt);
+}
+
 function authHeaders(): Record<string, string> {
     return API_KEY ? { 'x-api-key': API_KEY } : {};
 }
@@ -18,7 +28,7 @@ export async function loadRemoteSlide(): Promise<PresentSlide | null> {
         const res = await fetch('/api/present-slide');
         if (!res.ok) return null;
         const json = await res.json();
-        if (json?.slide && typeof json.slide === 'object') return json.slide as PresentSlide;
+        if (isValidPresentSlide(json?.slide)) return json.slide;
     } catch {}
     return null;
 }
@@ -75,7 +85,7 @@ async function postSlide(slide: PresentSlide, signal: AbortSignal): Promise<void
     const res = await fetch('/api/present-slide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ mode: slide.mode, content: slide.content }),
+        body: JSON.stringify({ mode: slide.mode, content: slide.content, updatedAt: slide.updatedAt }),
         signal,
     });
     if (!res.ok) {
@@ -102,7 +112,10 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export class StaleSaveError extends Error {
-    constructor() { super('Superseded by newer save'); this.name = 'StaleSaveError'; }
+    // remote=true: server 409 (another device stored newer content) — no local
+    // save follows, so the caller must reset its own UI state.
+    // remote=false: superseded by a newer save in this tab, which drives the UI.
+    constructor(public readonly remote = false) { super('Superseded by newer save'); this.name = 'StaleSaveError'; }
 }
 
 export async function saveRemoteSlide(slide: PresentSlide): Promise<void> {
@@ -122,6 +135,7 @@ export async function saveRemoteSlide(slide: PresentSlide): Promise<void> {
             } catch (e: any) {
                 if (e?.name === 'AbortError' || signal.aborted) throw new StaleSaveError();
                 lastError = e;
+                if (e?.status === 409) throw new StaleSaveError(true);
                 // Don't retry client errors (4xx) — they won't succeed on retry
                 if (e?.status && e.status >= 400 && e.status < 500) throw e;
                 if (attempt < RETRY_DELAYS_MS.length) {

@@ -85,7 +85,8 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) 
                 if (!dateMap.has(key)) dateMap.set(key, { date: key });
                 const row = dateMap.get(key)!;
                 const val =
-                    effectiveMode === 'percent' && base !== 0
+                    // Finite-base check: NaN/undefined base (stale cached data) must not poison the row
+                    effectiveMode === 'percent' && Number.isFinite(base) && base !== 0
                         ? ((pt.value - base) / base) * 100
                         : pt.value;
                 row[s.item.symbol] = val;

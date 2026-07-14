@@ -90,8 +90,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (content.length > 1_000_000) {
             return res.status(413).json({ error: 'Content too large' });
         }
+        const incomingUpdatedAt = body?.updatedAt;
+        const hasClientUpdatedAt = typeof incomingUpdatedAt === 'number'
+            && Number.isFinite(incomingUpdatedAt)
+            && incomingUpdatedAt > 0;
+        // Client timestamps preserve save ordering across devices; legacy clients
+        // still get server-stamped saves and skip conflicts for compatibility.
+        if (hasClientUpdatedAt) {
+            try {
+                const { Body } = await client.send(new GetObjectCommand({ Bucket: bucket, Key: SLIDE_KEY }));
+                const text = await readStream(Body as NodeJS.ReadableStream);
+                const storedSlide = JSON.parse(text);
+                // Strictly newer only: re-posting the same timestamp (manual Save after
+                // the debounced autosave) must stay idempotent, not 409.
+                if (Number.isFinite(storedSlide?.updatedAt) && storedSlide.updatedAt > incomingUpdatedAt) {
+                    return res.status(409).json({ error: 'Stale save: newer content already stored' });
+                }
+            } catch (e: any) {
+                if (e?.name !== 'NoSuchKey') console.error('Slide conflict read error:', e);
+            }
+        }
         try {
-            const slide = { mode, content, updatedAt: Date.now() };
+            // Clamp client timestamps to ~now: a future-skewed device clock must not
+            // make every other device's saves 409 until wall-clock catches up.
+            const now = Date.now();
+            const slide = { mode, content, updatedAt: hasClientUpdatedAt ? Math.min(incomingUpdatedAt, now + 60_000) : now };
             await client.send(new PutObjectCommand({
                 Bucket: bucket,
                 Key: SLIDE_KEY,

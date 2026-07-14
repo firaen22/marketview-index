@@ -5,6 +5,7 @@ import {
     type PresentSlide,
 } from '../settings';
 import {
+    isValidPresentSlide,
     loadRemoteSlide,
     saveRemoteSlide,
     StaleSaveError,
@@ -62,7 +63,7 @@ export function useSlideSync(): UseSlideSyncResult {
             if (e.key === 'marketflow_settings' && e.newValue) {
                 try {
                     const parsed = JSON.parse(e.newValue);
-                    if (parsed?.presentSlide) setSlide(parsed.presentSlide);
+                    if (isValidPresentSlide(parsed?.presentSlide)) setSlide(parsed.presentSlide);
                 } catch {}
             }
         };
@@ -78,6 +79,18 @@ export function useSlideSync(): UseSlideSyncResult {
 
     const doRemoteSave = (s?: PresentSlide) => {
         const target = s ?? slideRef.current;
+        const byteSize = new Blob([target.content]).size;
+        if (byteSize > MAX_CONTENT_BYTES) {
+            // A pending idle-reset from a prior 'ok' must not wipe this 'error'
+            if (statusTimerRef.current) {
+                clearTimeout(statusTimerRef.current);
+                statusTimerRef.current = null;
+            }
+            setSizeWarning(`Content is ${(byteSize / 1024).toFixed(0)} KB — max ${MAX_CONTENT_BYTES / 1024} KB. Not synced to cloud.`);
+            setCloudStatus('error');
+            return;
+        }
+        setSizeWarning(null);
         if (saveTimerRef.current) {
             clearTimeout(saveTimerRef.current);
             saveTimerRef.current = null;
@@ -94,8 +107,12 @@ export function useSlideSync(): UseSlideSyncResult {
             statusTimerRef.current = window.setTimeout(() => setCloudStatus('idle'), 2000);
         }).catch((e) => {
             if (!mountedRef.current) return;
-            // Superseded by newer save — not a real failure, let the newer one drive UI state
-            if (e instanceof StaleSaveError) return;
+            // Superseded by a newer local save — that save drives UI state.
+            // A server 409 has no follow-up save, so reset the indicator ourselves.
+            if (e instanceof StaleSaveError) {
+                if (e.remote) setCloudStatus('idle');
+                return;
+            }
             setCloudStatus('error');
             statusTimerRef.current = window.setTimeout(() => setCloudStatus('idle'), 3000);
         });
