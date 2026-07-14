@@ -87,6 +87,39 @@ describe('settings persistence', () => {
         });
     });
 
+    it('in-memory settings survive across setSetting calls when persistence fails (private browsing)', async () => {
+        const { setSetting, getSetting } = await import('./settings');
+        const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+            throw new Error('QuotaExceededError');
+        });
+        try {
+            setSetting('lang', 'en');
+            setSetting('chartMode', 'percent');
+            // Pre-fix, the second setSetting re-read stale storage and reverted lang.
+            expect(getSetting('lang')).toBe('en');
+            expect(getSetting('chartMode')).toBe('percent');
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it('getSettings does not throw when storage access itself throws', async () => {
+        const getSpy = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+            throw new Error('SecurityError');
+        });
+        const setSpy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+            throw new Error('SecurityError');
+        });
+        try {
+            const { getSettings } = await import('./settings');
+            expect(() => getSettings()).not.toThrow();
+            expect(getSettings().lang).toBe('zh-TW');
+        } finally {
+            getSpy.mockRestore();
+            setSpy.mockRestore();
+        }
+    });
+
     it('getSettings normalizes stored presentCycle without writing it back', async () => {
         localStorage.setItem(SETTINGS_KEY, JSON.stringify({ presentCycle: { enabled: true, dwellSec: 5, views: ['slide', 'slide', 'bogus', 'heatmap'] } }));
         const before = localStorage.getItem(SETTINGS_KEY);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IndexData, MarketDataResponse } from '../types';
-import { marketCacheKey } from '../settings';
+import { marketCacheKey, safeGetItem, safeSetItem } from '../settings';
 import { useNewsData } from './useNewsData';
 
 interface Options {
@@ -61,7 +61,7 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
     }
 
     const handleFallback = useCallback((cacheKey: string, message: string) => {
-        const cached = localStorage.getItem(cacheKey);
+        const cached = safeGetItem(cacheKey);
         if (cached) {
             try {
                 const { data, timestamp } = JSON.parse(cached);
@@ -127,7 +127,7 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
                     setFallbackMessage(null);
                     const timestamp = new Date(result.timestamp || '');
                     setLastUpdated(Number.isNaN(timestamp.getTime()) ? null : timestamp);
-                    localStorage.setItem(CACHE_KEY, JSON.stringify({
+                    safeSetItem(CACHE_KEY, JSON.stringify({
                         timestamp: Date.now(),
                         data: result.data,
                     }));

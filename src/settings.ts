@@ -51,6 +51,9 @@ const DEFAULT_PRESENT_CYCLE: PresentCycle = {
 const PRESENT_VIEWS: PresentView[] = ['slide', 'index', 'heatmap'];
 
 let _cache: MarketFlowSettings | null = null;
+// True after a setSetting write failed to persist — storage is stale from
+// that point, so setSetting must stop treating it as the source of truth.
+let _persistFailed = false;
 
 const DEFAULTS: MarketFlowSettings = {
     lang: 'zh-TW',
@@ -63,6 +66,32 @@ const DEFAULTS: MarketFlowSettings = {
     presentCycle: DEFAULT_PRESENT_CYCLE,
     jargonEnabled: true,
 };
+
+export function safeGetItem(key: string): string | null {
+    try {
+        return localStorage.getItem(key);
+    } catch {
+        return null;
+    }
+}
+
+export function safeSetItem(key: string, value: string): boolean {
+    try {
+        localStorage.setItem(key, value);
+        return true;
+    } catch {
+        // Storage can be unavailable in private or embedded contexts.
+        return false;
+    }
+}
+
+export function safeRemoveItem(key: string): void {
+    try {
+        localStorage.removeItem(key);
+    } catch {
+        // Storage can be unavailable in private or embedded contexts.
+    }
+}
 
 export function normalizePresentCycle(value: unknown): PresentCycle {
     const input = value && typeof value === 'object' ? value as Partial<PresentCycle> : {};
@@ -98,7 +127,7 @@ function withNormalizedSettings(value: Partial<MarketFlowSettings>): MarketFlowS
  * Includes automatic migration from the old fragmented keys on first read.
  */
 function loadFromStorage(): MarketFlowSettings {
-    const raw = localStorage.getItem(SETTINGS_KEY);
+    const raw = safeGetItem(SETTINGS_KEY);
     if (raw) {
         try {
             return withNormalizedSettings(JSON.parse(raw));
@@ -107,10 +136,10 @@ function loadFromStorage(): MarketFlowSettings {
         }
     }
     const migrated: MarketFlowSettings = {
-        lang: (localStorage.getItem('marketflow_lang') as MarketFlowSettings['lang']) || DEFAULTS.lang,
-        chartMode: (localStorage.getItem('marketflow_chart_mode') as MarketFlowSettings['chartMode']) || DEFAULTS.chartMode,
+        lang: (safeGetItem('marketflow_lang') as MarketFlowSettings['lang']) || DEFAULTS.lang,
+        chartMode: (safeGetItem('marketflow_chart_mode') as MarketFlowSettings['chartMode']) || DEFAULTS.chartMode,
         showFunds: (() => {
-            const v = localStorage.getItem('marketflow_show_funds');
+            const v = safeGetItem('marketflow_show_funds');
             if (v === null) return DEFAULTS.showFunds;
             try {
                 return JSON.parse(v);
@@ -118,7 +147,7 @@ function loadFromStorage(): MarketFlowSettings {
                 return DEFAULTS.showFunds;
             }
         })(),
-        geminiKey: localStorage.getItem('user_gemini_key') || DEFAULTS.geminiKey,
+        geminiKey: safeGetItem('user_gemini_key') || DEFAULTS.geminiKey,
         presentSlide: DEFAULTS.presentSlide,
         tickerSymbols: DEFAULTS.tickerSymbols,
         morningBrief: DEFAULTS.morningBrief,
@@ -128,8 +157,8 @@ function loadFromStorage(): MarketFlowSettings {
     if (migrated.lang !== 'en' && migrated.lang !== 'zh-TW') migrated.lang = DEFAULTS.lang;
     if (migrated.chartMode !== 'nominal' && migrated.chartMode !== 'percent') migrated.chartMode = DEFAULTS.chartMode;
 
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(migrated));
-    LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
+    safeSetItem(SETTINGS_KEY, JSON.stringify(migrated));
+    LEGACY_KEYS.forEach(k => safeRemoveItem(k));
     return withNormalizedSettings(migrated);
 }
 
@@ -140,8 +169,13 @@ export function getSettings(): MarketFlowSettings {
 }
 
 export function setSetting<K extends keyof MarketFlowSettings>(key: K, value: MarketFlowSettings[K]) {
-    const current = withNormalizedSettings({ ...loadFromStorage(), [key]: value });
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(current));
+    // Healthy storage: re-read it so writes from other tabs (or direct writers
+    // that bypass setSetting) are never clobbered. After a FAILED write
+    // (private browsing), storage is stale by definition — base on _cache so
+    // earlier in-memory changes survive the session.
+    const base = _persistFailed && _cache ? _cache : loadFromStorage();
+    const current = withNormalizedSettings({ ...base, [key]: value });
+    _persistFailed = !safeSetItem(SETTINGS_KEY, JSON.stringify(current));
     _cache = current;
 }
 
