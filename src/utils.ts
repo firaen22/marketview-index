@@ -28,6 +28,22 @@ export function formatWhole(n: number): string {
     return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
+export function formatSigned(n: number, digits = 2): string {
+    if (!Number.isFinite(n)) return '—';
+    return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}`;
+}
+
+export function ytdComparator(sortOrder: 'asc' | 'desc') {
+    return (a: Pick<IndexData, 'ytdChangePercent'>, b: Pick<IndexData, 'ytdChangePercent'>): number => {
+        const av = Number.isFinite(a.ytdChangePercent) ? a.ytdChangePercent : null;
+        const bv = Number.isFinite(b.ytdChangePercent) ? b.ytdChangePercent : null;
+        if (av === null && bv === null) return 0;
+        if (av === null) return 1;
+        if (bv === null) return -1;
+        return sortOrder === 'desc' ? bv - av : av - bv;
+    };
+}
+
 export function groupByCategory<T extends Pick<IndexData, 'category'>>(items: T[]): Record<string, T[]> {
     return items.reduce<Record<string, T[]>>((acc, item) => {
         (acc[item.category] ??= []).push(item);

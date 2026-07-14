@@ -17,7 +17,7 @@ import { NewsSection } from './components/NewsSection';
 import { SettingsModal } from './components/SettingsModal';
 import { TickerConfigModal } from './components/TickerConfigModal';
 import { TimeRangeSelector } from './components/TimeRangeSelector';
-import { cn } from './utils';
+import { cn, ytdComparator } from './utils';
 import { getSettings, setSetting } from './settings';
 import { CATEGORIES_ORDER } from './constants';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -93,7 +93,7 @@ export default function Dashboard() {
   const filteredIndices = [...(selectedCategory === 'All'
     ? displayMarketData
     : displayMarketData.filter(item => item.category === selectedCategory)
-  )].sort((a, b) => sortOrder === 'desc' ? b.ytdChangePercent - a.ytdChangePercent : a.ytdChangePercent - b.ytdChangePercent);
+  )].sort(ytdComparator(sortOrder));
 
   // Rendering...
 

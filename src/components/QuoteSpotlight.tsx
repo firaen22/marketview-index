@@ -18,7 +18,7 @@ function formatValue(v: number): string {
 }
 
 function formatPct(p: number | undefined): string {
-    if (p === undefined || p === null) return '—';
+    if (typeof p !== 'number' || !Number.isFinite(p)) return '—';
     const sign = p > 0 ? '+' : '';
     return `${sign}${p.toFixed(2)}%`;
 }

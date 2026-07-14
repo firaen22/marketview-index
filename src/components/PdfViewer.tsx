@@ -35,6 +35,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
+    const captureTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
+    const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -102,17 +104,30 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         const captureImage = (text: string) => {
             pdf.getPage(pageNum)
                 .then(async page => {
+                    if (cancelled) return;
                     const sourceViewport = page.getViewport({ scale: 1 });
                     const target = jargonImageDims(sourceViewport.width, sourceViewport.height);
                     jargonDebug('captureStart', { page: pageNum, w: target.width, h: target.height });
                     const scale = sourceViewport.width > 0 ? target.width / sourceViewport.width : 1;
                     const viewport = page.getViewport({ scale });
-                    const canvas = document.createElement('canvas');
+                    captureTaskRef.current?.cancel();
+                    captureTaskRef.current = null;
+                    const canvas = captureCanvasRef.current ?? document.createElement('canvas');
+                    captureCanvasRef.current = canvas;
                     canvas.width = target.width;
                     canvas.height = target.height;
                     const context = canvas.getContext('2d');
                     if (!context) { jargonDebug('captureNoContext', { page: pageNum }); return; }
-                    await page.render({ canvasContext: context, canvas, viewport }).promise;
+                    const rt = page.render({ canvasContext: context, canvas, viewport });
+                    captureTaskRef.current = rt;
+                    try {
+                        await rt.promise;
+                    } catch (err) {
+                        if ((err as Error)?.name === 'RenderingCancelledException') return;
+                        throw err;
+                    } finally {
+                        if (captureTaskRef.current === rt) captureTaskRef.current = null;
+                    }
                     if (cancelled) return;
 
                     let imageDataUrl = canvas.toDataURL('image/jpeg', 0.7);
@@ -126,7 +141,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
                         onPageText(pageNum, text, imageDataUrl);
                     }
                 })
-                .catch((err) => { jargonDebug('captureError', { page: pageNum, err: String(err).slice(0, 200) }); });
+                .catch((err) => {
+                    if ((err as Error)?.name === 'RenderingCancelledException') return;
+                    jargonDebug('captureError', { page: pageNum, err: String(err).slice(0, 200) });
+                });
         };
 
         pdf.getPage(pageNum)
@@ -148,7 +166,11 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
                 // to the image path so those devices still get jargon via OCR.
                 captureImage('');
             });
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+            captureTaskRef.current?.cancel();
+            captureTaskRef.current = null;
+        };
     }, [pdf, pageNum, onPageText]);
 
     const prev = useCallback(() => setPageNum(p => Math.max(1, p - 1)), []);
