@@ -80,8 +80,16 @@ export async function pushGlossaryTerms(
     page: number,
     lang: GlossaryLang,
     terms: JargonTerm[],
+    push?: { epoch: string; seq: number },
 ): Promise<{ session: ClientGlossarySession; termLimitReached: boolean }> {
-    const payload = await postGlossary({ action: 'push', code, page, lang, terms });
+    const payload = await postGlossary({
+        action: 'push',
+        code,
+        page,
+        lang,
+        terms,
+        ...(push ? { pushEpoch: push.epoch, pushSeq: push.seq } : {}),
+    });
     return {
         session: payload.session as ClientGlossarySession,
         termLimitReached: payload.termLimitReached === true,

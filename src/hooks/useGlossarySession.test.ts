@@ -5,6 +5,7 @@ import {
     parseStoredJoinCode,
     pushPayloadKey,
     shouldClearStoredSession,
+    shouldFlushBeforeReplace,
     shouldSchedulePush,
     type GlossaryPushPayload,
 } from './useGlossarySession';
@@ -53,5 +54,45 @@ describe('useGlossarySession helpers', () => {
         expect(shouldClearStoredSession(null, session)).toBe(false);
         expect(shouldClearStoredSession(null, null)).toBe(true);
         expect(shouldClearStoredSession(404, session)).toBe(true);
+    });
+});
+
+describe('shouldFlushBeforeReplace', () => {
+    it('does not flush when pending is null', () => {
+        expect(shouldFlushBeforeReplace(null, payload)).toBe(false);
+    });
+
+    it('does not flush when pending has empty terms', () => {
+        expect(shouldFlushBeforeReplace({ ...payload, terms: [] }, { ...payload, page: 4 })).toBe(false);
+    });
+
+    it('flushes when next has empty terms and pending has terms', () => {
+        expect(shouldFlushBeforeReplace(payload, { ...payload, terms: [] })).toBe(true);
+    });
+
+    it('flushes when page, lang, or code differs', () => {
+        expect(shouldFlushBeforeReplace(payload, { ...payload, page: 4 })).toBe(true);
+        expect(shouldFlushBeforeReplace(payload, { ...payload, lang: 'zh-TW' })).toBe(true);
+        expect(shouldFlushBeforeReplace(payload, { ...payload, code: 'HJKMNPQR' })).toBe(true);
+    });
+
+    it('does not flush when next terms are a same-key strict superset', () => {
+        expect(shouldFlushBeforeReplace(payload, {
+            ...payload,
+            terms: [
+                ...payload.terms,
+                { term: 'duration', explanation: 'Duration' },
+            ],
+        })).toBe(false);
+    });
+
+    it('flushes when same-key next terms miss a pending term', () => {
+        expect(shouldFlushBeforeReplace({
+            ...payload,
+            terms: [
+                { term: 'bps', explanation: 'Basis points' },
+                { term: 'duration', explanation: 'Duration' },
+            ],
+        }, payload)).toBe(true);
     });
 });
