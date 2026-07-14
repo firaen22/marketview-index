@@ -17,7 +17,6 @@ This contains everything you need to run your app locally.
    npm install
    ```
 2. 設定環境變數：將 `.env.example` 複製為 `.env.local` 並填入對應的 API Key。
-   - `ALPHA_VANTAGE_API_KEY`: 來自 [Alpha Vantage](https://www.alphavantage.co/)
    - `KV_REST_API_URL` & `KV_REST_API_TOKEN`: 來自 Vercel Project -> Storage -> KV
 3. 啟動開發伺服器：
    ```bash
