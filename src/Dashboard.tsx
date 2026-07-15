@@ -228,7 +228,7 @@ export default function Dashboard() {
               )}
 
               <ScrollArea className="flex-1 pr-2 -mr-2">
-                {!isEmbed && macroData.length > 0 && (
+                {!isEmbed && selectedCategory === 'All' && macroData.length > 0 && (
                   <div className="mb-6">
                     <div className="text-xs font-mono text-zinc-500 uppercase tracking-widest mb-3">
                       {t.macroData || 'Economic Data'}
