@@ -18,6 +18,7 @@ type SessionEndedMutation = { error: 'session_ended' };
 const SESSION_PREFIX = 'glossary:sess:';
 const LIVE_TTL_SECONDS = 12 * 60 * 60;
 const ENDED_TTL_SECONDS = 7 * 24 * 60 * 60;
+const ENDED_NOKEEP_TTL_SECONDS = 60;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
 const RATE_LIMIT_MAX = 30;
 const MODES = ['all', 'gradual'];
@@ -307,7 +308,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
             const result = await mutateSession(code, session => ({
                 mode: 'EX',
-                seconds: session.status === 'ended' ? ENDED_TTL_SECONDS : LIVE_TTL_SECONDS,
+                // Mirror the end action's TTL split, or a config write inside
+                // the 60s no-keep grace window re-extends the key to 7 days.
+                seconds: session.status === 'ended'
+                    ? (session.keepAfter ? ENDED_TTL_SECONDS : ENDED_NOKEEP_TTL_SECONDS)
+                    : LIVE_TTL_SECONDS,
             }), session => {
                 if (parsed.body.mode !== undefined) session.mode = parsed.body.mode;
                 if (parsed.body.keepAfter !== undefined) session.keepAfter = parsed.body.keepAfter;
@@ -325,22 +330,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const code = normalizeJoinCode(parsed.body.code);
             if (!code) return json(res, 400, { error: 'invalid_code' });
 
-            const session = await readSession(code);
-            if (!session) return json(res, 404, { error: 'not_found' });
-            if (session.keepAfter) {
-                const result = await mutateSession(code, { mode: 'EX', seconds: ENDED_TTL_SECONDS }, freshSession => {
-                    const now = Date.now();
-                    freshSession.status = 'ended';
-                    freshSession.endedAt = now;
-                    freshSession.updatedAt = now;
-                    return null;
-                });
-                if (result.ok === false) {
-                    if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
-                    return json(res, 409, { error: 'conflict' });
-                }
-            } else {
-                await redis.del(sessionKey(code));
+            const result = await mutateSession(code, session => ({
+                mode: 'EX',
+                // A non-kept ended session gets a short grace window: GET still
+                // hides it, while presenter reopen can recover immediately.
+                seconds: session.keepAfter ? ENDED_TTL_SECONDS : ENDED_NOKEEP_TTL_SECONDS,
+            }), session => {
+                const now = Date.now();
+                session.status = 'ended';
+                session.endedAt = now;
+                session.updatedAt = now;
+                return null;
+            });
+            if (result.ok === false) {
+                if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
+                return json(res, 409, { error: 'conflict' });
             }
             return json(res, 200, { success: true });
         }
