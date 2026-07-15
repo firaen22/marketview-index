@@ -41,8 +41,11 @@ function errorMessage(error: unknown): string {
 export function CopilotBar({ catalog, lang }: Props) {
     const [text, setText] = useState('');
     const [status, setStatus] = useState<Status>({ type: 'idle' });
-    const sendControllerRef = useRef<AbortController | null>(null);
-    const clearControllerRef = useRef<AbortController | null>(null);
+    // One controller for BOTH send and clear: they write the same server-side
+    // command slot (last-writer-wins), so a quick Clear must abort a slower
+    // in-flight Send or the stale Send can land after it and re-open the
+    // overlay the presenter just cleared.
+    const requestControllerRef = useRef<AbortController | null>(null);
     const canSend = catalog.length > 0;
 
     const hint = useMemo(() => {
@@ -54,37 +57,38 @@ export function CopilotBar({ catalog, lang }: Props) {
 
     const handleSend = async () => {
         if (!canSend) return;
-        sendControllerRef.current?.abort();
+        requestControllerRef.current?.abort();
         const controller = new AbortController();
-        sendControllerRef.current = controller;
+        requestControllerRef.current = controller;
         setStatus({ type: 'sending' });
         try {
             const command = await sendPresentCommand(text, lang, catalog, controller.signal);
-            if (sendControllerRef.current !== controller) return;
+            if (requestControllerRef.current !== controller) return;
             setStatus({ type: 'success', message: commandMessage(command, catalog) });
+            setText('');
         } catch (error) {
             if ((error as DOMException).name === 'AbortError') return;
-            if (sendControllerRef.current !== controller) return;
+            if (requestControllerRef.current !== controller) return;
             setStatus({ type: 'error', message: errorMessage(error) });
         } finally {
-            if (sendControllerRef.current === controller) sendControllerRef.current = null;
+            if (requestControllerRef.current === controller) requestControllerRef.current = null;
         }
     };
 
     const handleClear = async () => {
-        clearControllerRef.current?.abort();
+        requestControllerRef.current?.abort();
         const controller = new AbortController();
-        clearControllerRef.current = controller;
+        requestControllerRef.current = controller;
         try {
             const command = await clearPresentCommand(controller.signal);
-            if (clearControllerRef.current !== controller) return;
+            if (requestControllerRef.current !== controller) return;
             setStatus({ type: 'success', message: commandMessage(command, catalog) });
         } catch (error) {
             if ((error as DOMException).name === 'AbortError') return;
-            if (clearControllerRef.current !== controller) return;
+            if (requestControllerRef.current !== controller) return;
             setStatus({ type: 'error', message: errorMessage(error) });
         } finally {
-            if (clearControllerRef.current === controller) clearControllerRef.current = null;
+            if (requestControllerRef.current === controller) requestControllerRef.current = null;
         }
     };
 

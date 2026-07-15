@@ -1,4 +1,5 @@
 import type { CatalogItem, PresentCommand } from '../lib/presentCommand';
+import { isExecutablePresentCommand } from '../lib/presentCommand';
 
 const API_KEY = import.meta.env.VITE_PRESENT_API_KEY;
 
@@ -38,6 +39,15 @@ async function postPresentCommand(body: Record<string, unknown>, signal?: AbortS
     return payload;
 }
 
+// A 200 whose command doesn't pass the executor validator is a malformed
+// success — surface it as an error instead of feeding it to the UI.
+function toCommand(payload: any): PresentCommand {
+    if (!isExecutablePresentCommand(payload?.command)) {
+        throw new PresentCommandApiError(502, 'malformed_command');
+    }
+    return payload.command;
+}
+
 export async function sendPresentCommand(
     text: string,
     lang: 'en' | 'zh-TW',
@@ -45,10 +55,10 @@ export async function sendPresentCommand(
     signal?: AbortSignal,
 ): Promise<PresentCommand> {
     const payload = await postPresentCommand({ action: 'send', text, lang, catalog }, signal);
-    return payload.command as PresentCommand;
+    return toCommand(payload);
 }
 
 export async function clearPresentCommand(signal?: AbortSignal): Promise<PresentCommand> {
     const payload = await postPresentCommand({ action: 'clear' }, signal);
-    return payload.command as PresentCommand;
+    return toCommand(payload);
 }
