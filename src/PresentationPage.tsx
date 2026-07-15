@@ -30,6 +30,10 @@ import { useJargon } from './hooks/useJargon';
 import type { PdfViewerHandle } from './components/PdfViewer';
 import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
+import { usePresentCommand } from './hooks/usePresentCommand';
+import type { ProjectorState } from './hooks/usePresentCommand';
+import type { PresentCommand } from '../lib/presentCommand';
+import { indexToQuoteItem } from './types/QuoteItem';
 
 
 export default function PresentationPage() {
@@ -53,6 +57,7 @@ export default function PresentationPage() {
     const [morningBrief, setMorningBrief] = useState<string[]>(initialSettings.morningBrief);
     const [briefPanelOpen, setBriefPanelOpen] = useState(false);
     const [glossaryPanelOpen, setGlossaryPanelOpen] = useState(false);
+    const [remoteCompare, setRemoteCompare] = useState<{ id: string; symbols: string[] } | null>(null);
     const hintsTimerRef = useRef<number | null>(null);
     const kioskTimerRef = useRef<number | null>(null);
     const hasLoggedMarketStatusError = useRef(false);
@@ -101,6 +106,23 @@ export default function PresentationPage() {
     useEffect(() => {
         lastPdfPageRef.current = 0;
     }, [currentPdfUrl]);
+    const projectorReportRef = useRef<{ mainView: PresentView; slideMode: typeof slide.mode; updatedAt: number } | null>(null);
+    projectorReportRef.current = { mainView, slideMode: slide.mode, updatedAt: slide.updatedAt };
+    const getProjectorState = useCallback((): ProjectorState | null => {
+        const current = projectorReportRef.current;
+        if (!current) return null;
+        if (current.mainView === 'slide') {
+            return {
+                mode: current.slideMode,
+                page: current.slideMode === 'pdf' ? Math.max(lastPdfPageRef.current, 1) : 1,
+                v: current.updatedAt,
+            };
+        }
+        if (current.mainView === 'index' || current.mainView === 'heatmap') {
+            return { mode: current.mainView, page: 1, v: current.updatedAt };
+        }
+        return null;
+    }, []);
     // Depend on jargon.terms only, NOT lang: on a mid-session language flip the
     // new lang commits a render before useJargon clears the old-language terms,
     // so firing on `lang` would push old-language text under the new label —
@@ -159,6 +181,47 @@ export default function PresentationPage() {
     const resetDwellCountdown = useCallback(() => {
         setDwellResetNonce(n => n + 1);
     }, []);
+
+    // Returns false when the command's symbol isn't in the (possibly still
+    // loading) data — usePresentCommand then leaves the id unlocked and the
+    // next poll retries, instead of losing the command forever.
+    const executePresentCommand = useCallback((cmd: PresentCommand): boolean => {
+        if (cmd.kind === 'clear') {
+            qp.closeChart();
+            qp.dismissSpotlight();
+            setRemoteCompare(null);
+            setMainView('slide');
+            resetDwellCountdown();
+            return true;
+        }
+
+        if (cmd.kind === 'view') {
+            setMainView(cmd.view!);
+            resetDwellCountdown();
+            return true;
+        }
+
+        if (cmd.kind === 'chart' || cmd.kind === 'compare') {
+            const found = marketData.find(d => d.symbol === cmd.symbols[0]);
+            if (!found) return false;
+            qp.dismissSpotlight();
+            setRemoteCompare({
+                id: cmd.id,
+                symbols: cmd.kind === 'compare' ? cmd.symbols.slice(1) : [],
+            });
+            qp.openChart(indexToQuoteItem(found));
+            return true;
+        }
+
+        const item = qp.allItems.find(i => i.id === cmd.symbols[0]);
+        if (!item) return false;
+        qp.closeChart();
+        setRemoteCompare(null);
+        qp.openSpotlight(item);
+        return true;
+    }, [marketData, qp, resetDwellCountdown]);
+
+    usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
 
     const persistPresentCycle = useCallback((next: PresentCycle) => {
         const normalized = normalizePresentCycle(next);
@@ -647,7 +710,10 @@ export default function PresentationPage() {
                         lang={lang}
                         onRemove={qp.remove}
                         onClearAll={qp.clearAll}
-                        onItemClick={qp.openChart}
+                        onItemClick={(item) => {
+                            setRemoteCompare(null);
+                            qp.openChart(item);
+                        }}
                     />
                 )}
             </div>
@@ -676,10 +742,12 @@ export default function PresentationPage() {
             {/* Index chart modal */}
             {qp.chartItem && (
                 <IndexChartModal
+                    key={remoteCompare?.id ?? 'local'}
                     item={qp.chartItem}
                     allData={marketData}
                     onClose={qp.closeChart}
                     lang={lang}
+                    initialCompareSymbols={remoteCompare?.symbols ?? []}
                 />
             )}
 

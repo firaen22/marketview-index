@@ -1,21 +1,41 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import type { CatalogItem } from '../lib/presentCommand';
 import { deletePdf } from './slideApi';
 import { getSettings, type PresentSlideMode } from './settings';
 import { formatRelativeTime } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useMarketData } from './hooks/useMarketData';
+import { useMacroData } from './hooks/useMacroData';
 import { SlideRenderer } from './components/SlideRenderer';
 import { SlideErrorBoundary } from './components/SlideErrorBoundary';
 import { PdfUploader } from './components/PdfUploader';
 import { Monitor, RotateCcw, Clipboard, Eye, EyeOff } from 'lucide-react';
 import { SaveButton } from './components/SaveButton';
 import { MODE_HINTS, EXAMPLES } from './presentationExamples';
+import { CopilotBar } from './components/CopilotBar';
+import { AssistPanel } from './components/AssistPanel';
 
 export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
-    const { data: marketData } = useMarketData({ range: 'YTD', lang: getSettings().lang });
+    const lang = getSettings().lang;
+    const { data: marketData } = useMarketData({ range: 'YTD', lang });
+    const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const [showPreview, setShowPreview] = useState(false);
+    const commandCatalog = useMemo<CatalogItem[]>(() => [
+        ...marketData.map(item => ({
+            symbol: item.symbol,
+            name: item.name,
+            ...(item.nameEn ? { nameEn: item.nameEn } : {}),
+            group: 'market' as const,
+        })),
+        ...macroData.map(item => ({
+            symbol: item.symbol,
+            name: item.name,
+            ...(item.nameEn ? { nameEn: item.nameEn } : {}),
+            group: 'macro' as const,
+        })),
+    ], [marketData, macroData]);
 
     const updateMode = (mode: PresentSlideMode) => saveSlide({ mode });
     const updateContent = (content: string) => saveSlide({ content });
@@ -72,6 +92,9 @@ export default function PresentationControl() {
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 min-h-0">
                 {/* Editor — hidden on mobile when preview is shown */}
                 <div className={`border-r border-zinc-900 flex flex-col min-h-0 ${showPreview ? 'hidden sm:flex' : 'flex'}`}>
+                    <CopilotBar catalog={commandCatalog} lang={lang} />
+                    <AssistPanel slide={slide} lang={lang} />
+
                     {/* Mode tabs */}
                     <div className="flex items-center gap-2 px-4 sm:px-6 py-3 border-b border-zinc-900 shrink-0 flex-wrap gap-y-2">
                         {(['markdown', 'html', 'url', 'pdf'] as PresentSlideMode[]).map(m => (
