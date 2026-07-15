@@ -63,12 +63,13 @@ describe('glossary session pure helpers', () => {
     });
 
     it('dedupes duplicate terms across pages and preserves first appearance', () => {
-        const first = mergeTerms([], [{ term: 'Duration', explanation: 'First' }], 'en', 2, 100).terms;
-        const second = mergeTerms(first, [{ term: 'duration', explanation: 'Second' }], 'en', 5, 200).terms;
+        // Not a vetted glossary term — those get their explanation replaced by the vetted text
+        const first = mergeTerms([], [{ term: 'Dedupe Term', explanation: 'First' }], 'en', 2, 100).terms;
+        const second = mergeTerms(first, [{ term: 'dedupe term', explanation: 'Second' }], 'en', 5, 200).terms;
 
         expect(second).toHaveLength(1);
         expect(second[0]).toMatchObject({
-            term: 'Duration',
+            term: 'Dedupe Term',
             firstPage: 2,
             unlockedAt: 100,
             explanation: { en: 'First' },
