@@ -122,6 +122,7 @@ describe('glossary-session API handler', () => {
     it('GET accepts lowercase codes, rate-limits, returns public cache, and sets no CORS headers', async () => {
         redisState.current.get.mockResolvedValue(sessionJson({
             joins: 2,
+            currentPage: 1,
             terms: [{ id: 'term', term: 'Term', explanation: { en: 'Text' }, firstPage: 1, unlockedAt: 5000 }],
         }));
 
@@ -134,7 +135,7 @@ describe('glossary-session API handler', () => {
         expect(res.body.session).toEqual({
             status: 'live',
             mode: 'gradual',
-            currentPage: 0,
+            currentPage: 1,
             termCount: 1,
             joins: 2,
             updatedAt: 1000,
@@ -530,7 +531,7 @@ describe('glossary-session API handler', () => {
         expect(redisState.current.eval).toHaveBeenCalledTimes(5);
     });
 
-    it('end deletes immediately when keepAfter is false', async () => {
+    it('end keeps a short reopen grace TTL when keepAfter is false', async () => {
         redisState.current.get.mockResolvedValue(sessionJson({ keepAfter: false }));
 
         const res = await call(makeReq({
@@ -540,7 +541,9 @@ describe('glossary-session API handler', () => {
         }));
 
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.del).toHaveBeenCalledWith('glossary:sess:ABCD2345');
+        expect(redisState.current.del).not.toHaveBeenCalled();
+        expect(lastEvalSession()).toMatchObject({ status: 'ended', endedAt: 5000, updatedAt: 5000, version: 1 });
+        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '60']);
     });
 
     it('returns auth configuration errors and unknown action errors', async () => {

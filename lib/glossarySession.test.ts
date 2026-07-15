@@ -124,14 +124,15 @@ describe('glossary session pure helpers', () => {
         expect(result.terms.some(term => term.id === 'new term')).toBe(false);
     });
 
-    it('returns visible terms and public audience shape only', () => {
-        const locked = { id: 'locked', term: 'Locked', explanation: { en: 'No' }, firstPage: 1, unlockedAt: 0 };
-        const unlocked = { id: 'unlocked', term: 'Unlocked', explanation: { en: 'Yes' }, firstPage: 2, unlockedAt: 100 };
-        const session = makeSession({ terms: [locked, unlocked], joins: 3, currentPage: 2, updatedAt: 500 });
+    it('filters live gradual visibility by current page and public audience shape follows it', () => {
+        const visible = { id: 'visible', term: 'Visible', explanation: { en: 'Yes' }, firstPage: 2, unlockedAt: 0 };
+        const future = { id: 'future', term: 'Future', explanation: { en: 'No' }, firstPage: 3, unlockedAt: 100 };
+        const session = makeSession({ terms: [visible, future], joins: 3, currentPage: 2, updatedAt: 500 });
 
-        expect(visibleTerms(session)).toEqual([unlocked]);
-        expect(visibleTerms({ ...session, mode: 'all' })).toEqual([locked, unlocked]);
-        expect(visibleTerms({ ...session, status: 'ended' })).toEqual([locked, unlocked]);
+        expect(visibleTerms(session)).toEqual([visible]);
+        expect(visibleTerms({ ...session, currentPage: 1 })).toEqual([]);
+        expect(visibleTerms({ ...session, mode: 'all' })).toEqual([visible, future]);
+        expect(visibleTerms({ ...session, status: 'ended' })).toEqual([visible, future]);
         expect(publicSessionView(session)).toEqual({
             status: 'live',
             mode: 'gradual',
@@ -139,7 +140,7 @@ describe('glossary session pure helpers', () => {
             termCount: 1,
             joins: 3,
             updatedAt: 500,
-            terms: [unlocked],
+            terms: [visible],
         });
     });
 });

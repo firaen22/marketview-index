@@ -77,13 +77,27 @@ export function shouldClearStoredSession(status: number | null, session: ClientG
     return status === 404 || session === null;
 }
 
-export function shouldRenewForNewDeck(session: ClientGlossarySession | null): boolean {
+export function shouldRenewForNewDeck(
+    session: ClientGlossarySession | null,
+    pending: GlossaryPushPayload | null,
+    currentPage: number,
+): boolean {
     if (!session || session.status !== 'live') return false;
     // Terms are keyed to the deck they were read from and the server never
     // deletes one, so a deck swap strands them under the wrong firstPage. Only
     // a session that already carries such content needs retiring — reissuing
     // the QR for an untouched session would make the audience rescan for
     // nothing.
+    const termCount = Array.isArray(session.terms) ? session.terms.length : 0;
+    const sessionPage = Number.isFinite(session.currentPage) ? session.currentPage : 0;
+    const localPage = Number.isFinite(currentPage) ? currentPage : 0;
+    const pendingPage = pending && Number.isFinite(pending.page) ? pending.page : 0;
+    const pendingTermCount = pending && Array.isArray(pending.terms) ? pending.terms.length : 0;
+    return termCount > 0 || sessionPage > 0 || localPage > 0 || pendingPage > 0 || pendingTermCount > 0;
+}
+
+export function shouldDropEndedForNewDeck(session: ClientGlossarySession | null): boolean {
+    if (!session || session.status !== 'ended') return false;
     const termCount = Array.isArray(session.terms) ? session.terms.length : 0;
     const page = Number.isFinite(session.currentPage) ? session.currentPage : 0;
     return termCount > 0 || page > 0;
@@ -128,6 +142,8 @@ export function useGlossarySession() {
     const mountedRef = useRef(true);
     const pushEpochRef = useRef(`${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
     const pushSeqRef = useRef(0);
+    const epochRef = useRef(0);
+    const pendingRenewRef = useRef<{ mode: GlossarySession['mode']; keepAfter: boolean } | null>(null);
 
     useEffect(() => {
         sessionRef.current = session;
@@ -148,6 +164,7 @@ export function useGlossarySession() {
     }, []);
 
     useEffect(() => {
+        const epoch = epochRef.current;
         const code = readStoredJoinCode();
         if (!code) return;
 
@@ -155,16 +172,21 @@ export function useGlossarySession() {
         void (async () => {
             try {
                 const loaded = await fetchGlossarySession(code);
-                if (cancelled || sessionRef.current || startInFlightRef.current || renewingRef.current) return;
+                if (cancelled || epoch !== epochRef.current || sessionRef.current || startInFlightRef.current || renewingRef.current) return;
                 if (shouldClearStoredSession(null, loaded)) {
                     clearStoredJoinCode();
                     setSession(null);
                     return;
                 }
+                // Sync the ref immediately: renew() reads sessionRef, and the
+                // [session] effect only catches up after the next render — a
+                // PDF swap landing in that gap would wrongly take the
+                // no-session path and clear the stored code.
+                sessionRef.current = loaded;
                 setSession(loaded);
                 currentPageRef.current = loaded?.currentPage ?? 0;
             } catch (caught) {
-                if (cancelled || sessionRef.current || startInFlightRef.current || renewingRef.current) return;
+                if (cancelled || epoch !== epochRef.current || sessionRef.current || startInFlightRef.current || renewingRef.current) return;
                 if (caught instanceof GlossaryApiError && (caught.status === 404 || caught.status === 400)) {
                     // 404: expired/deleted. 400: the stored code is corrupt —
                     // clear it too, or every /present load shows an error banner.
@@ -186,6 +208,7 @@ export function useGlossarySession() {
     }, []);
 
     const flushPush = useCallback(async () => {
+        const epoch = epochRef.current;
         const payload = pendingRef.current;
         pendingRef.current = null;
         if (!payload || isDuplicatePushPayload(lastSentRef.current, payload)) return;
@@ -200,12 +223,20 @@ export function useGlossarySession() {
                 payload.terms,
                 { epoch: pushEpochRef.current, seq },
             );
-            lastSentRef.current = payload;
-            if (seq === pushSeqRef.current && mountedRef.current) {
-                setSession(result.session);
-                setError(null);
+            if (epoch !== epochRef.current) return;
+            if (seq === pushSeqRef.current) {
+                // Only the newest in-flight push may claim lastSent: a slower
+                // older push resolving after it would otherwise mark its stale
+                // payload as "already sent" and block re-sending that exact
+                // page/terms state later.
+                lastSentRef.current = payload;
+                if (mountedRef.current) {
+                    setSession(result.session);
+                    setError(null);
+                }
             }
         } catch (caught) {
+            if (epoch !== epochRef.current) return;
             if (seq !== pushSeqRef.current) return;
             if (caught instanceof GlossaryApiError && caught.status === 404) {
                 clearStoredJoinCode();
@@ -250,17 +281,22 @@ export function useGlossarySession() {
     }, [flushPush]);
 
     const start = useCallback(async (mode: GlossarySession['mode'], keepAfter: boolean) => {
+        const epoch = epochRef.current;
         if (startInFlightRef.current) return;
         startInFlightRef.current = true;
         setLoading(true);
         setError(null);
         try {
             const next = await startGlossarySession(mode, keepAfter);
+            if (epoch !== epochRef.current) return;
+            epochRef.current += 1;
+            pendingRenewRef.current = null;
+            writeStoredJoinCode(next.joinCode);
             if (!mountedRef.current) return;
             setSession(next);
-            writeStoredJoinCode(next.joinCode);
             currentPageRef.current = next.currentPage ?? 0;
         } catch (caught) {
+            if (epoch !== epochRef.current) return;
             if (mountedRef.current) {
                 setError(caught instanceof Error ? caught.message : 'Failed to start glossary session');
             }
@@ -271,12 +307,14 @@ export function useGlossarySession() {
     }, []);
 
     const end = useCallback(async () => {
+        const epoch = epochRef.current;
         const current = sessionRef.current;
         if (!current) return;
         setLoading(true);
         setError(null);
         try {
             await endGlossarySession(current.joinCode);
+            if (epoch !== epochRef.current) return;
             let kept = current.keepAfter !== false;
             if (current.keepAfter === undefined) {
                 // Rehydrated session: the public view omits keepAfter, so ask
@@ -286,15 +324,21 @@ export function useGlossarySession() {
                 } catch {
                     // Transient error — keep showing the ended state locally.
                 }
+                if (epoch !== epochRef.current) return;
             }
+            // Retire + storage cleanup happen even if the tab closed mid-flight
+            // (a stale stored code would otherwise rehydrate a deliberately
+            // ended session); only React state stays mounted-gated.
+            epochRef.current += 1;
+            if (!kept) clearStoredJoinCode();
             if (!mountedRef.current) return;
             if (!kept) {
-                clearStoredJoinCode();
                 setSession(null);
             } else {
                 setSession({ ...current, status: 'ended', endedAt: Date.now(), updatedAt: Date.now() } as ClientGlossarySession);
             }
         } catch (caught) {
+            if (epoch !== epochRef.current) return;
             if (mountedRef.current) {
                 setError(caught instanceof Error ? caught.message : 'Failed to end glossary session');
             }
@@ -304,16 +348,23 @@ export function useGlossarySession() {
     }, []);
 
     const reopen = useCallback(async () => {
+        const epoch = epochRef.current;
         const current = sessionRef.current;
         if (!current) return;
         setLoading(true);
         setError(null);
         try {
             const next = await reopenGlossarySession(current.joinCode);
+            if (epoch !== epochRef.current) return;
+            // Persist before the mounted gate: the server session is live
+            // again either way, and without the stored code the next mount
+            // could not rehydrate it.
+            epochRef.current += 1;
+            writeStoredJoinCode(next.joinCode);
             if (!mountedRef.current) return;
             setSession(next);
-            writeStoredJoinCode(next.joinCode);
         } catch (caught) {
+            if (epoch !== epochRef.current) return;
             if (mountedRef.current) {
                 setError(caught instanceof Error ? caught.message : 'Failed to reopen glossary session');
             }
@@ -323,9 +374,35 @@ export function useGlossarySession() {
     }, []);
 
     const renew = useCallback(async () => {
-        const current = sessionRef.current;
-        if (!current || !shouldRenewForNewDeck(current)) return;
         if (startInFlightRef.current) return;
+        const current = sessionRef.current;
+        if (!current) {
+            if (pendingRenewRef.current) {
+                const saved = pendingRenewRef.current;
+                pendingRenewRef.current = null;
+                await start(saved.mode, saved.keepAfter);
+                if (sessionRef.current === null) {
+                    // Retry failed too — keep the presenter's options so the
+                    // NEXT deck swap tries again instead of going dead. No loop
+                    // risk: each attempt needs a fresh renew() call.
+                    pendingRenewRef.current = saved;
+                }
+                return;
+            }
+            if (readStoredJoinCode() !== null) {
+                epochRef.current += 1;
+                clearStoredJoinCode();
+            }
+            return;
+        }
+        if (shouldDropEndedForNewDeck(current)) {
+            epochRef.current += 1;
+            clearStoredJoinCode();
+            sessionRef.current = null;
+            setSession(null);
+            return;
+        }
+        if (!shouldRenewForNewDeck(current, pendingRef.current, currentPageRef.current)) return;
 
         // Retire the outgoing session BEFORE the first await, or the two
         // round-trips below leave a window in which the old deck still looks
@@ -337,6 +414,8 @@ export function useGlossarySession() {
         // flushPush branch checks it) and nulling the session makes the report
         // callbacks early-return for the whole window.
         renewingRef.current = true;
+        epochRef.current += 1;
+        const epoch = epochRef.current;
         pushSeqRef.current += 1;
         if (debounceRef.current !== null) {
             window.clearTimeout(debounceRef.current);
@@ -358,26 +437,40 @@ export function useGlossarySession() {
                 // The outgoing session is abandoned either way — if the end call
                 // fails it just expires on its TTL. Never block the new QR on it.
             }
-            if (!mountedRef.current) return;
+            if (epoch !== epochRef.current) return;
             // Carry the presenter's mode/keepAfter choices across; a rehydrated
             // session omits keepAfter, so treat unknown as the server default.
             await start(current.mode, current.keepAfter !== false);
+            if (epochRef.current !== epoch) return;
+            if (sessionRef.current === null) {
+                // A concurrent manual start may still be in flight; if it later
+                // fails, the next PDF insert may retry with the retired session's
+                // presenter options.
+                pendingRenewRef.current = { mode: current.mode, keepAfter: current.keepAfter !== false };
+            }
         } finally {
             renewingRef.current = false;
+            // The happy path hands the spinner to start()'s finally; the
+            // stale-epoch early returns above would otherwise leave it
+            // spinning forever. Skip only while a start still owns it.
+            if (mountedRef.current && !startInFlightRef.current) setLoading(false);
         }
     }, [start]);
 
     const setMode = useCallback(async (mode: GlossarySession['mode']) => {
+        const epoch = epochRef.current;
         const current = sessionRef.current;
         if (!current || current.mode === mode) return;
         setSession({ ...current, mode });
         try {
             const next = await configGlossarySession(current.joinCode, { mode });
+            if (epoch !== epochRef.current) return;
             if (mountedRef.current) {
                 setSession(next);
                 setError(null);
             }
         } catch (caught) {
+            if (epoch !== epochRef.current) return;
             if (mountedRef.current) {
                 setSession(current);
                 setError(caught instanceof Error ? caught.message : 'Failed to update glossary mode');

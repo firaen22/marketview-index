@@ -6,6 +6,7 @@ import {
     pushPayloadKey,
     shouldClearStoredSession,
     shouldFlushBeforeReplace,
+    shouldDropEndedForNewDeck,
     shouldRenewForNewDeck,
     shouldSchedulePush,
     type GlossaryPushPayload,
@@ -70,27 +71,54 @@ describe('shouldRenewForNewDeck', () => {
         terms: [],
     } satisfies ClientGlossarySession;
     const term = { id: 'bps', term: 'bps', explanation: { en: 'Basis points' }, firstPage: 2, unlockedAt: 50 };
+    const emptyPending = { ...payload, page: 0, terms: [] };
 
     it('does not renew without a session', () => {
-        expect(shouldRenewForNewDeck(null)).toBe(false);
+        expect(shouldRenewForNewDeck(null, null, 0)).toBe(false);
     });
 
     it('does not renew an ended session', () => {
-        expect(shouldRenewForNewDeck({ ...live, status: 'ended', currentPage: 4, terms: [term] })).toBe(false);
+        expect(shouldRenewForNewDeck({ ...live, status: 'ended', currentPage: 4, terms: [term] }, null, 0)).toBe(false);
     });
 
     it('does not renew a session with nothing from the old deck', () => {
-        expect(shouldRenewForNewDeck(live)).toBe(false);
+        expect(shouldRenewForNewDeck(live, null, 0)).toBe(false);
+        expect(shouldRenewForNewDeck(live, emptyPending, 0)).toBe(false);
     });
 
-    it('renews once the old deck contributed terms or a page', () => {
-        expect(shouldRenewForNewDeck({ ...live, terms: [term] })).toBe(true);
-        expect(shouldRenewForNewDeck({ ...live, currentPage: 3 })).toBe(true);
+    it('renews once the old deck or unsent local state contributed terms or a page', () => {
+        expect(shouldRenewForNewDeck({ ...live, terms: [term] }, null, 0)).toBe(true);
+        expect(shouldRenewForNewDeck({ ...live, currentPage: 3 }, null, 0)).toBe(true);
+        expect(shouldRenewForNewDeck(live, { ...payload, page: 0 }, 0)).toBe(true);
+        expect(shouldRenewForNewDeck(live, { ...payload, terms: [] }, 0)).toBe(true);
+        expect(shouldRenewForNewDeck(live, null, 3)).toBe(true);
     });
 
     it('does not renew on malformed session data', () => {
-        expect(shouldRenewForNewDeck({ ...live, terms: undefined } as unknown as ClientGlossarySession)).toBe(false);
-        expect(shouldRenewForNewDeck({ ...live, currentPage: NaN })).toBe(false);
+        expect(shouldRenewForNewDeck({ ...live, terms: undefined } as unknown as ClientGlossarySession, null, 0)).toBe(false);
+        expect(shouldRenewForNewDeck({ ...live, currentPage: NaN }, null, NaN)).toBe(false);
+    });
+});
+
+describe('shouldDropEndedForNewDeck', () => {
+    const ended = {
+        joinCode: 'ABCDEFGH',
+        status: 'ended',
+        mode: 'all',
+        currentPage: 0,
+        termCount: 0,
+        joins: 1,
+        updatedAt: 100,
+        terms: [],
+    } satisfies ClientGlossarySession;
+    const term = { id: 'bps', term: 'bps', explanation: { en: 'Basis points' }, firstPage: 2, unlockedAt: 50 };
+
+    it('drops only content-bearing ended sessions', () => {
+        expect(shouldDropEndedForNewDeck({ ...ended, terms: [term] })).toBe(true);
+        expect(shouldDropEndedForNewDeck({ ...ended, currentPage: 2 })).toBe(true);
+        expect(shouldDropEndedForNewDeck(ended)).toBe(false);
+        expect(shouldDropEndedForNewDeck({ ...ended, status: 'live' })).toBe(false);
+        expect(shouldDropEndedForNewDeck(null)).toBe(false);
     });
 });
 
