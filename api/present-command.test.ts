@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { assistCacheKey } from '../lib/presentAssist';
 
 const redisState = vi.hoisted(() => ({
     current: {
@@ -112,38 +113,110 @@ describe('present-command API handler', () => {
     });
 
     it('GET returns the stored executable command or null for corrupt JSON', async () => {
-        redisState.current.get.mockResolvedValue(JSON.stringify({
+        redisState.current.get.mockImplementation(async (key: string) => key === 'present:cmd:v1' ? JSON.stringify({
             v: 1,
             id: 'cmd-1',
             kind: 'clear',
             symbols: [],
             issuedAt: 5000,
-        }));
+        }) : null);
 
         let res = await call(makeReq({ method: 'GET' }));
 
         expect(redisState.current.get).toHaveBeenCalledWith('present:cmd:v1');
         expect(res.statusCode).toBe(200);
         expect(res.body.command.kind).toBe('clear');
+        expect(res.body.projector).toBeNull();
         expect(res.headers['Cache-Control']).toBe('no-store');
 
-        redisState.current.get.mockResolvedValue('{bad');
+        redisState.current.get.mockImplementation(async (key: string) => key === 'present:cmd:v1' ? '{bad' : null);
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
         res = await call(makeReq({ method: 'GET' }));
 
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ success: true, command: null, serverTime: expect.any(Number) });
+        expect(res.body).toEqual({ success: true, command: null, serverTime: expect.any(Number), projector: null });
     });
 
     it('rate-limits GET and does not add CORS headers', async () => {
-        redisState.current.incr.mockResolvedValue(31);
+        redisState.current.incr.mockResolvedValue(91);
 
         const res = await call(makeReq({ method: 'GET' }));
 
         expect(res.statusCode).toBe(429);
         expect(res.body).toEqual({ error: 'rate_limited' });
         expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
+    });
+
+    it('GET stores valid projector state and includes it in the response', async () => {
+        redisState.current.get.mockResolvedValue(null);
+
+        const res = await call(makeReq({
+            method: 'GET',
+            query: { st: '1', mode: 'pdf', page: '2', v: '0' },
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.set).toHaveBeenCalledWith(
+            'present:pstate:v1',
+            JSON.stringify({ mode: 'pdf', page: 2, v: 0, at: 5000 }),
+            { ex: 15 },
+        );
+        expect(res.body).toEqual({
+            success: true,
+            command: null,
+            serverTime: 5000,
+            projector: { mode: 'pdf', page: 2, v: 0, at: 5000 },
+        });
+    });
+
+    it('GET ignores invalid projector params and still returns command with projector null', async () => {
+        const cases = [
+            { st: '1', mode: 'pdf', page: '0', v: '1' },
+            { st: '1', mode: 'pdf', page: 'NaN', v: '1' },
+            { st: '1', mode: 'evil', page: '1', v: '1' },
+            { st: '1', mode: 'pdf', page: '1.5', v: '1' },
+        ];
+
+        for (const query of cases) {
+            redisState.current.set.mockClear();
+            redisState.current.get.mockImplementation(async (key: string) => key === 'present:cmd:v1' ? JSON.stringify({
+                v: 1,
+                id: 'cmd-1',
+                kind: 'clear',
+                symbols: [],
+                issuedAt: 5000,
+            }) : null);
+
+            const res = await call(makeReq({ method: 'GET', query }));
+
+            expect(res.statusCode).toBe(200);
+            expect(redisState.current.set).not.toHaveBeenCalledWith('present:pstate:v1', expect.anything(), expect.anything());
+            expect(res.body.command.kind).toBe('clear');
+            expect(res.body.projector).toBeNull();
+        }
+    });
+
+    it('GET returns projector null for corrupt or invalid stored projector state', async () => {
+        redisState.current.get.mockImplementation(async (key: string) => {
+            if (key === 'present:pstate:v1') return '{bad';
+            return null;
+        });
+
+        let res = await call(makeReq({ method: 'GET' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.projector).toBeNull();
+
+        redisState.current.get.mockImplementation(async (key: string) => {
+            if (key === 'present:pstate:v1') return JSON.stringify({ mode: 'pdf', page: 0, v: 1, at: 5000 });
+            return null;
+        });
+
+        res = await call(makeReq({ method: 'GET' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.projector).toBeNull();
     });
 
     it('rejects empty and oversized text before parsing', async () => {
@@ -253,5 +326,90 @@ describe('present-command API handler', () => {
         res = await call(makeReq({ method: 'OPTIONS' }));
         expect(res.statusCode).toBe(405);
         expect(res.body).toEqual({ error: 'Method not allowed' });
+    });
+
+    it('assist requires auth, valid text length, and valid lang', async () => {
+        let res = await call(makeReq({ method: 'POST', body: { action: 'assist', text: 'x'.repeat(40), lang: 'en' } }));
+        expect(res.statusCode).toBe(401);
+
+        res = await call(authPost({ action: 'assist', text: 'x'.repeat(39), lang: 'en' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_text' });
+
+        res = await call(authPost({ action: 'assist', text: 'x'.repeat(6001), lang: 'en' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_text' });
+
+        res = await call(authPost({ action: 'assist', text: 'x'.repeat(40), lang: 'fr' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'Invalid lang' });
+    });
+
+    it('assist returns valid cached results and skips NIM', async () => {
+        const text = 'This slide explains revenue growth, margin expansion, and cost discipline for the team.';
+        redisState.current.get.mockImplementation(async (key: string) => key === assistCacheKey(text, 'en')
+            ? JSON.stringify({ points: ['  Say revenue improved simply. '], questions: [{ q: ' Why? ', a: ' Better margin. ' }] })
+            : null);
+
+        const res = await call(authPost({ action: 'assist', text, lang: 'en' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(nimState.callNim).not.toHaveBeenCalled();
+        expect(res.body.assist).toEqual({
+            points: ['Say revenue improved simply.'],
+            questions: [{ q: 'Why?', a: 'Better margin.' }],
+        });
+    });
+
+    it('assist treats corrupt cache as miss and stores only valid canonical results', async () => {
+        const text = 'This slide explains revenue growth, margin expansion, and cost discipline for the team.';
+        redisState.current.get.mockImplementation(async (key: string) => key === assistCacheKey(text, 'en') ? '{bad' : null);
+        nimState.callNim.mockResolvedValueOnce(JSON.stringify({
+            points: ['  First  ', 'Second', 'Third', 'Fourth'],
+            questions: [{ q: ' Q ', a: ' A ' }],
+            extra: true,
+        }));
+
+        const res = await call(authPost({ action: 'assist', text, lang: 'en' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.assist).toEqual({
+            points: ['First', 'Second', 'Third'],
+            questions: [{ q: 'Q', a: 'A' }],
+        });
+        expect(redisState.current.set).toHaveBeenCalledWith(
+            assistCacheKey(text, 'en'),
+            JSON.stringify(res.body.assist),
+            { ex: 2592000 },
+        );
+    });
+
+    it('assist returns 422 and does not cache invalid NIM output', async () => {
+        const text = 'This slide explains revenue growth, margin expansion, and cost discipline for the team.';
+        redisState.current.get.mockResolvedValue(null);
+        nimState.callNim.mockResolvedValueOnce(JSON.stringify({ points: [], questions: [] }));
+
+        const res = await call(authPost({ action: 'assist', text, lang: 'en' }));
+
+        expect(res.statusCode).toBe(422);
+        expect(res.body).toEqual({ error: 'cannot_generate' });
+        expect(redisState.current.set).not.toHaveBeenCalledWith(assistCacheKey(text, 'en'), expect.anything(), expect.anything());
+
+        nimState.callNim.mockResolvedValueOnce('not json');
+        const res2 = await call(authPost({ action: 'assist', text, lang: 'en' }));
+
+        expect(res2.statusCode).toBe(422);
+        expect(redisState.current.set).not.toHaveBeenCalledWith(assistCacheKey(text, 'en'), expect.anything(), expect.anything());
+    });
+
+    it('assist accepts raw 40 and 6000 char text', async () => {
+        redisState.current.get.mockResolvedValue(null);
+        nimState.callNim.mockResolvedValue(JSON.stringify({ points: ['point'], questions: [] }));
+
+        let res = await call(authPost({ action: 'assist', text: 'x'.repeat(40), lang: 'en' }));
+        expect(res.statusCode).toBe(200);
+
+        res = await call(authPost({ action: 'assist', text: 'x'.repeat(6000), lang: 'en' }));
+        expect(res.statusCode).toBe(200);
     });
 });
