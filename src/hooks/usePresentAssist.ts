@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistResult } from '../../lib/presentAssist';
-import { ASSIST_MAX_TEXT_LEN, ASSIST_MIN_TEXT_LEN } from '../../lib/presentAssist';
+import { ASSIST_MAX_TEXT_LEN, ASSIST_MIN_TEXT_LEN, normalizeAssistText } from '../../lib/presentAssist';
 import type { PresentSlide } from '../settings';
 import { fetchAssist, fetchProjectorState, type ProjectorState } from '../presentCommandApi';
 import { extractPdfPageText, loadPdf } from '../pdfText';
@@ -45,8 +45,10 @@ export function prepareAssistRequestText(text: string): string {
     return text.trim().slice(0, ASSIST_MAX_TEXT_LEN);
 }
 
+// Normalized length, matching the server's check: whitespace padding must not
+// let effectively-empty text through to a wasted NIM call.
 export function isAssistTextEligible(text: string): boolean {
-    return text.trim().length >= ASSIST_MIN_TEXT_LEN;
+    return normalizeAssistText(text).length >= ASSIST_MIN_TEXT_LEN;
 }
 
 function isLiveProjector(projector: ProjectorState | null, serverTime: number): projector is ProjectorState {
@@ -69,10 +71,13 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     const loadKeyRef = useRef(0);
     const lastLivePdfPageRef = useRef(1);
     const wasLiveRef = useRef(false);
+    const projectorRef = useRef<ProjectorState | null>(null);
+    const lastPollSuccessRef = useRef<{ serverTime: number; localAt: number } | null>(null);
     const retryBypassDebounceRef = useRef(false);
 
     const live = isLiveProjector(projector, serverTime);
-    const page = live && projector.mode === 'pdf' ? projector.page : manualPage;
+    const rawPage = live && projector.mode === 'pdf' ? projector.page : manualPage;
+    const page = numPages > 0 ? Math.max(1, Math.min(numPages, rawPage)) : rawPage;
     // Primitive target signature: the assist effect must re-run ONLY when
     // these change, not on every 4s poll (projector/serverTime get fresh
     // identities each poll; re-running per poll would abort every in-flight
@@ -111,6 +116,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 const result = await fetchProjectorState(controller.signal);
                 if (stopped) return;
                 failureCount = 0;
+                lastPollSuccessRef.current = { serverTime: result.serverTime, localAt: Date.now() };
                 const nextLive = isLiveProjector(result.projector, result.serverTime);
                 if (nextLive && result.projector.mode === 'pdf') {
                     lastLivePdfPageRef.current = result.projector.page;
@@ -119,18 +125,27 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                     setManualPage(Math.max(1, lastLivePdfPageRef.current));
                 }
                 wasLiveRef.current = nextLive;
+                projectorRef.current = result.projector;
                 setProjector(result.projector);
                 setServerTime(result.serverTime);
                 timeout = window.setTimeout(run, POLL_MS);
             } catch (error) {
                 if (stopped || (error as DOMException).name === 'AbortError') return;
                 failureCount += 1;
-                setProjector(null);
-                setServerTime(Date.now());
-                if (wasLiveRef.current) {
-                    wasLiveRef.current = false;
+                // A single failed poll must not drop live mode while the last
+                // reported state is still within its 15s TTL — estimate server
+                // time by local elapsed-since-last-success (a skew-free delta)
+                // and let live-ness decay naturally.
+                const last = lastPollSuccessRef.current;
+                const estimatedServerTime = last
+                    ? last.serverTime + (Date.now() - last.localAt)
+                    : Date.now();
+                const nextLive = isLiveProjector(projectorRef.current, estimatedServerTime);
+                if (!nextLive && wasLiveRef.current) {
                     setManualPage(Math.max(1, lastLivePdfPageRef.current));
                 }
+                wasLiveRef.current = nextLive;
+                setServerTime(estimatedServerTime);
                 timeout = window.setTimeout(run, presentAssistBackoffMs(failureCount));
             }
         };
@@ -147,6 +162,9 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     useEffect(() => {
         return () => {
             clearAssistRequest();
+            // Invalidate any in-flight loadPdf so its late resolution destroys
+            // the document instead of leaking it into an unmounted hook.
+            loadKeyRef.current += 1;
             pdfRef.current?.doc.destroy();
             pdfRef.current = null;
         };
@@ -165,10 +183,14 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         if (currentLive) {
             if (projector.mode === 'index' || projector.mode === 'heatmap') return 'offdeck';
             if (projector.mode === 'url') return 'unsupported';
+            // v gate applies to EVERY live content mode: until the projector
+            // catches up to this slide version, the phone's slide.content may
+            // be a different deck entirely (e.g. a PDF URL while the projector
+            // still shows markdown) — never generate notes from it.
+            if (projector.v !== slide.updatedAt) return 'syncing';
             if (projector.mode === 'markdown' || projector.mode === 'html') {
                 return { mode: projector.mode, page: 0, text: slide.content };
             }
-            if (projector.v !== slide.updatedAt) return 'syncing';
         } else if (slide.mode === 'url') {
             return 'unsupported';
         } else if (slide.mode === 'markdown' || slide.mode === 'html') {
@@ -191,9 +213,12 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
             setManualPage(prev => Math.max(1, Math.min(doc.numPages, prev)));
         }
         const doc = pdfRef.current.doc;
-        const targetPage = currentLive && projector.mode === 'pdf'
-            ? projector.page
-            : Math.max(1, Math.min(doc.numPages, manualPage));
+        // Clamp the live page too: a spoofed/garbage projector report must not
+        // desync the displayed page label and cache key from the extracted text.
+        const targetPage = Math.max(1, Math.min(
+            doc.numPages,
+            currentLive && projector.mode === 'pdf' ? projector.page : manualPage,
+        ));
         const text = await extractPdfPageText(doc, targetPage);
         return { mode: 'pdf', page: targetPage, text };
     }, [manualPage, projector, serverTime, slide]);
@@ -250,7 +275,11 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 const requestKey = key;
                 const controller = new AbortController();
                 assistControllerRef.current = controller;
-                const abortTimeout = window.setTimeout(() => controller.abort(), ASSIST_TIMEOUT_MS);
+                let timedOut = false;
+                const abortTimeout = window.setTimeout(() => {
+                    timedOut = true;
+                    controller.abort();
+                }, ASSIST_TIMEOUT_MS);
                 try {
                     const next = await fetchAssist(prepareAssistRequestText(target.text), lang, controller.signal);
                     cacheRef.current.set(requestKey, next);
@@ -261,6 +290,10 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                         setStatus('ready');
                     }
                 } catch {
+                    // A superseding effect run aborts this request AND may have
+                    // re-armed the SAME key synchronously before this rejection
+                    // lands — only the deliberate timeout abort is a real error.
+                    if (controller.signal.aborted && !timedOut) return;
                     if (activeRequestKeyRef.current === requestKey) {
                         setAssist(null);
                         setStatus('error');
