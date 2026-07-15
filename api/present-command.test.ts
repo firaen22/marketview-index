@@ -133,7 +133,7 @@ describe('present-command API handler', () => {
         res = await call(makeReq({ method: 'GET' }));
 
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ success: true, command: null });
+        expect(res.body).toEqual({ success: true, command: null, serverTime: expect.any(Number) });
     });
 
     it('rate-limits GET and does not add CORS headers', async () => {

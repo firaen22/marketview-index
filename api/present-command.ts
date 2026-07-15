@@ -97,16 +97,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'GET') {
         if (!await rateLimit(req)) return json(res, 429, { error: 'rate_limited' });
         try {
+            // serverTime lets the projector judge staleness in SERVER time —
+            // issuedAt is server-stamped, so a skewed projector clock must not
+            // silently expire (or resurrect) every command.
             const stored = await redis.get(COMMAND_KEY);
-            if (!stored) return json(res, 200, { success: true, command: null });
+            if (!stored) return json(res, 200, { success: true, command: null, serverTime: Date.now() });
             const parsed = typeof stored === 'string' ? JSON.parse(stored) : stored;
             return json(res, 200, {
                 success: true,
                 command: isExecutablePresentCommand(parsed) ? parsed : null,
+                serverTime: Date.now(),
             });
         } catch (error) {
             console.error('Present command read error:', error);
-            return json(res, 200, { success: true, command: null });
+            return json(res, 200, { success: true, command: null, serverTime: Date.now() });
         }
     }
 

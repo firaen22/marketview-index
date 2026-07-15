@@ -164,39 +164,43 @@ export default function PresentationPage() {
         setDwellResetNonce(n => n + 1);
     }, []);
 
-    const executePresentCommand = useCallback((cmd: PresentCommand) => {
+    // Returns false when the command's symbol isn't in the (possibly still
+    // loading) data — usePresentCommand then leaves the id unlocked and the
+    // next poll retries, instead of losing the command forever.
+    const executePresentCommand = useCallback((cmd: PresentCommand): boolean => {
         if (cmd.kind === 'clear') {
             qp.closeChart();
             qp.dismissSpotlight();
             setRemoteCompare(null);
             setMainView('slide');
             resetDwellCountdown();
-            return;
+            return true;
         }
 
         if (cmd.kind === 'view') {
             setMainView(cmd.view!);
             resetDwellCountdown();
-            return;
+            return true;
         }
 
         if (cmd.kind === 'chart' || cmd.kind === 'compare') {
             const found = marketData.find(d => d.symbol === cmd.symbols[0]);
-            if (!found) return;
+            if (!found) return false;
             qp.dismissSpotlight();
             setRemoteCompare({
                 id: cmd.id,
                 symbols: cmd.kind === 'compare' ? cmd.symbols.slice(1) : [],
             });
             qp.openChart(indexToQuoteItem(found));
-            return;
+            return true;
         }
 
         const item = qp.allItems.find(i => i.id === cmd.symbols[0]);
-        if (!item) return;
+        if (!item) return false;
         qp.closeChart();
         setRemoteCompare(null);
         qp.openSpotlight(item);
+        return true;
     }, [marketData, qp, resetDwellCountdown]);
 
     usePresentCommand({ enabled: true, onCommand: executePresentCommand });
