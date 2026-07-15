@@ -4,14 +4,31 @@ import { isExecutablePresentCommand, shouldExecute } from '../../lib/presentComm
 
 const POLL_MS = 2500;
 const BACKOFF_MS = [5000, 10000, 20000] as const;
+const PROJECTOR_MODES = ['pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
+
+export interface ProjectorState {
+    mode: typeof PROJECTOR_MODES[number];
+    page: number;
+    v: number;
+}
 
 export function presentCommandBackoffMs(failureCount: number): number {
     return BACKOFF_MS[Math.min(Math.max(failureCount - 1, 0), BACKOFF_MS.length - 1)];
 }
 
-async function fetchPresentCommand(signal: AbortSignal): Promise<{ ok: true; command: PresentCommand | null; serverTime: number } | { ok: false }> {
+export function presentCommandPollUrl(state: ProjectorState | null): string {
+    if (!state) return '/api/present-command';
+    const params = new URLSearchParams();
+    params.set('st', '1');
+    params.set('mode', state.mode);
+    params.set('page', String(state.page));
+    params.set('v', String(state.v));
+    return `/api/present-command?${params.toString()}`;
+}
+
+async function fetchPresentCommand(signal: AbortSignal, state: ProjectorState | null): Promise<{ ok: true; command: PresentCommand | null; serverTime: number } | { ok: false }> {
     try {
-        const response = await fetch('/api/present-command', { signal });
+        const response = await fetch(presentCommandPollUrl(state), { signal });
         if (!response.ok) return { ok: false };
         const payload = await response.json() as { command?: unknown; serverTime?: unknown };
         // Staleness is judged in server time (issuedAt is server-stamped); a
@@ -30,19 +47,25 @@ async function fetchPresentCommand(signal: AbortSignal): Promise<{ ok: true; com
 
 interface Options {
     enabled: boolean;
+    getState?: () => ProjectorState | null;
     // Return false when the command could not be applied yet (e.g. its symbol
     // is not in the still-loading market data) — the id is then NOT locked, so
     // the next poll retries instead of losing the command forever.
     onCommand: (command: PresentCommand) => boolean;
 }
 
-export function usePresentCommand({ enabled, onCommand }: Options) {
+export function usePresentCommand({ enabled, getState, onCommand }: Options) {
     const onCommandRef = useRef(onCommand);
+    const getStateRef = useRef(getState);
     const lastExecutedIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         onCommandRef.current = onCommand;
     }, [onCommand]);
+
+    useEffect(() => {
+        getStateRef.current = getState;
+    }, [getState]);
 
     useEffect(() => {
         if (!enabled) return;
@@ -54,7 +77,7 @@ export function usePresentCommand({ enabled, onCommand }: Options) {
 
         const run = async () => {
             controller = new AbortController();
-            const result = await fetchPresentCommand(controller.signal);
+            const result = await fetchPresentCommand(controller.signal, getStateRef.current?.() ?? null);
             if (stopped) return;
 
             if (result.ok) {
