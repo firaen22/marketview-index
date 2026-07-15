@@ -13,6 +13,7 @@ const redisState = vi.hoisted(() => ({
 
 const nimState = vi.hoisted(() => ({
     callNim: vi.fn(),
+    callNimHedged: vi.fn(),
 }));
 
 vi.mock('../lib/redis.js', () => ({
@@ -27,10 +28,17 @@ vi.mock('../lib/nim.js', async importOriginal => {
         ...actual,
         getNimApiKeys: () => ['nim-key'],
         callNim: nimState.callNim,
+        callNimHedged: nimState.callNimHedged,
     };
 });
 
-const { default: handler } = await import('./present-command');
+const {
+    default: handler,
+    presentAssistImageCacheKey,
+    validatePresentAssistDeckKey,
+    validatePresentAssistImageBase64,
+    validatePresentAssistSlideId,
+} = await import('./present-command');
 
 const catalog = [
     { symbol: '^HSI', name: '恒生指數', nameEn: 'Hang Seng Index', group: 'market' },
@@ -100,6 +108,7 @@ describe('present-command API handler', () => {
             expire: vi.fn().mockResolvedValue(1),
         };
         nimState.callNim.mockReset();
+        nimState.callNimHedged.mockReset();
     });
 
     it('returns 503 when Redis is not configured', async () => {
@@ -417,5 +426,86 @@ describe('present-command API handler', () => {
 
         res = await call(authPost({ action: 'assist', text: 'x'.repeat(6000), lang: 'en' }));
         expect(res.statusCode).toBe(200);
+    });
+
+    it('validates present assist slide ids by the strict table', () => {
+        expect(validatePresentAssistSlideId('1#1')).toBe('1#1');
+        expect(validatePresentAssistSlideId('1784119272589#10')).toBe('1784119272589#10');
+        expect(validatePresentAssistSlideId('1#')).toBeNull();
+        expect(validatePresentAssistSlideId('#1')).toBeNull();
+        expect(validatePresentAssistSlideId('a#1')).toBeNull();
+        expect(validatePresentAssistSlideId('1#1#1')).toBeNull();
+        expect(validatePresentAssistSlideId('')).toBeNull();
+        expect(validatePresentAssistSlideId('1#00000000')).toBeNull();
+    });
+
+    it('validates present assist deck keys by the strict table', () => {
+        expect(validatePresentAssistDeckKey('')).toBeNull();
+        expect(validatePresentAssistDeckKey('x')).toBe('x');
+        expect(validatePresentAssistDeckKey('x'.repeat(2048))).toBe('x'.repeat(2048));
+        expect(validatePresentAssistDeckKey('x'.repeat(2049))).toBeNull();
+        expect(validatePresentAssistDeckKey(1)).toBeNull();
+    });
+
+    it('validates present assist image base64 by the strict table', () => {
+        expect(validatePresentAssistImageBase64('A'.repeat(99))).toBeNull();
+        expect(validatePresentAssistImageBase64('A'.repeat(100))).toBe('A'.repeat(100));
+        expect(validatePresentAssistImageBase64('A'.repeat(3_000_000))).toBe('A'.repeat(3_000_000));
+        expect(validatePresentAssistImageBase64('A'.repeat(3_000_001))).toBeNull();
+        expect(validatePresentAssistImageBase64('A'.repeat(101))).toBeNull();
+        expect(validatePresentAssistImageBase64(`${'A'.repeat(99)}!`)).toBeNull();
+        expect(validatePresentAssistImageBase64(`${'A'.repeat(50)}=${'A'.repeat(49)}`)).toBeNull();
+    });
+
+    it('dispatches assist text and image payloads in the specified order', async () => {
+        redisState.current.get.mockResolvedValue(null);
+        nimState.callNim.mockResolvedValue(JSON.stringify({ points: ['text point'], questions: [] }));
+        nimState.callNimHedged.mockResolvedValue(JSON.stringify({ points: ['image point'], questions: [] }));
+        const imageBody = {
+            action: 'assist',
+            imageBase64: 'A'.repeat(100),
+            slideId: '1784119272589#10',
+            deckKey: '/api/pdf-proxy?key=deck-a.pdf',
+            lang: 'en',
+        };
+
+        let res = await call(authPost({ action: 'assist', text: 'x'.repeat(40), lang: 'en' }));
+        expect(res.statusCode).toBe(200);
+        expect(nimState.callNim).toHaveBeenCalledTimes(1);
+
+        res = await call(authPost(imageBody));
+        expect(res.statusCode).toBe(200);
+        expect(nimState.callNimHedged).toHaveBeenCalledTimes(1);
+
+        res = await call(authPost({ ...imageBody, text: 'y'.repeat(40) }));
+        expect(res.statusCode).toBe(200);
+        expect(nimState.callNim).toHaveBeenCalledTimes(2);
+        expect(nimState.callNimHedged).toHaveBeenCalledTimes(1);
+
+        res = await call(authPost({ action: 'assist', lang: 'en' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_text' });
+
+        res = await call(authPost({ ...imageBody, slideId: undefined }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_slide_id' });
+
+        res = await call(authPost({ ...imageBody, deckKey: undefined }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_deck_key' });
+
+        res = await call(authPost({ ...imageBody, lang: 'fr' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'Invalid lang' });
+    });
+
+    it('uses deck key in present assist image cache keys to prevent slide id collisions', () => {
+        const slideId = '1784119272589#3';
+
+        const deckA = presentAssistImageCacheKey('en', '/api/pdf-proxy?key=deck-a.pdf', slideId);
+        const deckB = presentAssistImageCacheKey('en', '/api/pdf-proxy?key=deck-b.pdf', slideId);
+
+        expect(deckA).toMatch(/^present:assist:v1:img:[a-f0-9]{64}$/);
+        expect(deckA).not.toBe(deckB);
     });
 });
