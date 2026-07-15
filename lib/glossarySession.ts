@@ -124,7 +124,7 @@ export function mergeTerms(
 
 export function visibleTerms(session: GlossarySession): GlossaryTermSnapshot[] {
     if (session.status === 'ended' || session.mode === 'all') return session.terms;
-    return session.terms.filter(term => term.unlockedAt > 0);
+    return session.terms.filter(term => term.firstPage <= session.currentPage);
 }
 
 export function publicSessionView(session: GlossarySession) {
