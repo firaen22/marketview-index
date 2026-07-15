@@ -340,6 +340,12 @@ describe('present-command API handler', () => {
         expect(res.statusCode).toBe(400);
         expect(res.body).toEqual({ error: 'invalid_text' });
 
+        // Whitespace padding must not smuggle effectively-empty text past the
+        // minimum: length is validated on the NORMALIZED text.
+        res = await call(authPost({ action: 'assist', text: `short${' '.repeat(60)}text`, lang: 'en' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_text' });
+
         res = await call(authPost({ action: 'assist', text: 'x'.repeat(40), lang: 'fr' }));
         expect(res.statusCode).toBe(400);
         expect(res.body).toEqual({ error: 'Invalid lang' });

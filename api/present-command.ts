@@ -238,16 +238,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (parsed.body.action === 'assist') {
             const rawText = typeof parsed.body.text === 'string' ? parsed.body.text : '';
-            const text = rawText.trim();
-            if (text.length < ASSIST_MIN_TEXT_LEN || text.length > ASSIST_MAX_TEXT_LEN) {
+            // Validate the NORMALIZED length (mirrors client eligibility):
+            // whitespace padding must not smuggle effectively-empty text into
+            // a NIM call, and the cache key hashes normalized text anyway.
+            const normalizedText = normalizeAssistText(rawText);
+            if (normalizedText.length < ASSIST_MIN_TEXT_LEN || normalizedText.length > ASSIST_MAX_TEXT_LEN) {
                 return json(res, 400, { error: 'invalid_text' });
             }
             const lang = parsed.body.lang;
             if (!LANGS.includes(lang)) {
                 return json(res, 400, { error: 'Invalid lang' });
             }
-
-            const normalizedText = normalizeAssistText(text);
             const cacheKey = assistCacheKey(normalizedText, lang);
             // Cache is an optimization, never a gate: read failure = miss.
             let cached: AssistResult | null = null;
