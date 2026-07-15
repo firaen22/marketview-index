@@ -119,6 +119,29 @@ export function buildAssistPrompt(text: string, lang: 'en' | 'zh-TW'): unknown[]
     ];
 }
 
+export function buildAssistVisionPrompt(imageBase64: string, lang: 'en' | 'zh-TW'): unknown[] {
+    const languageDirective = lang === 'zh-TW' ? 'Respond in Traditional Chinese (繁體中文).' : 'Respond in English.';
+    const prompt = [
+        'You are a presenter copilot for an internal finance update.',
+        languageDirective,
+        'Audience: colleagues with mixed financial ability, not clients.',
+        'Use plain language, expand jargon, and keep it concise.',
+        'Read ALL text visible in this slide IMAGE.',
+        'WHERE TO LOOK: titles, subtitles, axis labels, legends, callouts, table headers, footnotes, figures, chart annotations, and small labels.',
+        'For this slide, write 2-3 talking points that explain what to emphasize and how to say it simply.',
+        'Then write 2-3 anticipated questions less-experienced colleagues may ask, each with a short suggested answer.',
+        'Return STRICT JSON only, with no markdown and no extra keys.',
+        'Schema: {"points":["..."],"questions":[{"q":"...","a":"..."}]}',
+    ].join('\n');
+    return [{
+        role: 'user',
+        content: [
+            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+            { type: 'text', text: prompt },
+        ],
+    }];
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const prototype = Object.getPrototypeOf(value);
