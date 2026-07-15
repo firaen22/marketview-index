@@ -83,7 +83,11 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     // identities each poll; re-running per poll would abort every in-flight
     // assist request before the ~6s generation can finish).
     const liveMode = live ? projector.mode : null;
-    const syncing = live && projector.mode === 'pdf' && projector.v !== slide.updatedAt;
+    // Any live CONTENT mode out of version-sync must re-trigger the effect so
+    // resolveTarget can report 'syncing' (matches the uniform v gate inside).
+    const syncing = live
+        && (projector.mode === 'pdf' || projector.mode === 'markdown' || projector.mode === 'html')
+        && projector.v !== slide.updatedAt;
 
     const clearAssistRequest = useCallback(() => {
         if (debounceRef.current !== null) {
