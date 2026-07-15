@@ -6,6 +6,7 @@ import {
     pushPayloadKey,
     shouldClearStoredSession,
     shouldFlushBeforeReplace,
+    shouldRenewForNewDeck,
     shouldSchedulePush,
     type GlossaryPushPayload,
 } from './useGlossarySession';
@@ -54,6 +55,42 @@ describe('useGlossarySession helpers', () => {
         expect(shouldClearStoredSession(null, session)).toBe(false);
         expect(shouldClearStoredSession(null, null)).toBe(true);
         expect(shouldClearStoredSession(404, session)).toBe(true);
+    });
+});
+
+describe('shouldRenewForNewDeck', () => {
+    const live = {
+        joinCode: 'ABCDEFGH',
+        status: 'live',
+        mode: 'all',
+        currentPage: 0,
+        termCount: 0,
+        joins: 1,
+        updatedAt: 100,
+        terms: [],
+    } satisfies ClientGlossarySession;
+    const term = { id: 'bps', term: 'bps', explanation: { en: 'Basis points' }, firstPage: 2, unlockedAt: 50 };
+
+    it('does not renew without a session', () => {
+        expect(shouldRenewForNewDeck(null)).toBe(false);
+    });
+
+    it('does not renew an ended session', () => {
+        expect(shouldRenewForNewDeck({ ...live, status: 'ended', currentPage: 4, terms: [term] })).toBe(false);
+    });
+
+    it('does not renew a session with nothing from the old deck', () => {
+        expect(shouldRenewForNewDeck(live)).toBe(false);
+    });
+
+    it('renews once the old deck contributed terms or a page', () => {
+        expect(shouldRenewForNewDeck({ ...live, terms: [term] })).toBe(true);
+        expect(shouldRenewForNewDeck({ ...live, currentPage: 3 })).toBe(true);
+    });
+
+    it('does not renew on malformed session data', () => {
+        expect(shouldRenewForNewDeck({ ...live, terms: undefined } as unknown as ClientGlossarySession)).toBe(false);
+        expect(shouldRenewForNewDeck({ ...live, currentPage: NaN })).toBe(false);
     });
 });
 

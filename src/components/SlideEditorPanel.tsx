@@ -18,11 +18,12 @@ interface Props {
     cloudStatus: SlideSync['cloudStatus'];
     lastSavedAt: SlideSync['lastSavedAt'];
     sizeWarning: SlideSync['sizeWarning'];
+    onPdfInserted?: () => void;
 }
 
 export const SlideEditorPanel: React.FC<Props> = ({
     open, onClose, slide, saveSlide, doRemoteSave,
-    cloudStatus, lastSavedAt, sizeWarning,
+    cloudStatus, lastSavedAt, sizeWarning, onPdfInserted,
 }) => {
     return (
         <div
@@ -98,6 +99,15 @@ export const SlideEditorPanel: React.FC<Props> = ({
                                 deletePdf(slide.content);
                             }
                             saveSlide({ content: url });
+                            // A new deck strands every term the readers already
+                            // collected against the old one, so retire the
+                            // session and issue a fresh QR. Unconditional by
+                            // design: every upload mints a fresh timestamped R2
+                            // key, so no url comparison here could ever be
+                            // false. useGlossarySession.renew() is the real
+                            // guard — it no-ops unless a live session actually
+                            // holds old-deck content.
+                            onPdfInserted?.();
                         }} />
                         {slide.content && (
                             <p className="text-[10px] font-mono text-emerald-400 truncate">{slide.content}</p>

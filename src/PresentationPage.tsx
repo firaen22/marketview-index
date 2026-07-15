@@ -670,6 +670,7 @@ export default function PresentationPage() {
                 cloudStatus={cloudStatus}
                 lastSavedAt={lastSavedAt}
                 sizeWarning={sizeWarning}
+                onPdfInserted={glossary.renew}
             />
 
             {/* Index chart modal */}
