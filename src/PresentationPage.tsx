@@ -30,6 +30,9 @@ import { useJargon } from './hooks/useJargon';
 import type { PdfViewerHandle } from './components/PdfViewer';
 import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
+import { usePresentCommand } from './hooks/usePresentCommand';
+import type { PresentCommand } from '../lib/presentCommand';
+import { indexToQuoteItem } from './types/QuoteItem';
 
 
 export default function PresentationPage() {
@@ -53,6 +56,7 @@ export default function PresentationPage() {
     const [morningBrief, setMorningBrief] = useState<string[]>(initialSettings.morningBrief);
     const [briefPanelOpen, setBriefPanelOpen] = useState(false);
     const [glossaryPanelOpen, setGlossaryPanelOpen] = useState(false);
+    const [remoteCompare, setRemoteCompare] = useState<{ id: string; symbols: string[] } | null>(null);
     const hintsTimerRef = useRef<number | null>(null);
     const kioskTimerRef = useRef<number | null>(null);
     const hasLoggedMarketStatusError = useRef(false);
@@ -159,6 +163,43 @@ export default function PresentationPage() {
     const resetDwellCountdown = useCallback(() => {
         setDwellResetNonce(n => n + 1);
     }, []);
+
+    const executePresentCommand = useCallback((cmd: PresentCommand) => {
+        if (cmd.kind === 'clear') {
+            qp.closeChart();
+            qp.dismissSpotlight();
+            setRemoteCompare(null);
+            setMainView('slide');
+            resetDwellCountdown();
+            return;
+        }
+
+        if (cmd.kind === 'view') {
+            setMainView(cmd.view!);
+            resetDwellCountdown();
+            return;
+        }
+
+        if (cmd.kind === 'chart' || cmd.kind === 'compare') {
+            const found = marketData.find(d => d.symbol === cmd.symbols[0]);
+            if (!found) return;
+            qp.dismissSpotlight();
+            setRemoteCompare({
+                id: cmd.id,
+                symbols: cmd.kind === 'compare' ? cmd.symbols.slice(1) : [],
+            });
+            qp.openChart(indexToQuoteItem(found));
+            return;
+        }
+
+        const item = qp.allItems.find(i => i.id === cmd.symbols[0]);
+        if (!item) return;
+        qp.closeChart();
+        setRemoteCompare(null);
+        qp.openSpotlight(item);
+    }, [marketData, qp, resetDwellCountdown]);
+
+    usePresentCommand({ enabled: true, onCommand: executePresentCommand });
 
     const persistPresentCycle = useCallback((next: PresentCycle) => {
         const normalized = normalizePresentCycle(next);
@@ -647,7 +688,10 @@ export default function PresentationPage() {
                         lang={lang}
                         onRemove={qp.remove}
                         onClearAll={qp.clearAll}
-                        onItemClick={qp.openChart}
+                        onItemClick={(item) => {
+                            setRemoteCompare(null);
+                            qp.openChart(item);
+                        }}
                     />
                 )}
             </div>
@@ -676,10 +720,12 @@ export default function PresentationPage() {
             {/* Index chart modal */}
             {qp.chartItem && (
                 <IndexChartModal
+                    key={remoteCompare?.id ?? 'local'}
                     item={qp.chartItem}
                     allData={marketData}
                     onClose={qp.closeChart}
                     lang={lang}
+                    initialCompareSymbols={remoteCompare?.symbols ?? []}
                 />
             )}
 

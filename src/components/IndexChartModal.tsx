@@ -9,6 +9,7 @@ interface Props {
     allData: IndexData[];
     onClose: () => void;
     lang?: 'en' | 'zh-TW';
+    initialCompareSymbols?: string[];
 }
 
 const PALETTE = ['#4a57f2', '#0d9488', '#db2777', '#ea580c', '#7c3aed'];
@@ -45,9 +46,9 @@ const LABELS = {
 
 type Series = { item: IndexData; color: string };
 
-export function IndexChartModal({ item, allData, onClose, lang = 'en' }: Props) {
+export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCompareSymbols = [] }: Props) {
     const L = LABELS[lang];
-    const [compareSymbols, setCompareSymbols] = useState<string[]>([]);
+    const [compareSymbols, setCompareSymbols] = useState<string[]>(() => initialCompareSymbols.slice(0, MAX_COMPARE));
     const [pickerOpen, setPickerOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [chartMode, setChartMode] = useState<'percent' | 'nominal'>('nominal');
