@@ -77,6 +77,18 @@ export function shouldClearStoredSession(status: number | null, session: ClientG
     return status === 404 || session === null;
 }
 
+export function shouldRenewForNewDeck(session: ClientGlossarySession | null): boolean {
+    if (!session || session.status !== 'live') return false;
+    // Terms are keyed to the deck they were read from and the server never
+    // deletes one, so a deck swap strands them under the wrong firstPage. Only
+    // a session that already carries such content needs retiring — reissuing
+    // the QR for an untouched session would make the audience rescan for
+    // nothing.
+    const termCount = Array.isArray(session.terms) ? session.terms.length : 0;
+    const page = Number.isFinite(session.currentPage) ? session.currentPage : 0;
+    return termCount > 0 || page > 0;
+}
+
 function readStoredJoinCode(): string | null {
     try {
         return parseStoredJoinCode(window.localStorage.getItem(GLOSSARY_SESSION_STORAGE_KEY));
@@ -109,6 +121,9 @@ export function useGlossarySession() {
     const pushWarnedForRef = useRef<string | null>(null);
     const lastSessionCodeRef = useRef<string | null>(null);
     const startInFlightRef = useRef(false);
+    // renew() nulls the session before its awaits, which would otherwise let the
+    // mount rehydrate below resurrect the retired session over the new one.
+    const renewingRef = useRef(false);
     const sessionRef = useRef<ClientGlossarySession | null>(null);
     const mountedRef = useRef(true);
     const pushEpochRef = useRef(`${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`);
@@ -140,7 +155,7 @@ export function useGlossarySession() {
         void (async () => {
             try {
                 const loaded = await fetchGlossarySession(code);
-                if (cancelled || sessionRef.current || startInFlightRef.current) return;
+                if (cancelled || sessionRef.current || startInFlightRef.current || renewingRef.current) return;
                 if (shouldClearStoredSession(null, loaded)) {
                     clearStoredJoinCode();
                     setSession(null);
@@ -149,7 +164,7 @@ export function useGlossarySession() {
                 setSession(loaded);
                 currentPageRef.current = loaded?.currentPage ?? 0;
             } catch (caught) {
-                if (cancelled || sessionRef.current || startInFlightRef.current) return;
+                if (cancelled || sessionRef.current || startInFlightRef.current || renewingRef.current) return;
                 if (caught instanceof GlossaryApiError && (caught.status === 404 || caught.status === 400)) {
                     // 404: expired/deleted. 400: the stored code is corrupt —
                     // clear it too, or every /present load shows an error banner.
@@ -307,6 +322,51 @@ export function useGlossarySession() {
         }
     }, []);
 
+    const renew = useCallback(async () => {
+        const current = sessionRef.current;
+        if (!current || !shouldRenewForNewDeck(current)) return;
+        if (startInFlightRef.current) return;
+
+        // Retire the outgoing session BEFORE the first await, or the two
+        // round-trips below leave a window in which the old deck still looks
+        // live: reportPage/reportTerms would re-arm a push against the retired
+        // join code, and any push already awaiting would resolve into
+        // flushPush's `seq === pushSeqRef.current` branch and setSession() the
+        // dead session back over the new one — putting a dead QR on the
+        // projector. Bumping the seq invalidates those in-flight pushes (every
+        // flushPush branch checks it) and nulling the session makes the report
+        // callbacks early-return for the whole window.
+        renewingRef.current = true;
+        pushSeqRef.current += 1;
+        if (debounceRef.current !== null) {
+            window.clearTimeout(debounceRef.current);
+            debounceRef.current = null;
+        }
+        pendingRef.current = null;
+        lastSentRef.current = null;
+        currentPageRef.current = 0;
+        sessionRef.current = null;
+        setSession(null);
+        clearStoredJoinCode();
+
+        setLoading(true);
+        setError(null);
+        try {
+            try {
+                await endGlossarySession(current.joinCode);
+            } catch {
+                // The outgoing session is abandoned either way — if the end call
+                // fails it just expires on its TTL. Never block the new QR on it.
+            }
+            if (!mountedRef.current) return;
+            // Carry the presenter's mode/keepAfter choices across; a rehydrated
+            // session omits keepAfter, so treat unknown as the server default.
+            await start(current.mode, current.keepAfter !== false);
+        } finally {
+            renewingRef.current = false;
+        }
+    }, [start]);
+
     const setMode = useCallback(async (mode: GlossarySession['mode']) => {
         const current = sessionRef.current;
         if (!current || current.mode === mode) return;
@@ -347,6 +407,7 @@ export function useGlossarySession() {
         start,
         end,
         reopen,
+        renew,
         setMode,
         reportPage,
         reportTerms,
