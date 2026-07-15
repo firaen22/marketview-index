@@ -113,6 +113,17 @@ export function parseCommandDeterministic(text: string, catalog: CatalogItem[]):
         return { kind: 'view', symbols: [], view: 'index' };
     }
 
+    // Full-text resolve BEFORE the compare split: a catalog name that itself
+    // contains a separator substring ("Growth vs Value") must resolve as one
+    // item, not be split into an unintended compare.
+    const whole = resolveCatalogItem(normalized, catalog);
+    if (whole) {
+        return {
+            kind: whole.group === 'market' ? 'chart' : 'quote',
+            symbols: [whole.symbol],
+        };
+    }
+
     const compareParts = normalized.split(COMPARE_SPLIT).filter(Boolean);
     if (compareParts.length >= 2) {
         const resolved = compareParts.map(part => resolveCatalogItem(part, catalog));
@@ -123,12 +134,7 @@ export function parseCommandDeterministic(text: string, catalog: CatalogItem[]):
         };
     }
 
-    const item = resolveCatalogItem(normalized, catalog);
-    if (!item) return null;
-    return {
-        kind: item.group === 'market' ? 'chart' : 'quote',
-        symbols: [item.symbol],
-    };
+    return null;
 }
 
 export function validatePresentIntent(

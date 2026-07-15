@@ -150,3 +150,15 @@ describe('isExecutablePresentCommand and shouldExecute', () => {
         expect(shouldExecute({ ...command, issuedAt: 2_000_000 }, null, 1_000_000)).toBe(true);
     });
 });
+
+describe('separator inside a catalog name', () => {
+    it('resolves a full name containing a separator as ONE item, not a compare', () => {
+        const catalog: CatalogItem[] = [
+            { symbol: 'GVX', name: 'Growth vs Value', group: 'market' },
+            { symbol: 'GRW', name: 'Growth', group: 'market' },
+            { symbol: 'VAL', name: 'Value', group: 'market' },
+        ];
+        expect(parseCommandDeterministic('Growth vs Value', catalog))
+            .toEqual({ kind: 'chart', symbols: ['GVX'] });
+    });
+});
