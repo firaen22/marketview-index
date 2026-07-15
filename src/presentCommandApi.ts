@@ -111,3 +111,18 @@ export async function fetchAssist(text: string, lang: 'en' | 'zh-TW', signal?: A
     }
     return assist;
 }
+
+export async function fetchAssistImage(
+    imageBase64: string,
+    slideId: string,
+    deckKey: string,
+    lang: 'en' | 'zh-TW',
+    signal?: AbortSignal,
+): Promise<AssistResult> {
+    const payload = await postPresentCommand({ action: 'assist', imageBase64, slideId, deckKey, lang }, signal);
+    const assist = validateAssistResult(payload?.assist);
+    if (!assist) {
+        throw new PresentCommandApiError(502, 'malformed_assist');
+    }
+    return assist;
+}
