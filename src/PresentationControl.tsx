@@ -14,6 +14,7 @@ import { Monitor, RotateCcw, Clipboard, Eye, EyeOff } from 'lucide-react';
 import { SaveButton } from './components/SaveButton';
 import { MODE_HINTS, EXAMPLES } from './presentationExamples';
 import { CopilotBar } from './components/CopilotBar';
+import { AssistPanel } from './components/AssistPanel';
 
 export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
@@ -92,6 +93,7 @@ export default function PresentationControl() {
                 {/* Editor — hidden on mobile when preview is shown */}
                 <div className={`border-r border-zinc-900 flex flex-col min-h-0 ${showPreview ? 'hidden sm:flex' : 'flex'}`}>
                     <CopilotBar catalog={commandCatalog} lang={lang} />
+                    <AssistPanel slide={slide} lang={lang} />
 
                     {/* Mode tabs */}
                     <div className="flex items-center gap-2 px-4 sm:px-6 py-3 border-b border-zinc-900 shrink-0 flex-wrap gap-y-2">

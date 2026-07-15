@@ -31,6 +31,7 @@ import type { PdfViewerHandle } from './components/PdfViewer';
 import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
 import { usePresentCommand } from './hooks/usePresentCommand';
+import type { ProjectorState } from './hooks/usePresentCommand';
 import type { PresentCommand } from '../lib/presentCommand';
 import { indexToQuoteItem } from './types/QuoteItem';
 
@@ -105,6 +106,23 @@ export default function PresentationPage() {
     useEffect(() => {
         lastPdfPageRef.current = 0;
     }, [currentPdfUrl]);
+    const projectorReportRef = useRef<{ mainView: PresentView; slideMode: typeof slide.mode; updatedAt: number } | null>(null);
+    projectorReportRef.current = { mainView, slideMode: slide.mode, updatedAt: slide.updatedAt };
+    const getProjectorState = useCallback((): ProjectorState | null => {
+        const current = projectorReportRef.current;
+        if (!current) return null;
+        if (current.mainView === 'slide') {
+            return {
+                mode: current.slideMode,
+                page: current.slideMode === 'pdf' ? Math.max(lastPdfPageRef.current, 1) : 1,
+                v: current.updatedAt,
+            };
+        }
+        if (current.mainView === 'index' || current.mainView === 'heatmap') {
+            return { mode: current.mainView, page: 1, v: current.updatedAt };
+        }
+        return null;
+    }, []);
     // Depend on jargon.terms only, NOT lang: on a mid-session language flip the
     // new lang commits a render before useJargon clears the old-language terms,
     // so firing on `lang` would push old-language text under the new label —
@@ -203,7 +221,7 @@ export default function PresentationPage() {
         return true;
     }, [marketData, qp, resetDwellCountdown]);
 
-    usePresentCommand({ enabled: true, onCommand: executePresentCommand });
+    usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
 
     const persistPresentCycle = useCallback((next: PresentCycle) => {
         const normalized = normalizePresentCycle(next);
