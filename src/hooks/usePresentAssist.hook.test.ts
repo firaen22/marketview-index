@@ -219,4 +219,118 @@ describe('usePresentAssist integration', () => {
         expect(aborted).toBe(true);
         expect(latest.status).toBe('error');
     });
+
+    it('starting prepare invalidates a live run still resolving its target (no double fetch) (regression)', async () => {
+        // The reachable window: the hook is settled, the projector flips to a
+        // new page, and the re-fired live run is mid-extract (nothing armed or
+        // in flight for clearAssistRequest to kill) when Prepare is tapped.
+        // Without the loadKeyRef bump that run resumes, arms its debounce, and
+        // fires a second generation for a page the prepare loop is warming.
+        let fetchCalls = 0;
+        fetchAssist.mockImplementation(() => {
+            fetchCalls += 1;
+            // Later (prepare-loop) generations are slow, so they have not yet
+            // cached the flipped-to page when a leaked live debounce would fire.
+            return fetchCalls === 1
+                ? Promise.resolve(ASSIST)
+                : new Promise(resolve => setTimeout(() => resolve(ASSIST), 2000));
+        });
+
+        root = createRoot(container);
+        await act(async () => {
+            root.render(createElement(Harness));
+        });
+        await flush();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(800);
+        });
+        await flush();
+        expect(latest.status).toBe('ready');
+        expect(fetchAssist).toHaveBeenCalledTimes(1);
+
+        // Projector flips to page 3; the re-fired live run parks in extract.
+        extractPdfPageText.mockImplementationOnce(async () => {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return 'slide text '.repeat(10);
+        });
+        fetchProjectorState.mockImplementation(async () => ({
+            projector: { mode: 'pdf', page: 3, v: 7, at: Date.now() },
+            serverTime: Date.now(),
+        }));
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4000);
+        });
+        await flush();
+
+        await act(async () => {
+            latest.prepare.start();
+        });
+        await flush();
+        expect(latest.prepare.status).toBe('preparing');
+
+        // Parked extract resolves, debounce window passes, prepare runs out
+        // (page 2 is already cached, so it warms pages 1 and 3).
+        for (const step of [1000, 800, 2000, 2000, 2000]) {
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(step);
+            });
+            await flush();
+        }
+
+        expect(latest.prepare.status).toBe('done');
+        // 1 initial live + 2 prepare-loop generations — no fourth call from
+        // the superseded live run.
+        expect(fetchAssist).toHaveBeenCalledTimes(3);
+    });
+
+    it('a language switch mid-prepare cancels the run AND revives the assist effect (regression)', async () => {
+        fetchAssist.mockResolvedValue(ASSIST);
+
+        let lang: 'en' | 'zh-TW' = 'en';
+        function SwapHarness() {
+            latest = usePresentAssist({ slide: SLIDE, lang, enabled: true });
+            return null;
+        }
+
+        root = createRoot(container);
+        await act(async () => {
+            root.render(createElement(SwapHarness));
+        });
+        await flush();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(800);
+        });
+        await flush();
+        expect(latest.status).toBe('ready');
+
+        // Prepare hangs on its first uncached page, keeping the run active.
+        fetchAssist.mockImplementation(() => new Promise(() => undefined));
+        await act(async () => {
+            latest.prepare.start();
+        });
+        await flush();
+        expect(latest.prepare.status).toBe('preparing');
+        const callsBeforeSwitch = fetchAssist.mock.calls.length;
+
+        // Switch language while preparing: the assist effect (declared before
+        // the cancel effect) already bailed on 'preparing' this render — the
+        // cancel effect must bump the nonce or notes stay dead until the next
+        // page change.
+        lang = 'zh-TW';
+        await act(async () => {
+            root.render(createElement(SwapHarness));
+        });
+        await flush();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(800);
+        });
+        await flush();
+
+        expect(latest.prepare.status).toBe('idle');
+        // The revived effect went back to work in the new language (its fetch
+        // is the hanging mock, so it parks in 'loading' — the dead state this
+        // regression pins is stuck-'ready' with stale notes and no new fetch).
+        expect(fetchAssist.mock.calls.length).toBeGreaterThan(callsBeforeSwitch);
+        expect(latest.status).toBe('loading');
+    });
 });

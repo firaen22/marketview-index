@@ -35,6 +35,9 @@ const COMPARE_SPLIT = /\s*(?:vs\.?|對比|比較|,|，)\s*/i;
 const LEADING_VERB = /^(?:show|display|open|看|顯示|睇)\s*/i;
 const MAX_COMPARE_SYMBOLS = 5;
 const STALE_MS = 120_000;
+// Page turns are relative: one arriving long after the tap flips the deck out
+// of context, so drained page commands are only executed while still fresh.
+export const PAGE_COMMAND_FRESH_MS = 15_000;
 
 type RawIntent = {
     kind?: unknown;
@@ -78,7 +81,7 @@ function resolveCatalogItem(part: string, catalog: CatalogItem[]): CatalogItem |
     });
     if (symbolExact) return symbolExact;
 
-    const nameExact = catalog.find(item => item.name === raw || item.nameEn?.toLowerCase() === lower);
+    const nameExact = catalog.find(item => item.name.toLowerCase() === lower || item.nameEn?.toLowerCase() === lower);
     if (nameExact) return nameExact;
 
     const matches = catalog.filter(item => {

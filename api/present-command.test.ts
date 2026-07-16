@@ -8,6 +8,8 @@ const redisState = vi.hoisted(() => ({
         incr: vi.fn(),
         ttl: vi.fn(),
         expire: vi.fn(),
+        rpush: vi.fn(),
+        lpop: vi.fn(),
     } as any,
 }));
 
@@ -106,6 +108,8 @@ describe('present-command API handler', () => {
             incr: vi.fn().mockResolvedValue(1),
             ttl: vi.fn().mockResolvedValue(60),
             expire: vi.fn().mockResolvedValue(1),
+            rpush: vi.fn().mockResolvedValue(1),
+            lpop: vi.fn().mockResolvedValue(null),
         };
         nimState.callNim.mockReset();
         nimState.callNimHedged.mockReset();
@@ -144,7 +148,7 @@ describe('present-command API handler', () => {
         res = await call(makeReq({ method: 'GET' }));
 
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ success: true, command: null, serverTime: expect.any(Number), projector: null });
+        expect(res.body).toEqual({ success: true, command: null, serverTime: expect.any(Number), projector: null, pageCommands: [] });
     });
 
     it('rate-limits GET and does not add CORS headers', async () => {
@@ -176,6 +180,7 @@ describe('present-command API handler', () => {
             command: null,
             serverTime: 5000,
             projector: { mode: 'pdf', page: 2, v: 0, at: 5000 },
+            pageCommands: [],
         });
     });
 
@@ -281,21 +286,27 @@ describe('present-command API handler', () => {
         expect(lastStoredCommand().id.length).toBeGreaterThan(0);
     });
 
-    it('stores page commands with a validated direction and rejects invalid ones', async () => {
+    it('enqueues page commands with a validated direction and rejects invalid ones', async () => {
         let res = await call(authPost({ action: 'page', direction: 'next' }));
         expect(res.statusCode).toBe(200);
-        expect(lastStoredCommand()).toMatchObject({
+        // Page commands are RELATIVE and go to the queue, never the single
+        // last-writer-wins command slot: rapid taps must all survive.
+        expect(redisState.current.set).not.toHaveBeenCalledWith('present:cmd:v1', expect.anything(), expect.anything());
+        const enqueued = JSON.parse(redisState.current.rpush.mock.calls.at(-1)[1]);
+        expect(redisState.current.rpush.mock.calls.at(-1)[0]).toBe('present:pagecmd:v1');
+        expect(enqueued).toMatchObject({
             v: 1,
             kind: 'page',
             symbols: [],
             direction: 'next',
             issuedAt: 5000,
         });
-        expect(lastStoredCommand().id.length).toBeGreaterThan(0);
+        expect(enqueued.id.length).toBeGreaterThan(0);
+        expect(redisState.current.expire).toHaveBeenCalledWith('present:pagecmd:v1', 120);
 
         res = await call(authPost({ action: 'page', direction: 'prev' }));
         expect(res.statusCode).toBe(200);
-        expect(lastStoredCommand()).toMatchObject({ kind: 'page', direction: 'prev' });
+        expect(JSON.parse(redisState.current.rpush.mock.calls.at(-1)[1])).toMatchObject({ kind: 'page', direction: 'prev' });
 
         res = await call(authPost({ action: 'page', direction: 'sideways' }));
         expect(res.statusCode).toBe(400);
@@ -304,6 +315,57 @@ describe('present-command API handler', () => {
         res = await call(authPost({ action: 'page' }));
         expect(res.statusCode).toBe(400);
         expect(res.body).toEqual({ error: 'invalid_direction' });
+    });
+
+    it('drains queued page commands only on the projector poll and skips malformed entries', async () => {
+        redisState.current.get.mockResolvedValue(null);
+        const pageCmd = (id: string) => JSON.stringify({ v: 1, id, kind: 'page', symbols: [], direction: 'next', issuedAt: 5000 });
+        redisState.current.lpop.mockResolvedValue([
+            pageCmd('p1'),
+            '{bad json',
+            JSON.stringify({ v: 1, id: 'not-page', kind: 'clear', symbols: [], issuedAt: 5000 }),
+            pageCmd('p2'),
+        ]);
+
+        const res = await call(makeReq({ method: 'GET', query: { st: '1', mode: 'pdf', page: '2', v: '0' } }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.lpop).toHaveBeenCalledWith('present:pagecmd:v1', 20);
+        expect(res.body.pageCommands.map((c: any) => c.id)).toEqual(['p1', 'p2']);
+    });
+
+    it('does not drain the page queue for non-projector polls', async () => {
+        redisState.current.get.mockResolvedValue(null);
+
+        const res = await call(makeReq({ method: 'GET' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.lpop).not.toHaveBeenCalled();
+        expect(res.body.pageCommands).toEqual([]);
+    });
+
+    it('does not drain the page queue for st=1 polls without a valid projector report', async () => {
+        redisState.current.get.mockResolvedValue(null);
+
+        // GET is unauthenticated by design: a bare or malformed st=1 probe
+        // must not be able to consume page turns queued for the projector.
+        for (const query of [{ st: '1' }, { st: '1', mode: 'evil', page: '1', v: '0' }, { st: '1', mode: 'pdf', page: '0', v: '0' }]) {
+            const res = await call(makeReq({ method: 'GET', query }));
+            expect(res.statusCode).toBe(200);
+            expect(res.body.pageCommands).toEqual([]);
+        }
+        expect(redisState.current.lpop).not.toHaveBeenCalled();
+    });
+
+    it('returns pageCommands [] when the drain itself fails', async () => {
+        redisState.current.get.mockResolvedValue(null);
+        redisState.current.lpop.mockRejectedValue(new Error('redis down'));
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        const res = await call(makeReq({ method: 'GET', query: { st: '1', mode: 'pdf', page: '1', v: '0' } }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.pageCommands).toEqual([]);
     });
 
     it('requires auth for page commands like every other action', async () => {

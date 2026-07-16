@@ -44,6 +44,18 @@ describe('parseCommandDeterministic', () => {
         expect(parseCommandDeterministic('恒生指數', catalog)).toEqual({ kind: 'chart', symbols: ['^HSI'] });
     });
 
+    it('matches exact localized names case-insensitively, beating ambiguous substrings', () => {
+        // "Tencent" is also a substring of "Tencent Music": the exact-name tier
+        // must win case-insensitively, not fall through to a 2-match tie.
+        const withEnNames: CatalogItem[] = [
+            ...catalog,
+            { symbol: '0700.HK', name: 'Tencent', group: 'market' },
+            { symbol: '1698.HK', name: 'Tencent Music', group: 'market' },
+        ];
+        expect(parseCommandDeterministic('tencent', withEnNames)).toEqual({ kind: 'chart', symbols: ['0700.HK'] });
+        expect(parseCommandDeterministic('TENCENT MUSIC', withEnNames)).toEqual({ kind: 'chart', symbols: ['1698.HK'] });
+    });
+
     it('uses unique substring matches and rejects ambiguous substring matches', () => {
         expect(parseCommandDeterministic('nikkei', catalog)).toEqual({ kind: 'chart', symbols: ['^N225'] });
         expect(parseCommandDeterministic('指數', catalog)).toEqual({ kind: 'view', symbols: [], view: 'index' });
