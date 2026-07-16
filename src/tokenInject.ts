@@ -1,10 +1,11 @@
-// Replaces {{SYMBOL.field}} with live values. Symbol can be bare (SPX) or with caret (^GSPC).
+// Replaces {{SYMBOL.field}} with live values. Symbol can be bare (SPX), with a
+// caret (^GSPC), or a Yahoo currency symbol containing '=' (EURUSD=X, JPY=X).
 export function injectMarketTokens(
     text: string,
     data: Array<{ symbol: string; name?: string; [k: string]: any }>
 ): string {
     if (!text || !data?.length) return text;
-    return text.replace(/\{\{\s*([\w^.-]+)\.(\w+)\s*\}\}/g, (match, sym, field) => {
+    return text.replace(/\{\{\s*([\w^.=-]+)\.(\w+)\s*\}\}/g, (match, sym, field) => {
         const needle = String(sym).toUpperCase();
         const item = data.find(d => {
             const s = (d.symbol || '').toUpperCase();

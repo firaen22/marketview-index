@@ -8,7 +8,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     try {
         const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-        console.log('[jargon-debug]', String(raw).slice(0, 1500));
+        // Strip CR/LF so a text/plain body can't forge extra log lines in the
+        // Vercel runtime log (this sink is unauthenticated).
+        console.log('[jargon-debug]', String(raw).replace(/[\r\n]+/g, ' ').slice(0, 1500));
     } catch {}
     return res.status(204).end();
 }
