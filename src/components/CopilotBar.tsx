@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Send, XCircle } from 'lucide-react';
 import type { CatalogItem, PresentCommand } from '../../lib/presentCommand';
 import { clearPresentCommand, PresentCommandApiError, sendPresentCommand } from '../presentCommandApi';
@@ -8,6 +8,13 @@ type Status =
     | { type: 'sending' }
     | { type: 'success'; message: string }
     | { type: 'error'; message: string };
+
+const QUICK_COMMANDS = [
+    { label: 'HSI', cmd: 'show HSI' },
+    { label: 'HSI vs S&P', cmd: 'HSI vs S&P' },
+    { label: 'Heatmap', cmd: 'heatmap' },
+    { label: 'Dashboard', cmd: 'dashboard' },
+];
 
 interface Props {
     catalog: CatalogItem[];
@@ -46,7 +53,28 @@ export function CopilotBar({ catalog, lang }: Props) {
     // in-flight Send or the stale Send can land after it and re-open the
     // overlay the presenter just cleared.
     const requestControllerRef = useRef<AbortController | null>(null);
+    const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const canSend = catalog.length > 0;
+
+    const clearDismissTimer = () => {
+        if (dismissTimerRef.current) {
+            clearTimeout(dismissTimerRef.current);
+            dismissTimerRef.current = null;
+        }
+    };
+
+    const setDismissibleStatus = (nextStatus: Extract<Status, { type: 'success' | 'error' }>) => {
+        const delay = nextStatus.type === 'success' ? 3000 : 6000;
+        setStatus(nextStatus);
+        dismissTimerRef.current = setTimeout(() => {
+            setStatus(current => current === nextStatus ? { type: 'idle' } : current);
+            dismissTimerRef.current = null;
+        }, delay);
+    };
+
+    useEffect(() => () => {
+        clearDismissTimer();
+    }, []);
 
     const hint = useMemo(() => {
         if (!canSend) return 'Loading market data…';
@@ -55,38 +83,43 @@ export function CopilotBar({ catalog, lang }: Props) {
         return 'Try: show HSI, HSI vs S&P, heatmap';
     }, [canSend, status]);
 
-    const handleSend = async () => {
+    const handleSend = async (overrideText?: string) => {
         if (!canSend) return;
+        clearDismissTimer();
         requestControllerRef.current?.abort();
         const controller = new AbortController();
         requestControllerRef.current = controller;
+        const commandText = overrideText ?? text;
         setStatus({ type: 'sending' });
         try {
-            const command = await sendPresentCommand(text, lang, catalog, controller.signal);
+            const command = await sendPresentCommand(commandText, lang, catalog, controller.signal);
             if (requestControllerRef.current !== controller) return;
-            setStatus({ type: 'success', message: commandMessage(command, catalog) });
-            setText('');
+            setDismissibleStatus({ type: 'success', message: commandMessage(command, catalog) });
+            navigator.vibrate?.(30);
+            if (overrideText === undefined) setText('');
         } catch (error) {
             if ((error as DOMException).name === 'AbortError') return;
             if (requestControllerRef.current !== controller) return;
-            setStatus({ type: 'error', message: errorMessage(error) });
+            setDismissibleStatus({ type: 'error', message: errorMessage(error) });
         } finally {
             if (requestControllerRef.current === controller) requestControllerRef.current = null;
         }
     };
 
     const handleClear = async () => {
+        clearDismissTimer();
         requestControllerRef.current?.abort();
         const controller = new AbortController();
         requestControllerRef.current = controller;
         try {
             const command = await clearPresentCommand(controller.signal);
             if (requestControllerRef.current !== controller) return;
-            setStatus({ type: 'success', message: commandMessage(command, catalog) });
+            setDismissibleStatus({ type: 'success', message: commandMessage(command, catalog) });
+            navigator.vibrate?.(30);
         } catch (error) {
             if ((error as DOMException).name === 'AbortError') return;
             if (requestControllerRef.current !== controller) return;
-            setStatus({ type: 'error', message: errorMessage(error) });
+            setDismissibleStatus({ type: 'error', message: errorMessage(error) });
         } finally {
             if (requestControllerRef.current === controller) requestControllerRef.current = null;
         }
@@ -110,19 +143,33 @@ export function CopilotBar({ catalog, lang }: Props) {
                 />
                 <button
                     onClick={() => void handleSend()}
-                    disabled={!canSend}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-emerald-500 text-black hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!canSend || status.type === 'sending'}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] rounded-lg text-xs font-bold bg-emerald-500 text-black hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <Send className="w-3.5 h-3.5" />
                     <span>Send</span>
                 </button>
                 <button
                     onClick={() => void handleClear()}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    title="Clear projector"
+                    aria-label="Clear projector"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 min-w-[44px] min-h-[44px] rounded-lg text-xs font-semibold bg-zinc-900 border border-rose-900/60 text-rose-300 hover:bg-rose-950/50"
                 >
                     <XCircle className="w-3.5 h-3.5" />
-                    <span>Clear</span>
                 </button>
+            </div>
+            <div className="flex gap-2 overflow-x-auto mt-2">
+                {QUICK_COMMANDS.map(chip => (
+                    <button
+                        key={chip.cmd}
+                        type="button"
+                        onClick={() => void handleSend(chip.cmd)}
+                        disabled={!canSend}
+                        className="whitespace-nowrap shrink-0 px-3 py-1.5 rounded-full text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 active:bg-zinc-700 min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {chip.label}
+                    </button>
+                ))}
             </div>
             <div className={`mt-2 text-xs ${status.type === 'error' ? 'text-rose-400' : status.type === 'success' ? 'text-emerald-400' : 'text-zinc-500'}`}>
                 {hint}

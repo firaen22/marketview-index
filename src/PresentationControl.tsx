@@ -96,6 +96,7 @@ export default function PresentationControl() {
             {/* Mobile: notes live above the grid so the Preview toggle cannot hide
                 them — a presenter reaching for notes still needs the deck. */}
             <div className="sm:hidden shrink-0">
+                <CopilotBar catalog={commandCatalog} lang={lang} />
                 <AssistPanel slide={slide} assist={assist} />
             </div>
 
@@ -103,7 +104,9 @@ export default function PresentationControl() {
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 min-h-0">
                 {/* Editor — hidden on mobile when preview is shown */}
                 <div className={`border-r border-zinc-900 flex flex-col min-h-0 ${showPreview ? 'hidden sm:flex' : 'flex'}`}>
-                    <CopilotBar catalog={commandCatalog} lang={lang} />
+                    <div className="hidden sm:block">
+                        <CopilotBar catalog={commandCatalog} lang={lang} />
+                    </div>
                     <div className="hidden sm:block">
                         <AssistPanel slide={slide} assist={assist} />
                     </div>

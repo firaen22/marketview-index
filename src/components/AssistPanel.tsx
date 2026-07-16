@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, RefreshCw, Sparkles, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { PageDirection } from '../../lib/presentCommand';
 import { sendPresentPageCommand } from '../presentCommandApi';
 import type { PresentSlide } from '../settings';
@@ -14,19 +14,25 @@ interface Props {
     assist: PresentAssistState;
 }
 
+type PageCommandState =
+    | { kind: 'idle' }
+    | { kind: 'sending' }
+    | { kind: 'error'; direction: PageDirection };
+
 export function AssistPanel({ slide, assist }: Props) {
     const [collapsed, setCollapsed] = useState(false);
     // Local click state only, no hook/effect/poller — safe even though this
     // component mounts twice (mobile + desktop slots, see Props comment).
-    const [pageCmd, setPageCmd] = useState<'idle' | 'sending' | 'error'>('idle');
+    const [pageCmd, setPageCmd] = useState<PageCommandState>({ kind: 'idle' });
 
     const sendPage = async (direction: PageDirection) => {
-        setPageCmd('sending');
+        setPageCmd({ kind: 'sending' });
         try {
             await sendPresentPageCommand(direction);
-            setPageCmd('idle');
+            setPageCmd({ kind: 'idle' });
+            navigator.vibrate?.(30);
         } catch {
-            setPageCmd('error');
+            setPageCmd({ kind: 'error', direction });
         }
     };
 
@@ -67,29 +73,42 @@ export function AssistPanel({ slide, assist }: Props) {
                     )}
                     {assist.live ? (
                         <>
-                            <span className="text-emerald-400">● p.{assist.page}</span>
+                            <span className="inline-flex items-center gap-1 text-emerald-400">
+                                {pageCmd.kind === 'sending' ? <Loader2 className="w-3 h-3 animate-spin" /> : <span>●</span>}
+                                p.{assist.page}
+                            </span>
                             {slide.mode === 'pdf' && (
                                 <>
                                     <button
                                         type="button"
                                         onClick={event => { event.stopPropagation(); void sendPage('prev'); }}
-                                        disabled={pageCmd === 'sending'}
-                                        className="w-6 h-6 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                                        disabled={pageCmd.kind === 'sending'}
+                                        className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                                         title="Turn projector to previous page"
                                     >
-                                        ‹
+                                        <ChevronLeft className="w-5 h-5" />
                                     </button>
                                     <button
                                         type="button"
                                         onClick={event => { event.stopPropagation(); void sendPage('next'); }}
-                                        disabled={pageCmd === 'sending'}
-                                        className="w-6 h-6 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                                        disabled={pageCmd.kind === 'sending'}
+                                        className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                                         title="Turn projector to next page"
                                     >
-                                        ›
+                                        <ChevronRight className="w-5 h-5" />
                                     </button>
-                                    {pageCmd === 'error' && (
-                                        <span className="text-rose-400" title="Could not reach projector">!</span>
+                                    {pageCmd.kind === 'error' && (
+                                        <span className="inline-flex items-center gap-1 text-rose-400" title="Could not reach projector">
+                                            <span>Page turn failed</span>
+                                            <button
+                                                type="button"
+                                                onClick={event => { event.stopPropagation(); void sendPage(pageCmd.direction); }}
+                                                className="inline-flex items-center gap-1 px-2 py-1 min-h-[36px] rounded bg-zinc-900 text-rose-300 hover:bg-zinc-800"
+                                            >
+                                                <RefreshCw className="w-3 h-3" />
+                                                Retry
+                                            </button>
+                                        </span>
                                     )}
                                 </>
                             )}
@@ -99,20 +118,20 @@ export function AssistPanel({ slide, assist }: Props) {
                             <span className="text-zinc-500">offline — manual</span>
                             <button
                                 type="button"
-                                onClick={event => { event.stopPropagation(); assist.prevManualPage(); }}
-                                className="w-6 h-6 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                                onClick={event => { event.stopPropagation(); assist.prevManualPage(); navigator.vibrate?.(30); }}
+                                className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
                                 title="Previous manual page"
                             >
-                                ‹
+                                <ChevronLeft className="w-5 h-5" />
                             </button>
                             <span className="text-zinc-400 min-w-6 text-center">p.{assist.page}</span>
                             <button
                                 type="button"
-                                onClick={event => { event.stopPropagation(); assist.nextManualPage(); }}
-                                className="w-6 h-6 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                                onClick={event => { event.stopPropagation(); assist.nextManualPage(); navigator.vibrate?.(30); }}
+                                className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
                                 title="Next manual page"
                             >
-                                ›
+                                <ChevronRight className="w-5 h-5" />
                             </button>
                         </>
                     )}
@@ -169,8 +188,8 @@ export function AssistPanel({ slide, assist }: Props) {
                     {assist.prepare.status !== 'preparing' && assist.status === 'ready' && assist.assist && (
                         <div className="space-y-4">
                             <ul className="space-y-2">
-                                {assist.assist.points.map(point => (
-                                    <li key={point} className="flex gap-2 text-sm text-zinc-200 leading-relaxed">
+                                {assist.assist.points.map((point, index) => (
+                                    <li key={point} className={`flex gap-2 ${index === 0 ? 'text-base font-semibold text-zinc-50 leading-snug' : 'text-sm text-zinc-200 leading-relaxed'}`}>
                                         <span className="mt-2 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
                                         <span>{point}</span>
                                     </li>
