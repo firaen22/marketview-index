@@ -24,6 +24,11 @@ import {
 } from '../lib/presentCommand.js';
 
 const COMMAND_KEY = 'present:cmd:v1';
+// Page turns are RELATIVE commands: unlike chart/view/clear (absolute, safe to
+// coalesce last-writer-wins), every tap must reach the projector or the net
+// page offset is wrong. They get a queue, not the single command slot.
+const PAGE_COMMANDS_KEY = 'present:pagecmd:v1';
+const PAGE_COMMANDS_MAX_DRAIN = 20;
 const PROJECTOR_STATE_KEY = 'present:pstate:v1';
 const COMMAND_TTL_SECONDS = 120;
 const PROJECTOR_STATE_TTL_SECONDS = 15;
@@ -119,6 +124,34 @@ function canonicalCatalog(catalog: CatalogItem[]): CatalogItem[] {
 
 async function storeCommand(command: PresentCommand) {
     await redis!.set(COMMAND_KEY, JSON.stringify(command), { ex: COMMAND_TTL_SECONDS });
+}
+
+async function enqueuePageCommand(command: PresentCommand) {
+    await redis!.rpush(PAGE_COMMANDS_KEY, JSON.stringify(command));
+    await redis!.expire(PAGE_COMMANDS_KEY, COMMAND_TTL_SECONDS);
+}
+
+// Drained only by the projector's own poll (st=1): delivery consumes the
+// queue, so taps are never coalesced away and never replayed after a reload.
+async function drainPageCommands(): Promise<PresentCommand[]> {
+    try {
+        const items = await redis!.lpop<unknown>(PAGE_COMMANDS_KEY, PAGE_COMMANDS_MAX_DRAIN);
+        if (items === null || items === undefined) return [];
+        const list = Array.isArray(items) ? items : [items];
+        const commands: PresentCommand[] = [];
+        for (const item of list) {
+            try {
+                const parsed = parseStoredJson(item);
+                if (isExecutablePresentCommand(parsed) && parsed.kind === 'page') commands.push(parsed);
+            } catch {
+                // A malformed entry must not drop the rest of the queue.
+            }
+        }
+        return commands;
+    } catch (error) {
+        console.error('Present page command drain error:', error);
+        return [];
+    }
 }
 
 function oneQuery(value: unknown): string | null {
@@ -251,14 +284,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
         }
         const hasProjectorReport = oneQuery((req.query as Record<string, unknown>).st) === '1';
-        const [command, projector] = await Promise.all([
+        const [command, projector, pageCommands] = await Promise.all([
             readCommand(),
             hasProjectorReport ? Promise.resolve(nextProjector) : readProjectorState(),
+            // Drain only for a VALID projector report: this GET is unauth by
+            // design, so a bare st=1 probe (or a malformed poll) must not be
+            // able to consume queued page turns meant for the projector.
+            nextProjector ? drainPageCommands() : Promise.resolve([]),
         ]);
         // serverTime lets the projector judge staleness in SERVER time —
         // issuedAt is server-stamped, so a skewed projector clock must not
         // silently expire (or resurrect) every command.
-        return json(res, 200, { success: true, command, serverTime, projector });
+        return json(res, 200, { success: true, command, serverTime, projector, pageCommands });
     }
 
     if (req.method !== 'POST') {
@@ -300,7 +337,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 direction,
                 issuedAt: Date.now(),
             };
-            await storeCommand(command);
+            await enqueuePageCommand(command);
             return json(res, 200, { success: true, command });
         }
 

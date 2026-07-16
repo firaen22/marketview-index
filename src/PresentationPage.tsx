@@ -202,13 +202,15 @@ export default function PresentationPage() {
         }
 
         if (cmd.kind === 'page') {
-            // Only applicable while the projector is actually on a PDF slide —
-            // return false (not true) so an out-of-scope command stays
-            // unlocked and retries instead of being silently swallowed the
-            // moment it happens to arrive between slide switches.
-            if (mainView !== 'slide' || slide.mode !== 'pdf') return false;
-            if (cmd.direction === 'next') pdfRef.current?.nextPage();
-            else pdfRef.current?.prevPage();
+            // Page commands are queue-drained (already consumed server-side):
+            // if the projector is not on a mounted PDF slide, the turn is
+            // dropped, not retried — a relative page flip executed out of
+            // context is worse than a lost tap. The !pdfRef.current guard
+            // covers the SlideErrorBoundary fallback, where the viewer is
+            // unmounted while slide.mode is still 'pdf'.
+            if (mainView !== 'slide' || slide.mode !== 'pdf' || !pdfRef.current) return false;
+            if (cmd.direction === 'next') pdfRef.current.nextPage();
+            else pdfRef.current.prevPage();
             resetDwellCountdown();
             return true;
         }

@@ -407,6 +407,11 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         // a vision call — double spend on the most expensive path in the system.
         // Nothing is lost: prepare re-warms every page, including this one.
         clearAssistRequest();
+        // Also invalidate a live run still awaiting resolveTarget (nothing to
+        // abort yet): left valid, it resumes after this point, arms its own
+        // debounced fetch racing the prepare loop (same double spend), and its
+        // pdfRef write strands the doc the loop's loadPdf returns.
+        loadKeyRef.current += 1;
 
         const run = { cancelled: false, controller: null as AbortController | null };
         prepareRunRef.current = run;
@@ -418,7 +423,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
             if (run.cancelled) return 'cancelled';
             let target: Target | AssistStatus;
             try {
-                const doc = pdfRef.current?.url === slide.content ? pdfRef.current.doc : await loadPdf(slide.content);
+                let doc = pdfRef.current?.url === slide.content ? pdfRef.current.doc : await loadPdf(slide.content);
                 if (run.cancelled) {
                     if (pdfRef.current?.doc !== doc) doc.destroy();
                     return 'cancelled';
@@ -427,6 +432,11 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                     pdfRef.current?.doc.destroy();
                     pdfRef.current = { url: slide.content, doc };
                     setNumPages(doc.numPages);
+                } else if (pdfRef.current.doc !== doc) {
+                    // A concurrent path adopted a doc for this url while ours
+                    // loaded: ours is redundant — destroy it or leak a worker.
+                    doc.destroy();
+                    doc = pdfRef.current.doc;
                 }
                 const safePage = Math.max(1, Math.min(doc.numPages, targetPage));
                 const text = await extractPdfPageText(doc, safePage);
@@ -505,6 +515,11 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         prepareRunRef.current = null;
         prepareStatusRef.current = 'idle';
         setPrepareState({ status: 'idle', done: 0, total: 0, failed: [] });
+        // The assist effect shares these deps and is declared FIRST, so on this
+        // very render it already ran, saw 'preparing', and bailed — without a
+        // nonce bump nothing re-triggers it and the notes stay dead until the
+        // next page change (manual cancel and prepare-done both bump it too).
+        setRetryNonce(n => n + 1);
         // `lang` belongs here: the in-flight run closed over the OLD lang, so a
         // mid-run language switch would otherwise keep warming the whole deck in
         // the language the user just navigated away from — a full deck of vision

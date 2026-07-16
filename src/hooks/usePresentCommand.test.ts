@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { shouldExecute } from '../../lib/presentCommand';
-import { presentCommandBackoffMs, presentCommandPollUrl } from './usePresentCommand';
+import { filterFreshPageCommands, presentCommandBackoffMs, presentCommandPollUrl } from './usePresentCommand';
 
 describe('usePresentCommand helpers', () => {
     it('uses the glossary-style bounded reconnect backoff', () => {
@@ -26,5 +26,20 @@ describe('usePresentCommand helpers', () => {
 
     it('keeps the bare poll URL when getState returns null', () => {
         expect(presentCommandPollUrl(null)).toBe('/api/present-command');
+    });
+
+    it('keeps only valid, fresh page commands from a drained queue payload', () => {
+        const page = (id: string, issuedAt: number) => ({ v: 1, id, kind: 'page', symbols: [], direction: 'next', issuedAt });
+        const now = 1_000_000;
+
+        expect(filterFreshPageCommands([
+            page('fresh', now - 14_999),
+            page('stale', now - 15_001),
+            { v: 1, id: 'not-page', kind: 'clear', symbols: [], issuedAt: now },
+            { kind: 'page' },
+            'garbage',
+        ], now).map(c => c.id)).toEqual(['fresh']);
+        expect(filterFreshPageCommands(undefined, now)).toEqual([]);
+        expect(filterFreshPageCommands('nope', now)).toEqual([]);
     });
 });
