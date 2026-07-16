@@ -281,6 +281,36 @@ describe('present-command API handler', () => {
         expect(lastStoredCommand().id.length).toBeGreaterThan(0);
     });
 
+    it('stores page commands with a validated direction and rejects invalid ones', async () => {
+        let res = await call(authPost({ action: 'page', direction: 'next' }));
+        expect(res.statusCode).toBe(200);
+        expect(lastStoredCommand()).toMatchObject({
+            v: 1,
+            kind: 'page',
+            symbols: [],
+            direction: 'next',
+            issuedAt: 5000,
+        });
+        expect(lastStoredCommand().id.length).toBeGreaterThan(0);
+
+        res = await call(authPost({ action: 'page', direction: 'prev' }));
+        expect(res.statusCode).toBe(200);
+        expect(lastStoredCommand()).toMatchObject({ kind: 'page', direction: 'prev' });
+
+        res = await call(authPost({ action: 'page', direction: 'sideways' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_direction' });
+
+        res = await call(authPost({ action: 'page' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_direction' });
+    });
+
+    it('requires auth for page commands like every other action', async () => {
+        const res = await call(makeReq({ method: 'POST', body: { action: 'page', direction: 'next' } }));
+        expect(res.statusCode).toBe(401);
+    });
+
     it('validates NIM fallback output and rejects unknown symbols, none, garbage, and macro charts', async () => {
         nimState.callNim.mockResolvedValueOnce(JSON.stringify({ kind: 'chart', symbols: ['^FAKE'] }));
         let res = await call(authPost({ action: 'send', text: 'mystery', lang: 'en', catalog }));

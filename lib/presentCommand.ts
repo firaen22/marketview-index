@@ -1,5 +1,6 @@
-export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear';
+export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page';
 export type PresentView = 'slide' | 'index' | 'heatmap';
+export type PageDirection = 'next' | 'prev';
 
 export interface PresentCommand {
     v: 1;
@@ -7,6 +8,7 @@ export interface PresentCommand {
     kind: PresentCommandKind;
     symbols: string[];
     view?: PresentView;
+    direction?: PageDirection;
     issuedAt: number;
 }
 
@@ -24,7 +26,7 @@ export type PresentIntent =
     | { kind: 'view'; symbols: []; view: PresentView }
     | { kind: 'clear'; symbols: [] };
 
-const KINDS = ['chart', 'compare', 'quote', 'view', 'clear'] as const;
+const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page'] as const;
 const VIEWS = ['slide', 'index', 'heatmap'] as const;
 const CLEAR_WORDS = new Set(['clear', 'close', 'back', 'slides', 'slide', '返回', '清除', '關閉', '投影片']);
 const HEATMAP_WORDS = new Set(['heatmap', '熱圖', '熱力圖']);
@@ -46,6 +48,10 @@ function isKind(value: unknown): value is PresentCommandKind {
 
 function isView(value: unknown): value is PresentView {
     return typeof value === 'string' && (VIEWS as readonly string[]).includes(value);
+}
+
+function isPageDirection(value: unknown): value is PageDirection {
+    return value === 'next' || value === 'prev';
 }
 
 function normalizeText(text: string): string {
@@ -235,6 +241,14 @@ export function isExecutablePresentCommand(value: unknown): value is PresentComm
             && isView(command.view);
     }
     if ('view' in command) return false;
+
+    if (command.kind === 'page') {
+        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'direction', 'issuedAt'])
+            && command.symbols.length === 0
+            && isPageDirection(command.direction);
+    }
+    if ('direction' in command) return false;
+
     if (!hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'issuedAt'])) return false;
     if (command.kind === 'clear') return command.symbols.length === 0;
     if (command.kind === 'chart' || command.kind === 'quote') return command.symbols.length === 1;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchAssist, fetchProjectorState, PresentCommandApiError } from './presentCommandApi';
+import { fetchAssist, fetchProjectorState, PresentCommandApiError, sendPresentPageCommand } from './presentCommandApi';
 
 const originalFetch = globalThis.fetch;
 
@@ -36,6 +36,23 @@ describe('presentCommandApi additions', () => {
         }));
 
         await expect(fetchProjectorState()).resolves.toEqual({ serverTime: 10_000, projector: null });
+    });
+
+    it('sendPresentPageCommand posts the direction and returns the validated command', async () => {
+        const command = { v: 1, id: 'p1', kind: 'page', symbols: [], direction: 'next', issuedAt: 1000 };
+        globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({ success: true, command }));
+
+        await expect(sendPresentPageCommand('next')).resolves.toEqual(command);
+        expect(globalThis.fetch).toHaveBeenCalledWith('/api/present-command', expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({ action: 'page', direction: 'next' }),
+        }));
+    });
+
+    it('sendPresentPageCommand rejects a malformed command payload', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({ success: true, command: { kind: 'page' } }));
+
+        await expect(sendPresentPageCommand('prev')).rejects.toThrow(PresentCommandApiError);
     });
 
     it('fetchAssist validates canonical assist response shape', async () => {
