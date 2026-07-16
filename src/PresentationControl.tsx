@@ -15,6 +15,7 @@ import { SaveButton } from './components/SaveButton';
 import { MODE_HINTS, EXAMPLES } from './presentationExamples';
 import { CopilotBar } from './components/CopilotBar';
 import { AssistPanel } from './components/AssistPanel';
+import { usePresentAssist } from './hooks/usePresentAssist';
 
 export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
@@ -22,6 +23,10 @@ export default function PresentationControl() {
     const { data: marketData } = useMarketData({ range: 'YTD', lang });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const [showPreview, setShowPreview] = useState(false);
+    // Owned here, not in AssistPanel: the panel renders in two layout slots and
+    // CSS hides one, but hiding is not unmounting — a hook inside the panel would
+    // run twice and double every (expensive) vision call.
+    const assist = usePresentAssist({ slide, lang, enabled: true });
     const commandCatalog = useMemo<CatalogItem[]>(() => [
         ...marketData.map(item => ({
             symbol: item.symbol,
@@ -88,12 +93,20 @@ export default function PresentationControl() {
                 </div>
             </header>
 
+            {/* Mobile: notes live above the grid so the Preview toggle cannot hide
+                them — a presenter reaching for notes still needs the deck. */}
+            <div className="sm:hidden shrink-0">
+                <AssistPanel slide={slide} assist={assist} />
+            </div>
+
             {/* Body — two-column on desktop, single-column on mobile */}
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 min-h-0">
                 {/* Editor — hidden on mobile when preview is shown */}
                 <div className={`border-r border-zinc-900 flex flex-col min-h-0 ${showPreview ? 'hidden sm:flex' : 'flex'}`}>
                     <CopilotBar catalog={commandCatalog} lang={lang} />
-                    <AssistPanel slide={slide} lang={lang} />
+                    <div className="hidden sm:block">
+                        <AssistPanel slide={slide} assist={assist} />
+                    </div>
 
                     {/* Mode tabs */}
                     <div className="flex items-center gap-2 px-4 sm:px-6 py-3 border-b border-zinc-900 shrink-0 flex-wrap gap-y-2">

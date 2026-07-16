@@ -6,13 +6,18 @@ import { createRoot, type Root } from 'react-dom/client';
 
 const fetchProjectorState = vi.fn();
 const fetchAssist = vi.fn();
+const fetchAssistImage = vi.fn();
 vi.mock('../presentCommandApi', () => ({
     fetchProjectorState: (...args: unknown[]) => fetchProjectorState(...args),
     fetchAssist: (...args: unknown[]) => fetchAssist(...args),
+    fetchAssistImage: (...args: unknown[]) => fetchAssistImage(...args),
 }));
+const extractPdfPageText = vi.fn(async (_doc: unknown, _page: unknown) => 'slide text '.repeat(10));
+const renderPdfPageToJpeg = vi.fn(async (_doc: unknown, _page: unknown) => 'A'.repeat(100));
 vi.mock('../pdfText', () => ({
     loadPdf: vi.fn(async () => ({ numPages: 3, destroy: vi.fn() })),
-    extractPdfPageText: vi.fn(async () => 'slide text '.repeat(10)),
+    extractPdfPageText: (...args: unknown[]) => extractPdfPageText(args[0], args[1]),
+    renderPdfPageToJpeg: (...args: unknown[]) => renderPdfPageToJpeg(args[0], args[1]),
 }));
 
 const { usePresentAssist } = await import('./usePresentAssist');
@@ -52,6 +57,9 @@ describe('usePresentAssist integration', () => {
             serverTime: Date.now(),
         }));
         fetchAssist.mockReset();
+        fetchAssistImage.mockReset();
+        extractPdfPageText.mockResolvedValue('slide text '.repeat(10));
+        renderPdfPageToJpeg.mockResolvedValue('A'.repeat(100));
     });
 
     afterEach(async () => {
@@ -134,5 +142,81 @@ describe('usePresentAssist integration', () => {
         await flush();
         expect(fetchAssist).toHaveBeenCalledTimes(2);
         expect(latest.status).toBe('ready');
+    });
+
+    it('uses an image target when extracted PDF text is ineligible', async () => {
+        extractPdfPageText.mockResolvedValue('short');
+        fetchAssistImage.mockResolvedValue(ASSIST);
+
+        root = createRoot(container);
+        await act(async () => {
+            root.render(createElement(Harness));
+        });
+        await flush();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(800);
+        });
+        await flush();
+
+        expect(fetchAssist).not.toHaveBeenCalled();
+        expect(fetchAssistImage).toHaveBeenCalledWith(
+            'A'.repeat(100),
+            '7#2',
+            'https://example.com/deck.pdf',
+            'en',
+            expect.any(AbortSignal),
+        );
+        expect(latest.status).toBe('ready');
+    });
+
+    it('returns notext only when text is ineligible and page rendering fails', async () => {
+        extractPdfPageText.mockResolvedValue('');
+        renderPdfPageToJpeg.mockResolvedValue(null);
+
+        root = createRoot(container);
+        await act(async () => {
+            root.render(createElement(Harness));
+        });
+        await flush();
+
+        expect(fetchAssist).not.toHaveBeenCalled();
+        expect(fetchAssistImage).not.toHaveBeenCalled();
+        expect(latest.status).toBe('notext');
+    });
+
+    it('uses the 60s image timeout instead of the 45s text timeout', async () => {
+        extractPdfPageText.mockResolvedValue('');
+        let aborted = false;
+        fetchAssistImage.mockImplementation((_image, _slideId, _deckKey, _lang, signal: AbortSignal) =>
+            new Promise((_resolve, reject) => {
+                signal.addEventListener('abort', () => {
+                    aborted = true;
+                    reject(new DOMException('aborted', 'AbortError'));
+                });
+            }));
+
+        root = createRoot(container);
+        await act(async () => {
+            root.render(createElement(Harness));
+        });
+        await flush();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(800);
+        });
+        await flush();
+        expect(fetchAssistImage).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(45_000);
+        });
+        await flush();
+        expect(aborted).toBe(false);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(15_000);
+        });
+        await flush();
+        expect(aborted).toBe(true);
+        expect(latest.status).toBe('error');
     });
 });

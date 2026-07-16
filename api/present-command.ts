@@ -2,12 +2,13 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
 import { redis } from '../lib/redis.js';
 import { getClientIp } from '../lib/clientIp.js';
-import { callNim, getNimApiKeys, NIM_TEXT_MODELS } from '../lib/nim.js';
+import { callNim, callNimHedged, getNimApiKeys, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
 import {
     ASSIST_MAX_TEXT_LEN,
     ASSIST_MIN_TEXT_LEN,
     assistCacheKey,
     buildAssistPrompt,
+    buildAssistVisionPrompt,
     normalizeAssistText,
     validateAssistResult,
     type AssistResult,
@@ -32,6 +33,15 @@ const RATE_LIMIT_MAX = 90;
 const LANGS = ['en', 'zh-TW'];
 const GROUPS = ['market', 'macro'];
 const PROJECTOR_MODES = ['pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
+// Duplicated from api/explain-jargon.ts:70-71; keep the client stricter.
+const IMAGE_BASE64_MIN_LEN = 100;
+const IMAGE_BASE64_MAX_LEN = 3_000_000;
+// Matches api/explain-jargon.ts:212-221: 25s once killed a measured 42.6s
+// slow-but-successful vision run, so each vision attempt gets 50s.
+const VISION_TIMEOUT_MS = 50_000;
+// Matches api/explain-jargon.ts:223-228: healthy vision lands ~5-9s and wins
+// alone; slow spells escalate after 10s into the full race.
+const HEDGE_DELAY_MS = 10_000;
 
 interface ProjectorState {
     mode: typeof PROJECTOR_MODES[number];
@@ -185,6 +195,44 @@ function parseAssistPayload(value: unknown): AssistResult | null {
     }
 }
 
+export async function readAssistCache(key: string): Promise<AssistResult | null> {
+    try {
+        return parseAssistPayload(await redis!.get(key));
+    } catch {
+        return null;
+    }
+}
+
+export async function writeAssistCache(key: string, assist: AssistResult): Promise<void> {
+    try {
+        await redis!.set(key, JSON.stringify(assist), { ex: ASSIST_TTL_SECONDS });
+    } catch (error) {
+        // A generated result is still good even if caching it failed.
+        console.error('Present assist cache write error:', error);
+    }
+}
+
+export function validatePresentAssistImageBase64(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    if (value.length < IMAGE_BASE64_MIN_LEN || value.length > IMAGE_BASE64_MAX_LEN) return null;
+    if (value.length % 4 !== 0) return null;
+    if (!/^[A-Za-z0-9+/=]+$/.test(value)) return null;
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
+    return value;
+}
+
+export function validatePresentAssistSlideId(value: unknown): string | null {
+    return typeof value === 'string' && /^\d{1,15}#\d{1,5}$/.test(value) ? value : null;
+}
+
+export function validatePresentAssistDeckKey(value: unknown): string | null {
+    return typeof value === 'string' && value.length >= 1 && value.length <= 2048 ? value : null;
+}
+
+export function presentAssistImageCacheKey(lang: 'en' | 'zh-TW', deckKey: string, slideId: string): string {
+    return `present:assist:v1:img:${crypto.createHash('sha256').update(`${lang}\n${deckKey}\n${slideId}`).digest('hex')}`;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!redis) {
         return json(res, 503, { error: 'Storage not configured' });
@@ -242,31 +290,67 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             // whitespace padding must not smuggle effectively-empty text into
             // a NIM call, and the cache key hashes normalized text anyway.
             const normalizedText = normalizeAssistText(rawText);
-            if (normalizedText.length < ASSIST_MIN_TEXT_LEN || normalizedText.length > ASSIST_MAX_TEXT_LEN) {
+            if (normalizedText.length >= ASSIST_MIN_TEXT_LEN && normalizedText.length <= ASSIST_MAX_TEXT_LEN) {
+                const lang = parsed.body.lang;
+                if (!LANGS.includes(lang)) {
+                    return json(res, 400, { error: 'Invalid lang' });
+                }
+                const cacheKey = assistCacheKey(normalizedText, lang);
+                const cached = await readAssistCache(cacheKey);
+                if (cached) return json(res, 200, { success: true, assist: cached });
+
+                let assist: AssistResult | null = null;
+                try {
+                    const nimText = await callNim(
+                        getNimApiKeys(),
+                        NIM_TEXT_MODELS,
+                        buildAssistPrompt(normalizedText, lang),
+                        900,
+                        { reasoningEffort: 'low', timeoutMs: 20_000 },
+                    );
+                    assist = validateAssistResult(JSON.parse(nimText));
+                } catch {
+                    assist = null;
+                }
+                if (!assist) return json(res, 422, { error: 'cannot_generate' });
+
+                await writeAssistCache(cacheKey, assist);
+                return json(res, 200, { success: true, assist });
+            }
+
+            if (!('imageBase64' in parsed.body)) {
                 return json(res, 400, { error: 'invalid_text' });
             }
+
             const lang = parsed.body.lang;
             if (!LANGS.includes(lang)) {
                 return json(res, 400, { error: 'Invalid lang' });
             }
-            const cacheKey = assistCacheKey(normalizedText, lang);
-            // Cache is an optimization, never a gate: read failure = miss.
-            let cached: AssistResult | null = null;
-            try {
-                cached = parseAssistPayload(await redis.get(cacheKey));
-            } catch {
-                cached = null;
+            const slideId = validatePresentAssistSlideId(parsed.body.slideId);
+            if (!slideId) {
+                return json(res, 400, { error: 'invalid_slide_id' });
             }
+            const deckKey = validatePresentAssistDeckKey(parsed.body.deckKey);
+            if (!deckKey) {
+                return json(res, 400, { error: 'invalid_deck_key' });
+            }
+            const imageBase64 = validatePresentAssistImageBase64(parsed.body.imageBase64);
+            if (!imageBase64) {
+                return json(res, 400, { error: 'invalid_image' });
+            }
+
+            const cacheKey = presentAssistImageCacheKey(lang, deckKey, slideId);
+            const cached = await readAssistCache(cacheKey);
             if (cached) return json(res, 200, { success: true, assist: cached });
 
             let assist: AssistResult | null = null;
             try {
-                const nimText = await callNim(
+                const nimText = await callNimHedged(
                     getNimApiKeys(),
-                    NIM_TEXT_MODELS,
-                    buildAssistPrompt(normalizedText, lang),
+                    NIM_VISION_MODELS,
+                    buildAssistVisionPrompt(imageBase64, lang),
                     900,
-                    { reasoningEffort: 'low', timeoutMs: 20_000 },
+                    { timeoutMs: VISION_TIMEOUT_MS, hedgeDelayMs: HEDGE_DELAY_MS },
                 );
                 assist = validateAssistResult(JSON.parse(nimText));
             } catch {
@@ -274,12 +358,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
             if (!assist) return json(res, 422, { error: 'cannot_generate' });
 
-            try {
-                await redis.set(cacheKey, JSON.stringify(assist), { ex: ASSIST_TTL_SECONDS });
-            } catch (error) {
-                // A generated result is still good even if caching it failed.
-                console.error('Present assist cache write error:', error);
-            }
+            await writeAssistCache(cacheKey, assist);
             return json(res, 200, { success: true, assist });
         }
 

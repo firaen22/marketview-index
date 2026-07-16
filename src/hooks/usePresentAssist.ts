@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistResult } from '../../lib/presentAssist';
 import { ASSIST_MAX_TEXT_LEN, ASSIST_MIN_TEXT_LEN, normalizeAssistText } from '../../lib/presentAssist';
 import type { PresentSlide } from '../settings';
-import { fetchAssist, fetchProjectorState, type ProjectorState } from '../presentCommandApi';
-import { extractPdfPageText, loadPdf } from '../pdfText';
+import { fetchAssist, fetchAssistImage, fetchProjectorState, type ProjectorState } from '../presentCommandApi';
+import { extractPdfPageText, loadPdf, renderPdfPageToJpeg } from '../pdfText';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 const POLL_MS = 4000;
@@ -11,6 +11,7 @@ const LIVE_MS = 15_000;
 const BACKOFF_MS = [8000, 16000, 32000] as const;
 const ASSIST_DEBOUNCE_MS = 800;
 const ASSIST_TIMEOUT_MS = 45_000;
+const ASSIST_IMAGE_TIMEOUT_MS = 60_000;
 
 export type AssistStatus = 'idle' | 'loading' | 'syncing' | 'ready' | 'notext' | 'unsupported' | 'offdeck' | 'error';
 
@@ -29,13 +30,33 @@ export interface PresentAssistState {
     retry: () => void;
     prevManualPage: () => void;
     nextManualPage: () => void;
+    prepare: {
+        status: 'idle' | 'preparing' | 'cancelled' | 'done';
+        done: number;
+        total: number;
+        failed: number[];
+        start: () => void;
+        cancel: () => void;
+    };
 }
 
-interface Target {
+interface TextTarget {
+    kind: 'text';
     mode: 'pdf' | 'markdown' | 'html';
     page: number;
     text: string;
 }
+
+interface ImageTarget {
+    kind: 'image';
+    mode: 'pdf';
+    page: number;
+    imageBase64: string;
+    slideId: string;
+    deckKey: string;
+}
+
+type Target = TextTarget | ImageTarget;
 
 export function presentAssistBackoffMs(failureCount: number): number {
     return BACKOFF_MS[Math.min(Math.max(failureCount - 1, 0), BACKOFF_MS.length - 1)];
@@ -43,6 +64,16 @@ export function presentAssistBackoffMs(failureCount: number): number {
 
 export function prepareAssistRequestText(text: string): string {
     return text.trim().slice(0, ASSIST_MAX_TEXT_LEN);
+}
+
+function assistCacheKey(slideUpdatedAt: number, target: Target, lang: 'en' | 'zh-TW'): string {
+    return `${slideUpdatedAt}#${target.mode}#${target.page}#${target.kind}#${lang}`;
+}
+
+async function fetchTargetAssist(target: Target, lang: 'en' | 'zh-TW', signal: AbortSignal): Promise<AssistResult> {
+    return target.kind === 'text'
+        ? fetchAssist(prepareAssistRequestText(target.text), lang, signal)
+        : fetchAssistImage(target.imageBase64, target.slideId, target.deckKey, lang, signal);
 }
 
 // Normalized length, matching the server's check: whitespace padding must not
@@ -63,6 +94,12 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     const [manualPage, setManualPage] = useState(1);
     const [numPages, setNumPages] = useState(0);
     const [retryNonce, setRetryNonce] = useState(0);
+    const [prepareState, setPrepareState] = useState<{
+        status: 'idle' | 'preparing' | 'cancelled' | 'done';
+        done: number;
+        total: number;
+        failed: number[];
+    }>({ status: 'idle', done: 0, total: 0, failed: [] });
     const cacheRef = useRef(new Map<string, AssistResult>());
     const activeRequestKeyRef = useRef<string | null>(null);
     const assistControllerRef = useRef<AbortController | null>(null);
@@ -74,6 +111,12 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     const projectorRef = useRef<ProjectorState | null>(null);
     const lastPollSuccessRef = useRef<{ serverTime: number; localAt: number } | null>(null);
     const retryBypassDebounceRef = useRef(false);
+    const prepareStatusRef = useRef(prepareState.status);
+    const prepareRunRef = useRef<{ cancelled: boolean; controller: AbortController | null } | null>(null);
+
+    useEffect(() => {
+        prepareStatusRef.current = prepareState.status;
+    }, [prepareState.status]);
 
     const live = isLiveProjector(projector, serverTime);
     const rawPage = live && projector.mode === 'pdf' ? projector.page : manualPage;
@@ -193,12 +236,12 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
             // still shows markdown) — never generate notes from it.
             if (projector.v !== slide.updatedAt) return 'syncing';
             if (projector.mode === 'markdown' || projector.mode === 'html') {
-                return { mode: projector.mode, page: 0, text: slide.content };
+                return { kind: 'text', mode: projector.mode, page: 0, text: slide.content };
             }
         } else if (slide.mode === 'url') {
             return 'unsupported';
         } else if (slide.mode === 'markdown' || slide.mode === 'html') {
-            return { mode: slide.mode, page: 0, text: slide.content };
+            return { kind: 'text', mode: slide.mode, page: 0, text: slide.content };
         }
 
         const url = slide.mode === 'pdf' ? slide.content.trim() : '';
@@ -224,7 +267,20 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
             currentLive && projector.mode === 'pdf' ? projector.page : manualPage,
         ));
         const text = await extractPdfPageText(doc, targetPage);
-        return { mode: 'pdf', page: targetPage, text };
+        if (isAssistTextEligible(text)) {
+            return { kind: 'text', mode: 'pdf', page: targetPage, text };
+        }
+        const imageBase64 = await renderPdfPageToJpeg(doc, targetPage);
+        return imageBase64
+            ? {
+                kind: 'image',
+                mode: 'pdf',
+                page: targetPage,
+                imageBase64,
+                slideId: `${slide.updatedAt}#${targetPage}`,
+                deckKey: slide.content,
+            }
+            : 'notext';
     }, [manualPage, projector, serverTime, slide]);
 
     // Held in a ref so the assist effect below can use the freshest resolver
@@ -235,6 +291,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     }, [resolveTarget]);
 
     useEffect(() => {
+        if (prepareStatusRef.current === 'preparing') return;
         clearAssistRequest();
         setAssist(null);
 
@@ -257,12 +314,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 if (target !== 'idle') setStatus(target);
                 return;
             }
-            if (!isAssistTextEligible(target.text)) {
-                setStatus('notext');
-                return;
-            }
-
-            const key = `${slide.updatedAt}#${target.mode}#${target.page}#${lang}`;
+            const key = assistCacheKey(slide.updatedAt, target, lang);
             const cached = cacheRef.current.get(key);
             if (cached) {
                 activeRequestKeyRef.current = null;
@@ -283,9 +335,9 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 const abortTimeout = window.setTimeout(() => {
                     timedOut = true;
                     controller.abort();
-                }, ASSIST_TIMEOUT_MS);
+                }, target.kind === 'image' ? ASSIST_IMAGE_TIMEOUT_MS : ASSIST_TIMEOUT_MS);
                 try {
-                    const next = await fetchAssist(prepareAssistRequestText(target.text), lang, controller.signal);
+                    const next = await fetchTargetAssist(target, lang, controller.signal);
                     cacheRef.current.set(requestKey, next);
                     // activeRequestKeyRef prevents a stale assist response from a previous
                     // page/language/deck from overwriting the current page's state.
@@ -333,5 +385,157 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         setRetryNonce(n => n + 1);
     }, []);
 
-    return { status, assist, page, numPages, live, retry, prevManualPage, nextManualPage };
+    const cancelPrepare = useCallback(() => {
+        if (prepareStatusRef.current !== 'preparing') return;
+        prepareStatusRef.current = 'cancelled';
+        const run = prepareRunRef.current;
+        if (run) {
+            run.cancelled = true;
+            run.controller?.abort();
+        }
+        setPrepareState(prev => ({ ...prev, status: 'cancelled' }));
+        setRetryNonce(n => n + 1);
+    }, []);
+
+    const startPrepare = useCallback(() => {
+        if (prepareStatusRef.current === 'preparing') return;
+        if (slide.mode !== 'pdf' || numPages <= 0) return;
+
+        // Abort any in-flight LIVE request before starting. Without this, a live
+        // generation already between resolve and fetch races the prepare loop on
+        // the same page: neither has written cache yet, so both miss and both fire
+        // a vision call — double spend on the most expensive path in the system.
+        // Nothing is lost: prepare re-warms every page, including this one.
+        clearAssistRequest();
+
+        const run = { cancelled: false, controller: null as AbortController | null };
+        prepareRunRef.current = run;
+        prepareStatusRef.current = 'preparing';
+        setPrepareState({ status: 'preparing', done: 0, total: numPages, failed: [] });
+
+        const runPage = async (targetPage: number): Promise<'done' | 'failed' | 'cancelled'> => {
+            const requestLoadKey = loadKeyRef.current;
+            if (run.cancelled) return 'cancelled';
+            let target: Target | AssistStatus;
+            try {
+                const doc = pdfRef.current?.url === slide.content ? pdfRef.current.doc : await loadPdf(slide.content);
+                if (run.cancelled) {
+                    if (pdfRef.current?.doc !== doc) doc.destroy();
+                    return 'cancelled';
+                }
+                if (pdfRef.current?.url !== slide.content) {
+                    pdfRef.current?.doc.destroy();
+                    pdfRef.current = { url: slide.content, doc };
+                    setNumPages(doc.numPages);
+                }
+                const safePage = Math.max(1, Math.min(doc.numPages, targetPage));
+                const text = await extractPdfPageText(doc, safePage);
+                if (run.cancelled) return 'cancelled';
+                if (isAssistTextEligible(text)) {
+                    target = { kind: 'text', mode: 'pdf', page: safePage, text };
+                } else {
+                    const imageBase64 = await renderPdfPageToJpeg(doc, safePage);
+                    if (run.cancelled) return 'cancelled';
+                    target = imageBase64
+                        ? {
+                            kind: 'image',
+                            mode: 'pdf',
+                            page: safePage,
+                            imageBase64,
+                            slideId: `${slide.updatedAt}#${safePage}`,
+                            deckKey: slide.content,
+                        }
+                        : 'notext';
+                }
+            } catch {
+                return run.cancelled ? 'cancelled' : 'failed';
+            }
+            if (run.cancelled || loadKeyRef.current !== requestLoadKey) return 'cancelled';
+            if (typeof target === 'string') return target === 'notext' ? 'failed' : 'cancelled';
+            const key = assistCacheKey(slide.updatedAt, target, lang);
+            const cached = cacheRef.current.get(key);
+            if (cached) return 'done';
+            const controller = new AbortController();
+            run.controller = controller;
+            let timedOut = false;
+            const abortTimeout = window.setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+            }, target.kind === 'image' ? ASSIST_IMAGE_TIMEOUT_MS : ASSIST_TIMEOUT_MS);
+            try {
+                const next = await fetchTargetAssist(target, lang, controller.signal);
+                if (run.cancelled) return 'cancelled';
+                cacheRef.current.set(key, next);
+                return 'done';
+            } catch {
+                return controller.signal.aborted && !timedOut ? 'cancelled' : 'failed';
+            } finally {
+                window.clearTimeout(abortTimeout);
+                if (run.controller === controller) run.controller = null;
+            }
+        };
+
+        void (async () => {
+            const failed: number[] = [];
+            let done = 0;
+            for (let targetPage = 1; targetPage <= numPages; targetPage += 1) {
+                if (run.cancelled) break;
+                const result = await runPage(targetPage);
+                if (run.cancelled || result === 'cancelled') break;
+                if (result === 'done') done += 1;
+                if (result === 'failed') failed.push(targetPage);
+                setPrepareState({ status: 'preparing', done, total: numPages, failed: [...failed] });
+            }
+            if (prepareRunRef.current !== run) return;
+            prepareRunRef.current = null;
+            if (run.cancelled) return;
+            prepareStatusRef.current = 'done';
+            setPrepareState({ status: 'done', done, total: numPages, failed });
+            setRetryNonce(n => n + 1);
+        })();
+    }, [lang, numPages, slide.content, slide.mode, slide.updatedAt]);
+
+    useEffect(() => {
+        if (prepareStatusRef.current !== 'preparing') return;
+        const run = prepareRunRef.current;
+        if (run) {
+            run.cancelled = true;
+            run.controller?.abort();
+        }
+        prepareRunRef.current = null;
+        prepareStatusRef.current = 'idle';
+        setPrepareState({ status: 'idle', done: 0, total: 0, failed: [] });
+        // `lang` belongs here: the in-flight run closed over the OLD lang, so a
+        // mid-run language switch would otherwise keep warming the whole deck in
+        // the language the user just navigated away from — a full deck of vision
+        // calls, paid for, that they will not see.
+    }, [slide.updatedAt, slide.content, lang]);
+
+    useEffect(() => {
+        return () => {
+            const run = prepareRunRef.current;
+            if (run) {
+                run.cancelled = true;
+                run.controller?.abort();
+            }
+            prepareRunRef.current = null;
+        };
+    }, []);
+
+    return {
+        status,
+        assist,
+        page,
+        numPages,
+        live,
+        retry,
+        prevManualPage,
+        nextManualPage,
+        prepare: {
+            ...prepareState,
+            failed: [...prepareState.failed].sort((a, b) => a - b),
+            start: startPrepare,
+            cancel: cancelPrepare,
+        },
+    };
 }

@@ -1,17 +1,19 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { PresentSlide } from '../settings';
-import { usePresentAssist } from '../hooks/usePresentAssist';
+import type { PresentAssistState } from '../hooks/usePresentAssist';
 
 interface Props {
     slide: PresentSlide;
-    lang: 'en' | 'zh-TW';
-    enabled?: boolean;
+    // Presentational only: the caller owns the hook. This panel renders in two
+    // layout slots (mobile above the grid, desktop inside the editor column) and
+    // CSS hides one — but `hidden` does not unmount, so calling usePresentAssist
+    // in here would mount TWO pollers and double every vision call.
+    assist: PresentAssistState;
 }
 
-export function AssistPanel({ slide, lang, enabled = true }: Props) {
+export function AssistPanel({ slide, assist }: Props) {
     const [collapsed, setCollapsed] = useState(false);
-    const assist = usePresentAssist({ slide, lang, enabled });
 
     return (
         <section className="border-b border-zinc-900 bg-zinc-950/95">
@@ -25,6 +27,29 @@ export function AssistPanel({ slide, lang, enabled = true }: Props) {
                     <span className="text-[10px] font-mono tracking-widest text-zinc-500">COPILOT NOTES</span>
                 </button>
                 <div className="flex items-center gap-2 text-[11px] font-mono">
+                    {slide.mode === 'pdf' && assist.numPages > 0 && (
+                        assist.prepare.status === 'preparing' ? (
+                            <button
+                                type="button"
+                                onClick={event => { event.stopPropagation(); assist.prepare.cancel(); }}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                                title="Cancel deck preparation"
+                            >
+                                <X className="w-3 h-3" />
+                                Cancel
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={event => { event.stopPropagation(); assist.prepare.start(); }}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                                title="Prepare deck"
+                            >
+                                <Sparkles className="w-3 h-3" />
+                                Prepare deck
+                            </button>
+                        )
+                    )}
                     {assist.live ? (
                         <span className="text-emerald-400">● p.{assist.page}</span>
                     ) : (
@@ -54,7 +79,26 @@ export function AssistPanel({ slide, lang, enabled = true }: Props) {
 
             {!collapsed && (
                 <div className="px-4 sm:px-6 pb-4">
-                    {assist.status === 'loading' && (
+                    {assist.prepare.status === 'preparing' && (
+                        <div className="space-y-2 text-xs text-zinc-400">
+                            <div>Preparing {assist.prepare.done}/{assist.prepare.total}…</div>
+                            {assist.prepare.failed.length > 0 && (
+                                <div className="text-amber-300">{assist.prepare.failed.length} failed so far.</div>
+                            )}
+                        </div>
+                    )}
+
+                    {assist.prepare.status === 'cancelled' && assist.prepare.total > 0 && (
+                        <div className="text-xs text-zinc-500">Cancelled at {assist.prepare.done}/{assist.prepare.total}.</div>
+                    )}
+
+                    {assist.prepare.status === 'done' && assist.prepare.total > 0 && assist.prepare.failed.length > 0 && (
+                        <div className="text-xs text-amber-300">
+                            {assist.prepare.done}/{assist.prepare.total} ready — no notes for {assist.prepare.failed.map(p => `p.${p}`).join(', ')}.
+                        </div>
+                    )}
+
+                    {assist.prepare.status !== 'preparing' && assist.status === 'loading' && (
                         <div className="space-y-2">
                             <div className="h-3 w-4/5 rounded bg-zinc-800 animate-pulse" />
                             <div className="h-3 w-2/3 rounded bg-zinc-800 animate-pulse" />
@@ -62,11 +106,11 @@ export function AssistPanel({ slide, lang, enabled = true }: Props) {
                         </div>
                     )}
 
-                    {assist.status === 'syncing' && <div className="text-xs text-zinc-500">Syncing deck…</div>}
-                    {assist.status === 'notext' && <div className="text-xs text-zinc-500">Not enough text on this slide.</div>}
-                    {assist.status === 'unsupported' && <div className="text-xs text-zinc-500">Presenter notes are not available for URL slides.</div>}
-                    {assist.status === 'offdeck' && <div className="text-xs text-zinc-500">Projector is showing the heatmap/dashboard.</div>}
-                    {assist.status === 'error' && (
+                    {assist.prepare.status !== 'preparing' && assist.status === 'syncing' && <div className="text-xs text-zinc-500">Syncing deck…</div>}
+                    {assist.prepare.status !== 'preparing' && assist.status === 'notext' && <div className="text-xs text-zinc-500">Not enough text on this slide.</div>}
+                    {assist.prepare.status !== 'preparing' && assist.status === 'unsupported' && <div className="text-xs text-zinc-500">Presenter notes are not available for URL slides.</div>}
+                    {assist.prepare.status !== 'preparing' && assist.status === 'offdeck' && <div className="text-xs text-zinc-500">Projector is showing the heatmap/dashboard.</div>}
+                    {assist.prepare.status !== 'preparing' && assist.status === 'error' && (
                         <div className="flex items-center justify-between gap-3 text-xs text-rose-300">
                             <span>Could not generate notes.</span>
                             <button
@@ -80,7 +124,7 @@ export function AssistPanel({ slide, lang, enabled = true }: Props) {
                         </div>
                     )}
 
-                    {assist.status === 'ready' && assist.assist && (
+                    {assist.prepare.status !== 'preparing' && assist.status === 'ready' && assist.assist && (
                         <div className="space-y-4">
                             <ul className="space-y-2">
                                 {assist.assist.points.map(point => (
