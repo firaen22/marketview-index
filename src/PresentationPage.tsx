@@ -201,6 +201,18 @@ export default function PresentationPage() {
             return true;
         }
 
+        if (cmd.kind === 'page') {
+            // Only applicable while the projector is actually on a PDF slide —
+            // return false (not true) so an out-of-scope command stays
+            // unlocked and retries instead of being silently swallowed the
+            // moment it happens to arrive between slide switches.
+            if (mainView !== 'slide' || slide.mode !== 'pdf') return false;
+            if (cmd.direction === 'next') pdfRef.current?.nextPage();
+            else pdfRef.current?.prevPage();
+            resetDwellCountdown();
+            return true;
+        }
+
         if (cmd.kind === 'chart' || cmd.kind === 'compare') {
             const found = marketData.find(d => d.symbol === cmd.symbols[0]);
             if (!found) return false;
@@ -219,7 +231,7 @@ export default function PresentationPage() {
         setRemoteCompare(null);
         qp.openSpotlight(item);
         return true;
-    }, [marketData, qp, resetDwellCountdown]);
+    }, [marketData, qp, resetDwellCountdown, mainView, slide.mode]);
 
     usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
 

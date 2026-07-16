@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, RefreshCw, Sparkles, X } from 'lucide-react';
+import type { PageDirection } from '../../lib/presentCommand';
+import { sendPresentPageCommand } from '../presentCommandApi';
 import type { PresentSlide } from '../settings';
 import type { PresentAssistState } from '../hooks/usePresentAssist';
 
@@ -14,6 +16,19 @@ interface Props {
 
 export function AssistPanel({ slide, assist }: Props) {
     const [collapsed, setCollapsed] = useState(false);
+    // Local click state only, no hook/effect/poller — safe even though this
+    // component mounts twice (mobile + desktop slots, see Props comment).
+    const [pageCmd, setPageCmd] = useState<'idle' | 'sending' | 'error'>('idle');
+
+    const sendPage = async (direction: PageDirection) => {
+        setPageCmd('sending');
+        try {
+            await sendPresentPageCommand(direction);
+            setPageCmd('idle');
+        } catch {
+            setPageCmd('error');
+        }
+    };
 
     return (
         <section className="border-b border-zinc-900 bg-zinc-950/95">
@@ -51,7 +66,34 @@ export function AssistPanel({ slide, assist }: Props) {
                         )
                     )}
                     {assist.live ? (
-                        <span className="text-emerald-400">● p.{assist.page}</span>
+                        <>
+                            <span className="text-emerald-400">● p.{assist.page}</span>
+                            {slide.mode === 'pdf' && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={event => { event.stopPropagation(); void sendPage('prev'); }}
+                                        disabled={pageCmd === 'sending'}
+                                        className="w-6 h-6 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                                        title="Turn projector to previous page"
+                                    >
+                                        ‹
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={event => { event.stopPropagation(); void sendPage('next'); }}
+                                        disabled={pageCmd === 'sending'}
+                                        className="w-6 h-6 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                                        title="Turn projector to next page"
+                                    >
+                                        ›
+                                    </button>
+                                    {pageCmd === 'error' && (
+                                        <span className="text-rose-400" title="Could not reach projector">!</span>
+                                    )}
+                                </>
+                            )}
+                        </>
                     ) : (
                         <>
                             <span className="text-zinc-500">offline — manual</span>

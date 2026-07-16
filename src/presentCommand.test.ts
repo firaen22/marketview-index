@@ -133,6 +133,16 @@ describe('isExecutablePresentCommand and shouldExecute', () => {
         expect(isExecutablePresentCommand({ v: 1, id: 'v', kind: 'clear', symbols: [], view: 'slide', issuedAt: 1000 })).toBe(false);
     });
 
+    it('requires direction only on page commands', () => {
+        expect(isExecutablePresentCommand({ v: 1, id: 'p', kind: 'page', symbols: [], direction: 'next', issuedAt: 1000 })).toBe(true);
+        expect(isExecutablePresentCommand({ v: 1, id: 'p', kind: 'page', symbols: [], direction: 'prev', issuedAt: 1000 })).toBe(true);
+        expect(isExecutablePresentCommand({ v: 1, id: 'p', kind: 'page', symbols: [], issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'p', kind: 'page', symbols: [], direction: 'sideways', issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'p', kind: 'page', symbols: ['^HSI'], direction: 'next', issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'p', kind: 'clear', symbols: [], direction: 'next', issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'p', kind: 'view', symbols: [], view: 'slide', direction: 'next', issuedAt: 1000 })).toBe(false);
+    });
+
     it('enforces executor symbol counts and symbol/id bounds', () => {
         expect(isExecutablePresentCommand({ v: 1, id: 'c', kind: 'compare', symbols: ['a', 'b', 'c', 'd', 'e'], issuedAt: 1000 })).toBe(true);
         expect(isExecutablePresentCommand({ v: 1, id: 'c', kind: 'compare', symbols: ['a'], issuedAt: 1000 })).toBe(false);

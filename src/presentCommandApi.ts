@@ -1,4 +1,4 @@
-import type { CatalogItem, PresentCommand } from '../lib/presentCommand';
+import type { CatalogItem, PageDirection, PresentCommand } from '../lib/presentCommand';
 import { isExecutablePresentCommand } from '../lib/presentCommand';
 import type { AssistResult } from '../lib/presentAssist';
 import { validateAssistResult } from '../lib/presentAssist';
@@ -87,6 +87,11 @@ export async function sendPresentCommand(
 
 export async function clearPresentCommand(signal?: AbortSignal): Promise<PresentCommand> {
     const payload = await postPresentCommand({ action: 'clear' }, signal);
+    return toCommand(payload);
+}
+
+export async function sendPresentPageCommand(direction: PageDirection, signal?: AbortSignal): Promise<PresentCommand> {
+    const payload = await postPresentCommand({ action: 'page', direction }, signal);
     return toCommand(payload);
 }
 

@@ -19,6 +19,7 @@ import {
     type CatalogItem,
     isExecutablePresentCommand,
     parseCommandDeterministic,
+    type PresentCommand,
     validatePresentIntent,
 } from '../lib/presentCommand.js';
 
@@ -116,7 +117,7 @@ function canonicalCatalog(catalog: CatalogItem[]): CatalogItem[] {
     }));
 }
 
-async function storeCommand(command: ReturnType<typeof buildPresentCommand>) {
+async function storeCommand(command: PresentCommand) {
     await redis!.set(COMMAND_KEY, JSON.stringify(command), { ex: COMMAND_TTL_SECONDS });
 }
 
@@ -280,6 +281,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         if (parsed.body.action === 'clear') {
             const command = buildPresentCommand({ kind: 'clear', symbols: [] }, crypto.randomUUID(), Date.now());
+            await storeCommand(command);
+            return json(res, 200, { success: true, command });
+        }
+
+        if (parsed.body.action === 'page') {
+            const direction = parsed.body.direction;
+            if (direction !== 'next' && direction !== 'prev') {
+                return json(res, 400, { error: 'invalid_direction' });
+            }
+            // Built directly, not via buildPresentCommand/NLU: this is a button
+            // press, not free text, so there's no intent to parse.
+            const command: PresentCommand = {
+                v: 1,
+                id: crypto.randomUUID(),
+                kind: 'page',
+                symbols: [],
+                direction,
+                issuedAt: Date.now(),
+            };
             await storeCommand(command);
             return json(res, 200, { success: true, command });
         }
