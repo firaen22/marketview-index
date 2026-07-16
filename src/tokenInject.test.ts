@@ -27,6 +27,15 @@ describe('injectMarketTokens', () => {
             ])).toBe('S&P 500: {{SPX.price}}');
         },
     );
+
+    it('injects Yahoo currency tokens whose symbol contains "="', () => {
+        expect(injectMarketTokens('USD/JPY: {{JPY=X.price}}', [
+            { symbol: 'JPY=X', price: 155.2 },
+        ])).toBe('USD/JPY: 155.20');
+        expect(injectMarketTokens('EUR/USD: {{EURUSD=X.rate}}', [
+            { symbol: 'EURUSD=X', rate: 1.0852 },
+        ])).toBe('EUR/USD: 1.09');
+    });
 });
 
 function formatTwoDecimals(value: number): string {
