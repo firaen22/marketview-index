@@ -4,13 +4,14 @@ import type { AssistResult } from '../lib/presentAssist';
 import { validateAssistResult } from '../lib/presentAssist';
 
 const API_KEY = import.meta.env.VITE_PRESENT_API_KEY;
-const PROJECTOR_MODES = ['pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
+const PROJECTOR_MODES = ['slide', 'pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
 
 export interface ProjectorState {
     mode: typeof PROJECTOR_MODES[number];
     page: number;
     v: number;
     at: number;
+    lid?: string;
 }
 
 if (import.meta.env.DEV && import.meta.env.MODE !== 'test' && !API_KEY) {
@@ -63,7 +64,8 @@ function isProjectorState(value: unknown): value is ProjectorState {
         && raw.v >= 0
         && typeof raw.at === 'number'
         && Number.isSafeInteger(raw.at)
-        && raw.at >= 0;
+        && raw.at >= 0
+        && (raw.lid === undefined || (typeof raw.lid === 'string' && raw.lid.length >= 1 && raw.lid.length <= 64 && /^[A-Za-z0-9-]+$/.test(raw.lid)));
 }
 
 // A 200 whose command doesn't pass the executor validator is a malformed

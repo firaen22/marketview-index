@@ -38,7 +38,7 @@ const RATE_LIMIT_WINDOW_SECONDS = 60;
 const RATE_LIMIT_MAX = 90;
 const LANGS = ['en', 'zh-TW'];
 const GROUPS = ['market', 'macro'];
-const PROJECTOR_MODES = ['pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
+const PROJECTOR_MODES = ['slide', 'pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
 // Duplicated from api/explain-jargon.ts:70-71; keep the client stricter.
 const IMAGE_BASE64_MIN_LEN = 100;
 const IMAGE_BASE64_MAX_LEN = 3_000_000;
@@ -54,6 +54,7 @@ interface ProjectorState {
     page: number;
     v: number;
     at: number;
+    lid?: string;
 }
 
 function authorize(providedKey: unknown, requiredKey: string): boolean {
@@ -173,6 +174,11 @@ function validProjectorMode(value: unknown): ProjectorState['mode'] | null {
     return typeof text === 'string' && (PROJECTOR_MODES as readonly string[]).includes(text) ? text as ProjectorState['mode'] : null;
 }
 
+function validLastExecutedId(value: unknown): string | null {
+    const text = oneQuery(value);
+    return typeof text === 'string' && text.length >= 1 && text.length <= 64 && /^[A-Za-z0-9-]+$/.test(text) ? text : null;
+}
+
 function validateProjectorState(value: unknown): ProjectorState | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const raw = value as Record<string, unknown>;
@@ -183,7 +189,8 @@ function validateProjectorState(value: unknown): ProjectorState | null {
     if (typeof raw.page !== 'number' || !Number.isInteger(raw.page) || raw.page < 1 || raw.page > 2000) return null;
     if (typeof raw.v !== 'number' || !Number.isSafeInteger(raw.v) || raw.v < 0) return null;
     if (typeof raw.at !== 'number' || !Number.isSafeInteger(raw.at) || raw.at < 0) return null;
-    return { mode, page: raw.page, v: raw.v, at: raw.at };
+    const lid = validLastExecutedId(raw.lid);
+    return { mode, page: raw.page, v: raw.v, at: raw.at, ...(lid ? { lid } : {}) };
 }
 
 function parseStoredJson(value: unknown): unknown {
@@ -197,7 +204,8 @@ function projectorStateFromQuery(query: Record<string, unknown>, now: number): P
     const page = parseStrictInteger(query.page, 1, 2000);
     const v = parseStrictInteger(query.v, 0, Number.MAX_SAFE_INTEGER);
     if (!mode || page === null || v === null) return null;
-    return { mode, page, v, at: now };
+    const lid = validLastExecutedId(query.lid);
+    return { mode, page, v, at: now, ...(lid ? { lid } : {}) };
 }
 
 async function readProjectorState(): Promise<ProjectorState | null> {

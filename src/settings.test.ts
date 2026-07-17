@@ -203,4 +203,21 @@ describe('settings persistence', () => {
         expect(getSettings().presentCycle).toEqual({ enabled: true, dwellSec: 10, views: ['slide', 'heatmap'] });
         expect(localStorage.getItem(SETTINGS_KEY)).toBe(before);
     });
+
+    it('normalizes stored copilot macros by trimming, dropping invalid entries, and capping total', async () => {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+            copilotMacros: [
+                { name: ' one ', steps: [' heatmap '] },
+                { name: '', steps: ['x'] },
+                { name: 'bad-steps', steps: [] },
+                { name: 'bad-step-length', steps: ['x'.repeat(201)] },
+                ...Array.from({ length: 20 }, (_, index) => ({ name: `m${index}`, steps: ['x'] })),
+            ],
+        }));
+        const { getSettings } = await import('./settings');
+
+        expect(getSettings().copilotMacros).toHaveLength(12);
+        expect(getSettings().copilotMacros[0]).toEqual({ name: 'one', steps: ['heatmap'] });
+        expect(getSettings().copilotMacros.some(macro => macro.name === 'bad-steps')).toBe(false);
+    });
 });

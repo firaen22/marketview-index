@@ -1,4 +1,4 @@
-export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range';
+export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range' | 'explain' | 'highlight';
 export type PresentView = 'slide' | 'index' | 'heatmap';
 export type PageDirection = 'next' | 'prev';
 export type PresentRange = '1M' | '3M' | 'YTD' | '1Y';
@@ -18,6 +18,7 @@ export interface PresentCommand {
     on?: boolean;
     dwellSec?: number;
     range?: PresentRange;
+    term?: string;
     issuedAt: number;
 }
 
@@ -37,9 +38,11 @@ export type PresentIntent =
     | { kind: 'goto'; symbols: []; page: number | 'first' | 'last' }
     | { kind: 'jargon'; symbols: []; on: boolean }
     | { kind: 'cycle'; symbols: []; on: boolean; dwellSec?: number }
-    | { kind: 'range'; symbols: []; range: PresentRange };
+    | { kind: 'range'; symbols: []; range: PresentRange }
+    | { kind: 'explain'; symbols: []; term: string }
+    | { kind: 'highlight'; symbols: string[] };
 
-const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page', 'goto', 'jargon', 'cycle', 'range'] as const;
+const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page', 'goto', 'jargon', 'cycle', 'range', 'explain', 'highlight'] as const;
 const VIEWS = ['slide', 'index', 'heatmap'] as const;
 const CLEAR_WORDS = new Set(['clear', 'close', 'back', 'slides', 'slide', '返回', '清除', '關閉', '投影片']);
 const HEATMAP_WORDS = new Set(['heatmap', '熱圖', '熱力圖']);
@@ -48,6 +51,7 @@ const COMPARE_SPLIT = /\s*(?:vs\.?|對比|比較|,|，)\s*/i;
 const LEADING_VERB = /^(?:show|display|open|看|顯示|睇)\s*/i;
 const CYCLE_SUBJECT = String.raw`(?:auto[- ]?cycle|auto[- ]?play|auto|cycle|rotation|自動輪播|自動播|輪播|自動)`;
 const MAX_COMPARE_SYMBOLS = 5;
+const MAX_EXPLAIN_TERM_CODE_POINTS = 80;
 const STALE_MS = 120_000;
 // Page turns are relative: one arriving long after the tap flips the deck out
 // of context, so drained page commands are only executed while still fresh.
@@ -61,6 +65,7 @@ type RawIntent = {
     on?: unknown;
     dwellSec?: unknown;
     range?: unknown;
+    term?: unknown;
 };
 
 function isKind(value: unknown): value is PresentCommandKind {
@@ -87,6 +92,10 @@ function normalizeRange(value: unknown): PresentRange | null {
 
 function normalizeText(text: string): string {
     return text.trim().replace(/\s+/g, ' ');
+}
+
+function codePointLength(value: string): number {
+    return [...value].length;
 }
 
 function withoutLeadingCaret(value: string): string {
@@ -129,6 +138,48 @@ function parsePolarity(value: string): boolean | null {
     return null;
 }
 
+const EXPLAIN_PREFIX_EN = /^(?:explain|define|what\s+is|what's|whats)\s+(.+)$/i;
+const EXPLAIN_PREFIX_ZH = /^(?:解釋|解释|咩係|乜係|什麼是|甚麼是|点解是)\s*(.+)$/;
+const EXPLAIN_SUFFIX_ZH = /^(.+?)\s*(?:係咩|係乜|是什麼|是甚麼)$/;
+const HIGHLIGHT_PREFIX = /^(?:highlight|focus|spotlight|聚焦|標示|重點)\s+(.+)$/i;
+
+function stripExplainPunctuation(value: string): string {
+    let term = value.trim();
+    for (let i = 0; i < 10 && /[?？。.]$/.test(term); i += 1) {
+        term = term.slice(0, -1).trim();
+    }
+    return term;
+}
+
+function validExplainTerm(value: string): string | null {
+    const term = stripExplainPunctuation(value);
+    return term && codePointLength(term) <= MAX_EXPLAIN_TERM_CODE_POINTS ? term : null;
+}
+
+function parseExplainIntent(normalized: string): PresentIntent | null {
+    const en = EXPLAIN_PREFIX_EN.exec(normalized);
+    if (en) {
+        const term = validExplainTerm(en[1]);
+        return term ? { kind: 'explain', symbols: [], term } : null;
+    }
+
+    let zh = EXPLAIN_PREFIX_ZH.exec(normalized);
+    if (zh) {
+        let rest = zh[1].trim();
+        const nested = EXPLAIN_PREFIX_ZH.exec(rest);
+        if (nested) rest = nested[1].trim();
+        const term = validExplainTerm(rest);
+        return term ? { kind: 'explain', symbols: [], term } : null;
+    }
+
+    zh = EXPLAIN_SUFFIX_ZH.exec(normalized);
+    if (zh) {
+        const term = validExplainTerm(zh[1]);
+        return term ? { kind: 'explain', symbols: [], term } : null;
+    }
+    return null;
+}
+
 const RANGE_TOKEN_ENTRIES: Array<[PresentRange, string[]]> = [
     ['1M', ['1m', '1 m', '1 month', '1個月', '一個月', '1个月']],
     ['3M', ['3m', '3 m', '3 months', '3個月', '三個月', '3个月']],
@@ -148,6 +199,15 @@ function standaloneRange(lower: string): PresentRange | null {
 }
 
 function parseClosedFormIntent(normalized: string, lower: string, catalog: CatalogItem[]): PresentIntent | null {
+    const highlight = HIGHLIGHT_PREFIX.exec(normalized);
+    if (highlight) {
+        const item = resolveCatalogItem(highlight[1], catalog);
+        return item?.group === 'market' ? { kind: 'highlight', symbols: [item.symbol] } : null;
+    }
+
+    const explain = parseExplainIntent(normalized);
+    if (explain) return explain;
+
     const bareInteger = /^\d{1,3}$/.exec(lower);
     if (bareInteger) {
         // 1-2 digit numbers are page jumps (decks are short). 3-digit numbers
@@ -364,6 +424,13 @@ export function validatePresentIntent(
             : { ok: false };
     }
 
+    if (raw.kind === 'explain') {
+        const term = typeof raw.term === 'string' ? raw.term.trim() : '';
+        return Array.isArray(raw.symbols) && raw.symbols.length === 0 && codePointLength(term) >= 1 && codePointLength(term) <= MAX_EXPLAIN_TERM_CODE_POINTS
+            ? { ok: true, intent: { kind: 'explain', symbols: [], term } }
+            : { ok: false };
+    }
+
     if (raw.kind === 'page') return { ok: false };
 
     if (!Array.isArray(raw.symbols) || !raw.symbols.every(symbol => typeof symbol === 'string')) {
@@ -385,6 +452,14 @@ export function validatePresentIntent(
         if (items.some(item => item.group !== 'market')) return { ok: false };
         if (symbols.length === 1) return { ok: true, intent: { kind: 'chart', symbols, ...(range ? { range } : {}) } };
         return { ok: true, intent: { kind: 'compare', symbols, ...(range ? { range } : {}) } };
+    }
+
+    if (raw.kind === 'highlight') {
+        if (symbols.length !== 1 || symbols[0].length > 32) return { ok: false };
+        const highlightItem = catalog.find(entry => entry.symbol === symbols[0]);
+        return highlightItem?.group === 'market'
+            ? { ok: true, intent: { kind: 'highlight', symbols } }
+            : { ok: false };
     }
 
     if (symbols.length !== 1) return { ok: false };
@@ -411,6 +486,7 @@ export function buildPresentCommand(intent: PresentIntent, id: string, issuedAt:
         ...(intent.kind === 'jargon' ? { on: intent.on } : {}),
         ...(intent.kind === 'cycle' ? { on: intent.on, ...(intent.dwellSec !== undefined ? { dwellSec: intent.dwellSec } : {}) } : {}),
         ...(intent.kind === 'range' ? { range: intent.range } : {}),
+        ...(intent.kind === 'explain' ? { term: intent.term } : {}),
         ...((intent.kind === 'chart' || intent.kind === 'compare') && intent.range ? { range: intent.range } : {}),
         issuedAt,
     };
@@ -427,11 +503,11 @@ export function buildParsePrompt(text: string, catalog: CatalogItem[], lang: 'en
             `Language hint: ${lang}. User text can be zh-TW or English.`,
             'Catalog lines are SYMBOL\tname\tnameEn\tgroup:',
             catalogLines,
-            'Kinds: chart = show one market chart; compare = chart one market symbol against 1-4 market symbols; quote = show one market or macro quote; view = switch projector view; clear = return to slides and close overlays; goto = jump to a slide page; jargon = turn jargon spotlight on/off; cycle = turn auto-cycle on/off; range = switch market-data time range.',
+            'Kinds: chart = show one market chart; compare = chart one market symbol against 1-4 market symbols; quote = show one market or macro quote; view = switch projector view; clear = return to slides and close overlays; goto = jump to a slide page; jargon = turn jargon spotlight on/off; cycle = turn auto-cycle on/off; range = switch market-data time range; explain = show a jargon explanation card for one financial term; highlight = visually emphasize one market card on the index dashboard.',
             'View names: slide, index, heatmap. index = dashboard overview.',
-            'page is an integer 1-999 or "first"/"last". on is boolean. dwellSec must be one of 15,30,45,60,120. range must be one of 1M,3M,YTD,1Y.',
-            'symbols MUST be [] for goto/jargon/cycle/range/view/clear. range may accompany chart/compare ONLY, never quote. If toggle polarity is unclear, respond {"kind":"none"}.',
-            'Examples: {"kind":"goto","symbols":[],"page":5}; {"kind":"jargon","symbols":[],"on":true}; {"kind":"cycle","symbols":[],"on":true,"dwellSec":30}; {"kind":"range","symbols":[],"range":"1Y"}; {"kind":"chart","symbols":["^HSI"],"range":"1Y"}.',
+            'page is an integer 1-999 or "first"/"last". on is boolean. dwellSec must be one of 15,30,45,60,120. range must be one of 1M,3M,YTD,1Y. term is the term to explain, 1-80 chars; highlight takes exactly 1 market symbol.',
+            'symbols MUST be [] for goto/jargon/cycle/range/view/clear/explain. range may accompany chart/compare ONLY, never quote. Only emit the fields documented per kind; extra fields are ignored. If toggle polarity is unclear, respond {"kind":"none"}.',
+            'Examples: {"kind":"goto","symbols":[],"page":5}; {"kind":"jargon","symbols":[],"on":true}; {"kind":"cycle","symbols":[],"on":true,"dwellSec":30}; {"kind":"range","symbols":[],"range":"1Y"}; {"kind":"chart","symbols":["^HSI"],"range":"1Y"}; {"kind":"explain","symbols":[],"term":"duration"}; {"kind":"explain","symbols":[],"term":"久期"}; {"kind":"highlight","symbols":["^HSI"]}.',
             'Respond with ONLY a JSON object {"kind":...,"symbols":[...],"view":...}. symbols MUST be copied exactly from the catalog. If the request does not match anything, respond {"kind":"none"}.',
             `User text: ${text}`,
         ].join('\n'),
@@ -495,6 +571,22 @@ export function isExecutablePresentCommand(value: unknown): value is PresentComm
         return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'range', 'issuedAt'])
             && command.symbols.length === 0
             && isPresentRange(command.range);
+    }
+
+    if (command.kind === 'explain') {
+        const term = typeof command.term === 'string' ? command.term.trim() : '';
+        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'term', 'issuedAt'])
+            && command.symbols.length === 0
+            && codePointLength(term) >= 1
+            && codePointLength(term) <= MAX_EXPLAIN_TERM_CODE_POINTS;
+    }
+    if ('term' in command) return false;
+
+    if (command.kind === 'highlight') {
+        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'issuedAt'])
+            && command.symbols.length === 1
+            && typeof command.symbols[0] === 'string'
+            && command.symbols[0].length <= 32;
     }
 
     if (command.kind === 'chart') {

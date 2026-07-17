@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Send, XCircle } from 'lucide-react';
+import { Edit2, Send, Trash2, XCircle } from 'lucide-react';
 import type { CatalogItem, PresentCommand } from '../../lib/presentCommand';
-import { clearPresentCommand, PresentCommandApiError, sendPresentCommand } from '../presentCommandApi';
+import { clearPresentCommand, fetchProjectorState, PresentCommandApiError, sendPresentCommand } from '../presentCommandApi';
+import { findMacro, resolveMacros, runMacro, validateMacroDraft, type Macro } from '../copilotMacros';
+import { getSetting, setSetting } from '../settings';
 
 type Status =
     | { type: 'idle' }
     | { type: 'sending' }
-    | { type: 'success'; message: string }
+    | { type: 'macro'; name: string; step: number; total: number }
+    | { type: 'success'; message: string; confirmed?: boolean; failed?: boolean }
     | { type: 'error'; message: string };
 
-const QUICK_COMMANDS = [
+export const QUICK_COMMANDS = [
     { label: 'HSI', cmd: 'show HSI' },
     { label: 'HSI vs S&P', cmd: 'HSI vs S&P' },
     { label: 'Heatmap', cmd: 'heatmap' },
@@ -33,6 +36,8 @@ function commandMessage(command: PresentCommand, catalog: CatalogItem[]): string
     if (command.kind === 'jargon') return `Jargon: ${command.on ? 'on' : 'off'}`;
     if (command.kind === 'cycle') return `Auto-cycle: ${command.on ? 'on' : 'off'}${command.dwellSec !== undefined ? ` · ${command.dwellSec}s` : ''}`;
     if (command.kind === 'range') return `Range: ${command.range}`;
+    if (command.kind === 'explain') return `Explain: ${command.term}`;
+    if (command.kind === 'highlight') return `Highlight: ${displayForSymbol(command.symbols[0], catalog)}`;
     const names = command.symbols.map(symbol => displayForSymbol(symbol, catalog));
     const rangeSuffix = command.range ? ` · ${command.range}` : '';
     if (command.kind === 'compare') return `Compare: ${names.join(' vs ')}${rangeSuffix}`;
@@ -53,13 +58,17 @@ function errorMessage(error: unknown): string {
 export function CopilotBar({ catalog, lang }: Props) {
     const [text, setText] = useState('');
     const [status, setStatus] = useState<Status>({ type: 'idle' });
-    // One controller for BOTH send and clear: they write the same server-side
-    // command slot (last-writer-wins), so a quick Clear must abort a slower
-    // in-flight Send or the stale Send can land after it and re-open the
-    // overlay the presenter just cleared.
+    const [customMacros, setCustomMacros] = useState<Macro[]>(() => getSetting('copilotMacros'));
+    const [editing, setEditing] = useState(false);
+    const [editingName, setEditingName] = useState('');
+    const [macroName, setMacroName] = useState('');
+    const [macroSteps, setMacroSteps] = useState('');
     const requestControllerRef = useRef<AbortController | null>(null);
+    const ackControllerRef = useRef<AbortController | null>(null);
+    const macroControllerRef = useRef<AbortController | null>(null);
     const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const canSend = catalog.length > 0;
+    const macros = useMemo(() => resolveMacros(customMacros), [customMacros]);
 
     const clearDismissTimer = () => {
         if (dismissTimerRef.current) {
@@ -77,29 +86,104 @@ export function CopilotBar({ catalog, lang }: Props) {
         }, delay);
     };
 
+    const abortAck = () => {
+        ackControllerRef.current?.abort();
+        ackControllerRef.current = null;
+    };
+
+    const abortMacro = () => {
+        macroControllerRef.current?.abort();
+        macroControllerRef.current = null;
+    };
+
+    const pollAck = (command: PresentCommand, message: string) => {
+        abortAck();
+        const controller = new AbortController();
+        ackControllerRef.current = controller;
+        let attempts = 0;
+        const tick = async () => {
+            attempts += 1;
+            try {
+                const result = await fetchProjectorState(controller.signal);
+                if (controller.signal.aborted) return;
+                if (result.projector?.lid === command.id) {
+                    ackControllerRef.current = null;
+                    setDismissibleStatus({ type: 'success', message, confirmed: true });
+                    return;
+                }
+            } catch (error) {
+                if ((error as DOMException).name === 'AbortError') return;
+            }
+            if (attempts >= 8) {
+                ackControllerRef.current = null;
+                setDismissibleStatus({ type: 'success', message });
+                return;
+            }
+            setTimeout(tick, 1500);
+        };
+        void tick();
+    };
+
     useEffect(() => () => {
         clearDismissTimer();
+        abortAck();
+        abortMacro();
     }, []);
 
     const hint = useMemo(() => {
         if (!canSend) return 'Loading market data…';
         if (status.type === 'sending') return 'Sending...';
+        if (status.type === 'macro') return `Macro ${status.name}: ${status.step}/${status.total}`;
         if (status.type === 'success' || status.type === 'error') return status.message;
         return 'Try: show HSI, page 5, HSI 1Y, jargon on';
     }, [canSend, status]);
 
-    const handleSend = async (overrideText?: string) => {
+    const handleRunMacro = async (macro: Macro) => {
         if (!canSend) return;
         clearDismissTimer();
+        abortAck();
+        abortMacro();
         requestControllerRef.current?.abort();
         const controller = new AbortController();
         requestControllerRef.current = controller;
+        macroControllerRef.current = controller;
+        setStatus({ type: 'macro', name: macro.name, step: 0, total: macro.steps.length });
+        const result = await runMacro(
+            macro,
+            step => sendPresentCommand(step, lang, catalog, controller.signal),
+            (step, total) => {
+                if (requestControllerRef.current === controller) setStatus({ type: 'macro', name: macro.name, step, total });
+            },
+            controller.signal,
+        );
+        if (requestControllerRef.current !== controller) return;
+        setDismissibleStatus({ type: 'success', message: `Macro ${macro.name}: ${result.completed}/${macro.steps.length}`, failed: result.failed > 0 });
+        requestControllerRef.current = null;
+        macroControllerRef.current = null;
+    };
+
+    const handleSend = async (overrideText?: string) => {
+        if (!canSend) return;
+        clearDismissTimer();
+        abortAck();
+        abortMacro();
+        requestControllerRef.current?.abort();
         const commandText = overrideText ?? text;
+        const macro = overrideText === undefined ? findMacro(commandText, macros) : null;
+        if (macro) {
+            await handleRunMacro(macro);
+            setText('');
+            return;
+        }
+        const controller = new AbortController();
+        requestControllerRef.current = controller;
         setStatus({ type: 'sending' });
         try {
             const command = await sendPresentCommand(commandText, lang, catalog, controller.signal);
             if (requestControllerRef.current !== controller) return;
-            setDismissibleStatus({ type: 'success', message: commandMessage(command, catalog) });
+            const message = commandMessage(command, catalog);
+            setStatus({ type: 'success', message });
+            pollAck(command, message);
             navigator.vibrate?.(30);
             if (overrideText === undefined) setText('');
         } catch (error) {
@@ -113,6 +197,8 @@ export function CopilotBar({ catalog, lang }: Props) {
 
     const handleClear = async () => {
         clearDismissTimer();
+        abortAck();
+        abortMacro();
         requestControllerRef.current?.abort();
         const controller = new AbortController();
         requestControllerRef.current = controller;
@@ -127,6 +213,45 @@ export function CopilotBar({ catalog, lang }: Props) {
             setDismissibleStatus({ type: 'error', message: errorMessage(error) });
         } finally {
             if (requestControllerRef.current === controller) requestControllerRef.current = null;
+        }
+    };
+
+    const saveMacro = () => {
+        const draft = validateMacroDraft(macroName, macroSteps.split('\n'), {
+            catalog,
+            quickLabels: QUICK_COMMANDS.map(command => command.label),
+            existingMacros: customMacros,
+            editingName,
+        });
+        if (!('macro' in draft)) {
+            const message = draft.message;
+            setStatus({ type: 'error', message });
+            return;
+        }
+        const next = [
+            ...customMacros.filter(macro => {
+                const lower = macro.name.toLowerCase();
+                return lower !== draft.macro.name.toLowerCase() && lower !== editingName.toLowerCase();
+            }),
+            draft.macro,
+        ].slice(0, 12);
+        setCustomMacros(next);
+        setSetting('copilotMacros', next);
+        setEditing(false);
+        setEditingName('');
+        setMacroName('');
+        setMacroSteps('');
+        setDismissibleStatus({ type: 'success', message: `Macro saved: ${draft.macro.name}` });
+    };
+
+    const deleteMacro = (name: string) => {
+        const next = customMacros.filter(macro => macro.name.toLowerCase() !== name.toLowerCase());
+        setCustomMacros(next);
+        setSetting('copilotMacros', next);
+        if (editingName.toLowerCase() === name.toLowerCase()) {
+            setEditingName('');
+            setMacroName('');
+            setMacroSteps('');
         }
     };
 
@@ -176,8 +301,75 @@ export function CopilotBar({ catalog, lang }: Props) {
                     </button>
                 ))}
             </div>
-            <div className={`mt-2 text-xs ${status.type === 'error' ? 'text-rose-400' : status.type === 'success' ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                {hint}
+            <div className="flex items-center gap-2 overflow-x-auto mt-2">
+                <span className="shrink-0 text-[10px] uppercase tracking-wider text-zinc-600">Macros</span>
+                {macros.map(macro => (
+                    <button
+                        key={macro.name}
+                        type="button"
+                        onClick={() => void handleRunMacro(macro)}
+                        disabled={!canSend}
+                        className="whitespace-nowrap shrink-0 px-3 py-1.5 rounded-full text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 active:bg-zinc-700 min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {macro.name}
+                    </button>
+                ))}
+                <button
+                    type="button"
+                    onClick={() => setEditing(value => !value)}
+                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs bg-zinc-900 border border-zinc-800 text-zinc-400 min-h-[44px]"
+                >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    Edit
+                </button>
+            </div>
+            {editing && (
+                <div className="mt-2 grid gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                    <input
+                        value={macroName}
+                        onChange={event => setMacroName(event.target.value)}
+                        placeholder="Macro name"
+                        className="rounded bg-zinc-950 border border-zinc-800 px-2 py-2 text-sm text-zinc-100"
+                    />
+                    <textarea
+                        value={macroSteps}
+                        onChange={event => setMacroSteps(event.target.value)}
+                        placeholder="One command per line"
+                        rows={3}
+                        className="rounded bg-zinc-950 border border-zinc-800 px-2 py-2 text-sm text-zinc-100"
+                    />
+                    <div className="flex gap-2 overflow-x-auto">
+                        <button type="button" onClick={saveMacro} className="px-3 py-2 rounded bg-emerald-500 text-black text-xs font-bold min-h-[44px]">Save</button>
+                        {customMacros.map(macro => (
+                            <button
+                                key={macro.name}
+                                type="button"
+                                onClick={() => {
+                                    setEditingName(macro.name);
+                                    setMacroName(macro.name);
+                                    setMacroSteps(macro.steps.join('\n'));
+                                }}
+                                className="inline-flex items-center gap-1 px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-300 text-xs min-h-[44px]"
+                            >
+                                <Edit2 className="w-3.5 h-3.5" />
+                                {macro.name}
+                            </button>
+                        ))}
+                        {editingName && (
+                            <button
+                                type="button"
+                                onClick={() => deleteMacro(editingName)}
+                                className="inline-flex items-center gap-1 px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-rose-300 text-xs min-h-[44px]"
+                            >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Delete
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+            <div className={`mt-2 text-xs ${status.type === 'error' || (status.type === 'success' && status.failed) ? 'text-rose-400' : status.type === 'success' ? 'text-emerald-400' : status.type === 'macro' ? 'text-amber-400' : 'text-zinc-500'}`}>
+                {hint}{status.type === 'success' && status.confirmed ? ' ✓' : ''}
             </div>
         </section>
     );

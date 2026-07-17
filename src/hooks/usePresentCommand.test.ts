@@ -22,6 +22,7 @@ describe('usePresentCommand helpers', () => {
     it('appends projector state params with URLSearchParams encoding', () => {
         expect(presentCommandPollUrl({ mode: 'pdf', page: 2, v: 0 })).toBe('/api/present-command?st=1&mode=pdf&page=2&v=0');
         expect(presentCommandPollUrl({ mode: 'heatmap', page: 1, v: 123 })).toBe('/api/present-command?st=1&mode=heatmap&page=1&v=123');
+        expect(presentCommandPollUrl({ mode: 'pdf', page: 2, v: 0, lid: 'cmd-1' })).toBe('/api/present-command?st=1&mode=pdf&page=2&v=0&lid=cmd-1');
     });
 
     it('keeps the bare poll URL when getState returns null', () => {

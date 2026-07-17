@@ -244,7 +244,7 @@ export default function PresentationControl() {
                             </div>
                         )}
                     </div>
-                    <div className="flex-1 overflow-hidden">
+                    <div className="relative flex-1 overflow-hidden">
                         <SlideErrorBoundary resetKey={`${slide.mode}:${slide.updatedAt ?? 0}:${typeof slide.content === 'string' ? slide.content.length : 0}`}>
                             <SlideRenderer slide={slide} marketData={marketData} />
                         </SlideErrorBoundary>

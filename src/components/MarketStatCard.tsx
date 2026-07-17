@@ -29,9 +29,17 @@ export const MarketStatCard: React.FC<{
     chartHeight?: string;
     t: TDict;
     chartMode?: 'nominal' | 'percent';
-}> = ({ item, chartHeight = "h-16", t, chartMode = 'nominal' }) => {
+    highlighted?: boolean;
+}> = ({ item, chartHeight = "h-16", t, chartMode = 'nominal', highlighted = false }) => {
     const isPositive = item.change >= 0;
     const isYtdPositive = item.ytdChange >= 0;
+    const cardRef = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        if (highlighted && cardRef.current) {
+            cardRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }, [highlighted]);
 
     // Transform data if in percent mode
     const chartData = React.useMemo(() => {
@@ -48,7 +56,13 @@ export const MarketStatCard: React.FC<{
     }, [item.history, chartMode]);
 
     return (
-        <Card className="p-4 flex flex-col justify-between h-full border-zinc-800/60 transition-all duration-300 hover:border-zinc-700/50">
+        <Card
+            ref={cardRef}
+            className={cn(
+                "p-4 flex flex-col justify-between h-full border-zinc-800/60 transition-all duration-300 hover:border-zinc-700/50",
+                highlighted && "scale-[1.02] border-emerald-300 shadow-[0_0_1.2em_rgba(52,211,153,0.45)] ring-[0.18em] ring-emerald-300/80"
+            )}
+        >
             <div className="grid grid-cols-[1fr_auto] gap-x-2 items-start mb-5">
                 <div className="min-w-0">
                     <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">

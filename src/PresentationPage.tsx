@@ -33,6 +33,8 @@ import { MarketStatusChip } from './components/MarketStatusChip';
 import { usePresentCommand } from './hooks/usePresentCommand';
 import type { ProjectorState } from './hooks/usePresentCommand';
 import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentRange } from '../lib/presentCommand';
+import { buildGlossaryLookup, JARGON_GLOSSARY, lookupExplanation, normalizeTerm } from '../lib/jargonGlossary';
+import { parseJargonResponse, type JargonTerm } from './jargon';
 import { indexToQuoteItem } from './types/QuoteItem';
 import type { TimeRange } from './types';
 
@@ -55,6 +57,29 @@ interface PresentationCommandExecutorDeps {
     persistPresentCycle: (next: PresentCycle) => void;
     normalizedPresentCycle: PresentCycle;
     setDataRange: React.Dispatch<React.SetStateAction<TimeRange>>;
+    showExplainTerm: (term: string, commandId: string) => void;
+    clearRemoteJargon: () => void;
+    postToIndexIframe: (msg: unknown) => boolean;
+}
+
+export async function fetchExplainTerm(
+    term: string,
+    lang: 'en' | 'zh-TW',
+    geminiKey: string,
+    signal?: AbortSignal,
+): Promise<JargonTerm | null> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (geminiKey) headers.Authorization = `Bearer ${geminiKey}`;
+    const response = await fetch('/api/explain-jargon', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ text: term, lang }),
+        signal,
+    });
+    if (!response.ok) return null;
+    const terms = parseJargonResponse(await response.json());
+    if (terms.length === 0) return null;
+    return terms.find(item => normalizeTerm(item.term) === normalizeTerm(term)) ?? terms[0];
 }
 
 export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: PresentationCommandExecutorDeps): boolean {
@@ -71,12 +96,16 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
         persistPresentCycle,
         normalizedPresentCycle,
         setDataRange,
+        showExplainTerm,
+        clearRemoteJargon,
+        postToIndexIframe,
     } = deps;
 
     if (cmd.kind === 'clear') {
         qp.closeChart();
         qp.dismissSpotlight();
         setRemoteCompare(null);
+        clearRemoteJargon();
         setMainView('slide');
         resetDwellCountdown();
         return true;
@@ -132,6 +161,22 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
         return true;
     }
 
+    if (cmd.kind === 'explain') {
+        showExplainTerm(cmd.term!, cmd.id);
+        return true;
+    }
+
+    if (cmd.kind === 'highlight') {
+        if (mainView !== 'index') {
+            setMainView('index');
+            resetDwellCountdown();
+            return false;
+        }
+        if (!postToIndexIframe({ type: 'mv-highlight', symbol: cmd.symbols[0] })) return false;
+        resetDwellCountdown();
+        return true;
+    }
+
     if (cmd.kind === 'chart' || cmd.kind === 'compare') {
         if (cmd.range) setDataRange(cmd.range);
         const found = marketData.find(d => d.symbol === cmd.symbols[0]);
@@ -176,12 +221,18 @@ export default function PresentationPage() {
     const [briefPanelOpen, setBriefPanelOpen] = useState(false);
     const [glossaryPanelOpen, setGlossaryPanelOpen] = useState(false);
     const [remoteCompare, setRemoteCompare] = useState<{ id: string; symbols: string[] } | null>(null);
+    const [remoteJargon, setRemoteJargon] = useState<{ id: string; terms: JargonTerm[] } | null>(null);
     const hintsTimerRef = useRef<number | null>(null);
     const kioskTimerRef = useRef<number | null>(null);
+    const remoteJargonTimerRef = useRef<number | null>(null);
+    const latestExplainIdRef = useRef<string | null>(null);
+    const indexIframeRef = useRef<HTMLIFrameElement | null>(null);
+    const indexIframeLoadedRef = useRef(false);
     const hasLoggedMarketStatusError = useRef(false);
     const iframeCleanupRef = useRef<Partial<Record<'index' | 'heatmap', () => void>>>({});
     const pdfRef = useRef<PdfViewerHandle>(null);
     const normalizedPresentCycle = React.useMemo(() => normalizePresentCycle(presentCycle), [presentCycle]);
+    const glossaryLookup = React.useMemo(() => buildGlossaryLookup(JARGON_GLOSSARY), []);
     const cycleRunning = normalizedPresentCycle.enabled && normalizedPresentCycle.views.length >= 2;
 
     useSettingsSync(({ lang: nextLang, tickerSymbols: nextSymbols }) => {
@@ -300,6 +351,48 @@ export default function PresentationPage() {
         setDwellResetNonce(n => n + 1);
     }, []);
 
+    const scheduleRemoteJargonClear = useCallback(() => {
+        if (remoteJargonTimerRef.current) window.clearTimeout(remoteJargonTimerRef.current);
+        remoteJargonTimerRef.current = window.setTimeout(() => {
+            setRemoteJargon(null);
+            remoteJargonTimerRef.current = null;
+        }, 30_000);
+    }, []);
+
+    const clearRemoteJargon = useCallback(() => {
+        if (remoteJargonTimerRef.current) {
+            window.clearTimeout(remoteJargonTimerRef.current);
+            remoteJargonTimerRef.current = null;
+        }
+        latestExplainIdRef.current = null;
+        setRemoteJargon(null);
+    }, []);
+
+    const showExplainTerm = useCallback((term: string, commandId: string) => {
+        if (latestExplainIdRef.current === commandId) return;
+        latestExplainIdRef.current = commandId;
+        const explanation = lookupExplanation(term, lang, glossaryLookup);
+        if (explanation) {
+            setRemoteJargon({ id: commandId, terms: [{ term, explanation }] });
+            scheduleRemoteJargonClear();
+            return;
+        }
+        void fetchExplainTerm(term, lang, geminiKey)
+            .then(result => {
+                if (!result || latestExplainIdRef.current !== commandId) return;
+                setRemoteJargon({ id: commandId, terms: [result] });
+                scheduleRemoteJargonClear();
+            })
+            .catch(() => undefined);
+    }, [geminiKey, glossaryLookup, lang, scheduleRemoteJargonClear]);
+
+    const postToIndexIframe = useCallback((msg: unknown): boolean => {
+        const win = indexIframeRef.current?.contentWindow;
+        if (!win || !indexIframeLoadedRef.current) return false;
+        win.postMessage(msg, window.location.origin);
+        return true;
+    }, []);
+
     const persistPresentCycle = useCallback((next: PresentCycle) => {
         const normalized = normalizePresentCycle(next);
         setPresentCycle(normalized);
@@ -331,7 +424,10 @@ export default function PresentationPage() {
         persistPresentCycle,
         normalizedPresentCycle,
         setDataRange,
-    }), [marketData, qp, resetDwellCountdown, mainView, slide.mode, persistPresentCycle, normalizedPresentCycle, setDataRange]);
+        showExplainTerm,
+        clearRemoteJargon,
+        postToIndexIframe,
+    }), [marketData, qp, resetDwellCountdown, mainView, slide.mode, persistPresentCycle, normalizedPresentCycle, setDataRange, showExplainTerm, clearRemoteJargon, postToIndexIframe]);
 
     usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
 
@@ -457,12 +553,18 @@ export default function PresentationPage() {
         return () => window.clearInterval(interval);
     }, []);
 
+    useEffect(() => () => {
+        if (remoteJargonTimerRef.current) window.clearTimeout(remoteJargonTimerRef.current);
+    }, []);
+
     const isTypingTarget = useCallback((target: EventTarget | null) => {
         const element = target as HTMLElement | null;
         return !!element && (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT' || element.isContentEditable);
     }, []);
 
     const attachIframeListeners = useCallback((view: 'index' | 'heatmap') => (node: HTMLIFrameElement | null) => {
+        if (view === 'index') indexIframeRef.current = node;
+        if (view === 'index') indexIframeLoadedRef.current = false;
         iframeCleanupRef.current[view]?.();
         delete iframeCleanupRef.current[view];
         if (!node) return;
@@ -505,10 +607,14 @@ export default function PresentationPage() {
             }
         };
 
-        node.addEventListener('load', bindContentWindow);
+        const onLoad = () => {
+            if (view === 'index') indexIframeLoadedRef.current = true;
+            bindContentWindow();
+        };
+        node.addEventListener('load', onLoad);
         bindContentWindow();
         iframeCleanupRef.current[view] = () => {
-            node.removeEventListener('load', bindContentWindow);
+            node.removeEventListener('load', onLoad);
             cleanupContent?.();
         };
     }, [handlePresenterKeydown, handlePresenterPointerDown, handlePresenterPointerMove, isTypingTarget]);
@@ -517,6 +623,8 @@ export default function PresentationPage() {
         return () => {
             Object.values(iframeCleanupRef.current).forEach(cleanup => cleanup?.());
             iframeCleanupRef.current = {};
+            indexIframeRef.current = null;
+            if (remoteJargonTimerRef.current) window.clearTimeout(remoteJargonTimerRef.current);
         };
     }, []);
     const attachIndexIframe = React.useMemo(() => attachIframeListeners('index'), [attachIframeListeners]);
@@ -759,7 +867,9 @@ export default function PresentationPage() {
                         </div>
                     )}
 
-                    {jargonEnabled && mainView === 'slide' && slide.mode === 'pdf' && <JargonSpotlight terms={jargon.terms} lang={lang} />}
+                    {remoteJargon
+                        ? <JargonSpotlight terms={remoteJargon.terms} lang={lang} />
+                        : jargonEnabled && mainView === 'slide' && slide.mode === 'pdf' && <JargonSpotlight terms={jargon.terms} lang={lang} />}
 
                     {/* Quote spotlight — lower-third overlay */}
                     {qp.spotlight && (() => {
