@@ -228,6 +228,9 @@ export default function PresentationPage() {
     const latestExplainIdRef = useRef<string | null>(null);
     const indexIframeRef = useRef<HTMLIFrameElement | null>(null);
     const indexIframeLoadedRef = useRef(false);
+    // The DOM node indexIframeLoadedRef was last marked loaded for, so a ref
+    // re-attach to the SAME already-loaded element does not strand the flag false.
+    const lastLoadedIndexNodeRef = useRef<HTMLIFrameElement | null>(null);
     const hasLoggedMarketStatusError = useRef(false);
     const iframeCleanupRef = useRef<Partial<Record<'index' | 'heatmap', () => void>>>({});
     const pdfRef = useRef<PdfViewerHandle>(null);
@@ -485,12 +488,20 @@ export default function PresentationPage() {
         return () => document.removeEventListener('fullscreenchange', onFs);
     }, []);
 
+    // Read fullscreen state through a ref so wakeKiosk keeps a stable identity.
+    // wakeKiosk feeds the presenter callbacks, which feed attachIframeListeners;
+    // if wakeKiosk's identity churned on every fullscreen toggle, the index
+    // iframe's ref callback re-ran and reset indexIframeLoadedRef to false on an
+    // already-loaded element (no fresh 'load' event fires), wedging it false and
+    // silently dropping every subsequent `highlight` command.
+    const isFullscreenRef = useRef(isFullscreen);
+    isFullscreenRef.current = isFullscreen;
     const wakeKiosk = useCallback(() => {
-        if (!isFullscreen) return;
+        if (!isFullscreenRef.current) return;
         setKioskHidden(false);
         if (kioskTimerRef.current) window.clearTimeout(kioskTimerRef.current);
         kioskTimerRef.current = window.setTimeout(() => setKioskHidden(true), 5000);
-    }, [isFullscreen]);
+    }, []);
 
     const handlePresenterKeydown = useCallback(() => {
         resetDwellCountdown();
@@ -563,8 +574,16 @@ export default function PresentationPage() {
     }, []);
 
     const attachIframeListeners = useCallback((view: 'index' | 'heatmap') => (node: HTMLIFrameElement | null) => {
-        if (view === 'index') indexIframeRef.current = node;
-        if (view === 'index') indexIframeLoadedRef.current = false;
+        if (view === 'index') {
+            indexIframeRef.current = node;
+            // Only treat this as an unloaded iframe when the DOM node genuinely
+            // changes. React re-invokes a ref callback (detach with null, then
+            // re-attach the SAME node) whenever the callback's identity changes;
+            // that same already-loaded element fires no fresh 'load' event, so
+            // blindly clearing the flag here would strand it false and silently
+            // drop every subsequent `highlight` command.
+            if (node && node !== lastLoadedIndexNodeRef.current) indexIframeLoadedRef.current = false;
+        }
         iframeCleanupRef.current[view]?.();
         delete iframeCleanupRef.current[view];
         if (!node) return;
@@ -608,7 +627,10 @@ export default function PresentationPage() {
         };
 
         const onLoad = () => {
-            if (view === 'index') indexIframeLoadedRef.current = true;
+            if (view === 'index') {
+                indexIframeLoadedRef.current = true;
+                lastLoadedIndexNodeRef.current = node;
+            }
             bindContentWindow();
         };
         node.addEventListener('load', onLoad);
