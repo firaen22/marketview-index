@@ -19,12 +19,12 @@ describe('presentCommandApi additions', () => {
     it('fetchProjectorState returns validated projector state and server time', async () => {
         globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({
             serverTime: 10_000,
-            projector: { mode: 'pdf', page: 2, v: 0, at: 9000 },
+            projector: { mode: 'pdf', page: 2, v: 0, at: 9000, lid: 'cmd-1' },
         }));
 
         await expect(fetchProjectorState()).resolves.toEqual({
             serverTime: 10_000,
-            projector: { mode: 'pdf', page: 2, v: 0, at: 9000 },
+            projector: { mode: 'pdf', page: 2, v: 0, at: 9000, lid: 'cmd-1' },
         });
         expect(globalThis.fetch).toHaveBeenCalledWith('/api/present-command', { signal: undefined });
     });

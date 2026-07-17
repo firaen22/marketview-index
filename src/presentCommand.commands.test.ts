@@ -75,6 +75,29 @@ describe('new presenter deterministic commands', () => {
         expect(parseCommandDeterministic('US10Y 1y', catalog)).toBeNull();
         expect(parseCommandDeterministic('Growth vs Value', catalog)).toEqual({ kind: 'chart', symbols: ['GVX'] });
     });
+
+    it('parses explain and highlight commands with addendum edge cases', () => {
+        expect(parseCommandDeterministic('explain duration', catalog)).toEqual({ kind: 'explain', symbols: [], term: 'duration' });
+        expect(parseCommandDeterministic('define spread', catalog)).toEqual({ kind: 'explain', symbols: [], term: 'spread' });
+        expect(parseCommandDeterministic('what is EBITDA', catalog)).toEqual({ kind: 'explain', symbols: [], term: 'EBITDA' });
+        expect(parseCommandDeterministic('解釋 久期', catalog)).toEqual({ kind: 'explain', symbols: [], term: '久期' });
+        expect(parseCommandDeterministic('咩係夏普比率', catalog)).toEqual({ kind: 'explain', symbols: [], term: '夏普比率' });
+        expect(parseCommandDeterministic('夏普比率係咩', catalog)).toEqual({ kind: 'explain', symbols: [], term: '夏普比率' });
+        expect(parseCommandDeterministic('解釋什麼是夏普比率', catalog)).toEqual({ kind: 'explain', symbols: [], term: '夏普比率' });
+        expect(parseCommandDeterministic(' explain duration??? ', catalog)).toEqual({ kind: 'explain', symbols: [], term: 'duration' });
+        expect(parseCommandDeterministic('explain 500', catalog)).toEqual({ kind: 'explain', symbols: [], term: '500' });
+        expect(parseCommandDeterministic('explain', catalog)).toBeNull();
+        expect(parseCommandDeterministic(`explain ${'x'.repeat(81)}`, catalog)).toBeNull();
+        expect(parseCommandDeterministic(`explain ${'🧠'.repeat(80)}`, catalog)).toEqual({ kind: 'explain', symbols: [], term: '🧠'.repeat(80) });
+        expect(parseCommandDeterministic(`explain ${'🧠'.repeat(81)}`, catalog)).toBeNull();
+
+        expect(parseCommandDeterministic('highlight HSI', catalog)).toEqual({ kind: 'highlight', symbols: ['^HSI'] });
+        expect(parseCommandDeterministic('focus S&P', catalog)).toEqual({ kind: 'highlight', symbols: ['^GSPC'] });
+        expect(parseCommandDeterministic('聚焦 恒生指數', catalog)).toEqual({ kind: 'highlight', symbols: ['^HSI'] });
+        expect(parseCommandDeterministic('highlight 225', catalog)).toEqual({ kind: 'highlight', symbols: ['^N225'] });
+        expect(parseCommandDeterministic('highlight US10Y', catalog)).toBeNull();
+        expect(parseCommandDeterministic('highlight unknown', catalog)).toBeNull();
+    });
 });
 
 describe('new presenter intent validation', () => {
@@ -103,6 +126,21 @@ describe('new presenter intent validation', () => {
         expect(validatePresentIntent({ kind: 'chart', symbols: ['^HSI'], range: '2Y' }, catalog)).toEqual({ ok: false });
         expect(validatePresentIntent({ kind: 'quote', symbols: ['US10Y'], range: '1Y' }, catalog)).toEqual({ ok: false });
     });
+
+    it('validates explain and highlight shapes', () => {
+        expect(validatePresentIntent({ kind: 'explain', symbols: [], term: ' duration ', junk: true }, catalog)).toEqual({ ok: true, intent: { kind: 'explain', symbols: [], term: 'duration' } });
+        expect(validatePresentIntent({ kind: 'explain', symbols: [], term: '🧠'.repeat(80) }, catalog)).toEqual({ ok: true, intent: { kind: 'explain', symbols: [], term: '🧠'.repeat(80) } });
+        expect(validatePresentIntent({ kind: 'explain', symbols: [], term: '' }, catalog)).toEqual({ ok: false });
+        expect(validatePresentIntent({ kind: 'explain', symbols: ['^HSI'], term: 'duration' }, catalog)).toEqual({ ok: false });
+        expect(validatePresentIntent({ kind: 'explain', symbols: [], term: 5 }, catalog)).toEqual({ ok: false });
+        expect(validatePresentIntent({ kind: 'explain', symbols: [], term: '🧠'.repeat(81) }, catalog)).toEqual({ ok: false });
+
+        expect(validatePresentIntent({ kind: 'highlight', symbols: ['^HSI'], extra: true }, catalog)).toEqual({ ok: true, intent: { kind: 'highlight', symbols: ['^HSI'] } });
+        expect(validatePresentIntent({ kind: 'highlight', symbols: [] }, catalog)).toEqual({ ok: false });
+        expect(validatePresentIntent({ kind: 'highlight', symbols: ['^HSI', '^GSPC'] }, catalog)).toEqual({ ok: false });
+        expect(validatePresentIntent({ kind: 'highlight', symbols: ['US10Y'] }, catalog)).toEqual({ ok: false });
+        expect(validatePresentIntent({ kind: 'highlight', symbols: ['X'.repeat(33)] }, [{ symbol: 'X'.repeat(33), name: 'Long', group: 'market' }])).toEqual({ ok: false });
+    });
 });
 
 describe('new presenter command building and executable checks', () => {
@@ -113,6 +151,8 @@ describe('new presenter command building and executable checks', () => {
             buildPresentCommand({ kind: 'cycle', symbols: [], on: false }, 'c', 1000),
             buildPresentCommand({ kind: 'range', symbols: [], range: '1Y' }, 'r', 1000),
             buildPresentCommand({ kind: 'chart', symbols: ['^HSI'], range: '1Y' }, 'ch', 1000),
+            buildPresentCommand({ kind: 'explain', symbols: [], term: 'duration' }, 'e', 1000),
+            buildPresentCommand({ kind: 'highlight', symbols: ['^HSI'] }, 'h', 1000),
         ];
 
         for (const command of commands) {
@@ -128,6 +168,8 @@ describe('new presenter command building and executable checks', () => {
         expect(isExecutablePresentCommand({ v: 1, id: 'r', kind: 'range', symbols: [], range: '1Y', issuedAt: 1000 })).toBe(true);
         expect(isExecutablePresentCommand({ v: 1, id: 'ch', kind: 'chart', symbols: ['^HSI'], issuedAt: 1000 })).toBe(true);
         expect(isExecutablePresentCommand({ v: 1, id: 'p', kind: 'page', symbols: [], direction: 'prev', issuedAt: 1000 })).toBe(true);
+        expect(isExecutablePresentCommand({ v: 1, id: 'e', kind: 'explain', symbols: [], term: 'duration', issuedAt: 1000 })).toBe(true);
+        expect(isExecutablePresentCommand({ v: 1, id: 'h', kind: 'highlight', symbols: ['^HSI'], issuedAt: 1000 })).toBe(true);
 
         expect(isExecutablePresentCommand({ v: 1, id: 'g', kind: 'goto', symbols: ['X'], page: 5, issuedAt: 1000 })).toBe(false);
         expect(isExecutablePresentCommand({ v: 1, id: 'j', kind: 'jargon', symbols: [], issuedAt: 1000 })).toBe(false);
@@ -136,6 +178,10 @@ describe('new presenter command building and executable checks', () => {
         expect(isExecutablePresentCommand({ v: 1, id: 'r', kind: 'range', symbols: [], range: 'ytd', issuedAt: 1000 })).toBe(false);
         expect(isExecutablePresentCommand({ v: 1, id: 'ch', kind: 'chart', symbols: ['^HSI'], view: 'slide', range: '1Y', issuedAt: 1000 })).toBe(false);
         expect(isExecutablePresentCommand({ v: 1, id: 'g', kind: 'goto', symbols: [], page: 5, junk: true, issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'e', kind: 'explain', symbols: ['^HSI'], term: 'duration', issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'e', kind: 'explain', symbols: [], issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'ch', kind: 'chart', symbols: ['^HSI'], term: 'duration', issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'h', kind: 'highlight', symbols: [], issuedAt: 1000 })).toBe(false);
     });
 });
 
@@ -147,6 +193,9 @@ describe('parse prompt for new command kinds', () => {
         expect(prompt).toContain('range must be one of 1M,3M,YTD,1Y');
         expect(prompt).toContain('{"kind":"goto","symbols":[],"page":5}');
         expect(prompt).toContain('{"kind":"chart","symbols":["^HSI"],"range":"1Y"}');
+        expect(prompt).toContain('explain = show a jargon explanation card');
+        expect(prompt).toContain('highlight takes exactly 1 market symbol');
+        expect(prompt).toContain('extra fields are ignored');
         expect(prompt).toContain('If toggle polarity is unclear, respond {"kind":"none"}');
     });
 });

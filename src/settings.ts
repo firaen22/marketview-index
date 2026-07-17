@@ -1,3 +1,6 @@
+import type { Macro } from './copilotMacros';
+import { normalizeMacros } from './copilotMacros';
+
 const SETTINGS_KEY = 'marketflow_settings';
 const LEGACY_KEYS = ['marketflow_lang', 'marketflow_chart_mode', 'marketflow_show_funds', 'user_gemini_key'] as const;
 
@@ -34,6 +37,7 @@ interface MarketFlowSettings {
     morningBrief: string[];
     presentCycle: PresentCycle;
     jargonEnabled: boolean;
+    copilotMacros: Macro[];
 }
 
 const DEFAULT_SLIDE: PresentSlide = {
@@ -65,6 +69,7 @@ const DEFAULTS: MarketFlowSettings = {
     morningBrief: [],
     presentCycle: DEFAULT_PRESENT_CYCLE,
     jargonEnabled: true,
+    copilotMacros: [],
 };
 
 export function safeGetItem(key: string): string | null {
@@ -145,6 +150,7 @@ function withNormalizedSettings(value: Partial<MarketFlowSettings>): MarketFlowS
         morningBrief: stringArray(value.morningBrief) ?? DEFAULTS.morningBrief,
         presentCycle: normalizePresentCycle(value.presentCycle),
         jargonEnabled: typeof value.jargonEnabled === 'boolean' ? value.jargonEnabled : DEFAULTS.jargonEnabled,
+        copilotMacros: normalizeMacros(value.copilotMacros),
     };
 }
 
@@ -179,6 +185,7 @@ function loadFromStorage(): MarketFlowSettings {
         morningBrief: DEFAULTS.morningBrief,
         presentCycle: DEFAULTS.presentCycle,
         jargonEnabled: DEFAULTS.jargonEnabled,
+        copilotMacros: DEFAULTS.copilotMacros,
     };
     if (migrated.lang !== 'en' && migrated.lang !== 'zh-TW') migrated.lang = DEFAULTS.lang;
     if (migrated.chartMode !== 'nominal' && migrated.chartMode !== 'percent') migrated.chartMode = DEFAULTS.chartMode;

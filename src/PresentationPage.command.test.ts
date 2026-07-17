@@ -5,7 +5,7 @@ vi.mock('./components/PdfViewer', () => ({
     PdfViewer: () => null,
 }));
 
-const { executePresentationCommandWithDeps } = await import('./PresentationPage');
+const { executePresentationCommandWithDeps, fetchExplainTerm } = await import('./PresentationPage');
 
 function baseDeps(overrides: Record<string, unknown> = {}) {
     return {
@@ -27,6 +27,9 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
         persistPresentCycle: vi.fn(),
         normalizedPresentCycle: { enabled: false, dwellSec: 45, views: ['slide', 'heatmap'] },
         setDataRange: vi.fn(),
+        showExplainTerm: vi.fn(),
+        clearRemoteJargon: vi.fn(),
+        postToIndexIframe: vi.fn(() => true),
         ...overrides,
     } as any;
 }
@@ -52,5 +55,75 @@ describe('executePresentationCommandWithDeps', () => {
         expect(executePresentationCommandWithDeps(command, retryDeps)).toBe(true);
         expect(deps.pdfRef.current.goToPage).toHaveBeenCalledWith(5);
         expect(deps.resetDwellCountdown).toHaveBeenCalledTimes(2);
+    });
+
+    it('executes explain immediately through the injected presenter callback', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'explain-1',
+            kind: 'explain',
+            symbols: [],
+            term: 'duration',
+            issuedAt: 1000,
+        };
+        const deps = baseDeps();
+
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(true);
+        expect(deps.showExplainTerm).toHaveBeenCalledWith('duration', 'explain-1');
+    });
+
+    it('retries highlight while switching to index, then posts to the iframe when ready', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'highlight-1',
+            kind: 'highlight',
+            symbols: ['^HSI'],
+            issuedAt: 1000,
+        };
+        const deps = baseDeps({ mainView: 'slide' });
+
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(false);
+        expect(deps.setMainView).toHaveBeenCalledWith('index');
+        expect(deps.postToIndexIframe).not.toHaveBeenCalled();
+
+        const readyDeps = baseDeps({ mainView: 'index' });
+        expect(executePresentationCommandWithDeps(command, readyDeps)).toBe(true);
+        expect(readyDeps.postToIndexIframe).toHaveBeenCalledWith({ type: 'mv-highlight', symbol: '^HSI' });
+
+        const notReadyDeps = baseDeps({ mainView: 'index', postToIndexIframe: vi.fn(() => false) });
+        expect(executePresentationCommandWithDeps(command, notReadyDeps)).toBe(false);
+    });
+
+    it('clears remote jargon synchronously on clear commands', () => {
+        const command: PresentCommand = { v: 1, id: 'clear-1', kind: 'clear', symbols: [], issuedAt: 1000 };
+        const deps = baseDeps();
+
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(true);
+        expect(deps.clearRemoteJargon).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('fetchExplainTerm', () => {
+    it('posts JSON without slideId and prefers the matching returned term', async () => {
+        const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+            success: true,
+            terms: [
+                { term: 'other', explanation: 'Other' },
+                { term: 'Duration', explanation: 'Matched' },
+            ],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(fetchExplainTerm('duration', 'en', 'key')).resolves.toEqual({ term: 'Duration', explanation: 'Matched' });
+        expect(fetchMock).toHaveBeenCalledWith('/api/explain-jargon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer key' },
+            body: JSON.stringify({ text: 'duration', lang: 'en' }),
+            signal: undefined,
+        });
+        const init = (fetchMock as any).mock.calls[0][1] as RequestInit;
+        expect(JSON.parse(init.body as string)).toEqual({ text: 'duration', lang: 'en' });
+        expect(init.body as string).not.toContain('slideId');
+        vi.unstubAllGlobals();
     });
 });

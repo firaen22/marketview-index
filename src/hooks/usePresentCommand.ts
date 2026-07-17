@@ -4,12 +4,13 @@ import { isExecutablePresentCommand, PAGE_COMMAND_FRESH_MS, shouldExecute } from
 
 const POLL_MS = 2500;
 const BACKOFF_MS = [5000, 10000, 20000] as const;
-const PROJECTOR_MODES = ['pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
+const PROJECTOR_MODES = ['slide', 'pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
 
 export interface ProjectorState {
     mode: typeof PROJECTOR_MODES[number];
     page: number;
     v: number;
+    lid?: string;
 }
 
 export function presentCommandBackoffMs(failureCount: number): number {
@@ -31,6 +32,7 @@ export function presentCommandPollUrl(state: ProjectorState | null): string {
     params.set('mode', state.mode);
     params.set('page', String(state.page));
     params.set('v', String(state.v));
+    if (state.lid) params.set('lid', state.lid);
     return `/api/present-command?${params.toString()}`;
 }
 
@@ -86,7 +88,8 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
 
         const run = async () => {
             controller = new AbortController();
-            const result = await fetchPresentCommand(controller.signal, getStateRef.current?.() ?? null);
+            const state = getStateRef.current?.() ?? null;
+            const result = await fetchPresentCommand(controller.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state);
             if (stopped) return;
 
             if (result.ok) {

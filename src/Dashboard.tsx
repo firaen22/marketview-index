@@ -36,6 +36,7 @@ export default function Dashboard() {
   const initialSettings = React.useMemo(() => getSettings(), []);
   const [language, setLanguage] = useState<'en' | 'zh-TW'>(initialSettings.lang);
   const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
+  const [highlightSymbol, setHighlightSymbol] = useState<string | null>(null);
 
   // Cross-tab synchronization via consolidated settings key
   useSettingsSync(({ lang, chartMode, tickerSymbols }) => {
@@ -81,6 +82,24 @@ export default function Dashboard() {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!isEmbed) return;
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as { type?: unknown; symbol?: unknown } | null;
+      if (!data || data.type !== 'mv-highlight' || typeof data.symbol !== 'string' || data.symbol.length < 1 || data.symbol.length > 32) return;
+      setHighlightSymbol(data.symbol);
+      if (clearTimer) clearTimeout(clearTimer);
+      clearTimer = setTimeout(() => setHighlightSymbol(null), 15_000);
+    };
+    window.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (clearTimer) clearTimeout(clearTimer);
+    };
+  }, [isEmbed]);
 
   const categoriesOrder = CATEGORIES_ORDER;
   const displayMarketData = showFundsInDashboard ? marketData : marketData.filter(item => item.category !== 'Fund');
@@ -257,6 +276,7 @@ export default function Dashboard() {
                         chartHeight={(isPresentationMode || isEmbed) ? "h-32" : "h-16"}
                         t={t}
                         chartMode={chartMode}
+                        highlighted={isEmbed && index.symbol === highlightSymbol}
                       />
                     ))}
                   </div>
