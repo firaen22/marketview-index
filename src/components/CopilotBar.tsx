@@ -29,10 +29,15 @@ function displayForSymbol(symbol: string, catalog: CatalogItem[]): string {
 function commandMessage(command: PresentCommand, catalog: CatalogItem[]): string {
     if (command.kind === 'clear') return 'Clear';
     if (command.kind === 'view') return `View: ${command.view}`;
+    if (command.kind === 'goto') return `Page: ${command.page}`;
+    if (command.kind === 'jargon') return `Jargon: ${command.on ? 'on' : 'off'}`;
+    if (command.kind === 'cycle') return `Auto-cycle: ${command.on ? 'on' : 'off'}${command.dwellSec !== undefined ? ` · ${command.dwellSec}s` : ''}`;
+    if (command.kind === 'range') return `Range: ${command.range}`;
     const names = command.symbols.map(symbol => displayForSymbol(symbol, catalog));
-    if (command.kind === 'compare') return `Compare: ${names.join(' vs ')}`;
+    const rangeSuffix = command.range ? ` · ${command.range}` : '';
+    if (command.kind === 'compare') return `Compare: ${names.join(' vs ')}${rangeSuffix}`;
     if (command.kind === 'quote') return `Quote: ${names[0] ?? command.symbols[0]}`;
-    return `Chart: ${names[0] ?? command.symbols[0]}`;
+    return `Chart: ${names[0] ?? command.symbols[0]}${rangeSuffix}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -80,7 +85,7 @@ export function CopilotBar({ catalog, lang }: Props) {
         if (!canSend) return 'Loading market data…';
         if (status.type === 'sending') return 'Sending...';
         if (status.type === 'success' || status.type === 'error') return status.message;
-        return 'Try: show HSI, HSI vs S&P, heatmap';
+        return 'Try: show HSI, page 5, HSI 1Y, jargon on';
     }, [canSend, status]);
 
     const handleSend = async (overrideText?: string) => {

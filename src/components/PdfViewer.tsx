@@ -24,6 +24,7 @@ interface Props {
 export interface PdfViewerHandle {
     prevPage: () => void;
     nextPage: () => void;
+    goToPage: (page: number | 'last') => void;
 }
 
 export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText, onPageChange, lang = 'en' }, ref) => {
@@ -175,8 +176,12 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
 
     const prev = useCallback(() => setPageNum(p => Math.max(1, p - 1)), []);
     const next = useCallback(() => setPageNum(p => Math.max(1, Math.min(numPages, p + 1))), [numPages]);
+    const goToPage = useCallback((page: number | 'last') => {
+        if (numPages <= 0) return;
+        setPageNum(page === 'last' ? numPages : Math.max(1, Math.min(numPages, page)));
+    }, [numPages]);
 
-    useImperativeHandle(ref, () => ({ prevPage: prev, nextPage: next }), [prev, next]);
+    useImperativeHandle(ref, () => ({ prevPage: prev, nextPage: next, goToPage }), [prev, next, goToPage]);
 
     useEffect(() => {
         if (!keyboardEnabled) return;
