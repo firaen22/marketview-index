@@ -286,6 +286,29 @@ describe('present-command API handler', () => {
         expect(lastStoredCommand().id.length).toBeGreaterThan(0);
     });
 
+    it('stores new deterministic free-text commands through action send', async () => {
+        const cases = [
+            ['page 5', { kind: 'goto', symbols: [], page: 5 }],
+            ['jargon on', { kind: 'jargon', symbols: [], on: true }],
+            ['auto 30', { kind: 'cycle', symbols: [], on: true, dwellSec: 30 }],
+            ['1y', { kind: 'range', symbols: [], range: '1Y' }],
+            ['hsi 1y', { kind: 'chart', symbols: ['^HSI'], range: '1Y' }],
+        ] as const;
+
+        for (const [text, expected] of cases) {
+            redisState.current.set.mockClear();
+            const res = await call(authPost({ action: 'send', text, lang: 'en', catalog }));
+
+            expect(res.statusCode).toBe(200);
+            expect(res.body.command).toMatchObject({
+                v: 1,
+                ...expected,
+                issuedAt: 5000,
+            });
+            expect(redisState.current.set).toHaveBeenCalledWith('present:cmd:v1', JSON.stringify(res.body.command), { ex: 120 });
+        }
+    });
+
     it('enqueues page commands with a validated direction and rejects invalid ones', async () => {
         let res = await call(authPost({ action: 'page', direction: 'next' }));
         expect(res.statusCode).toBe(200);

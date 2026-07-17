@@ -32,9 +32,126 @@ import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
 import { usePresentCommand } from './hooks/usePresentCommand';
 import type { ProjectorState } from './hooks/usePresentCommand';
-import type { PresentCommand } from '../lib/presentCommand';
+import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentRange } from '../lib/presentCommand';
 import { indexToQuoteItem } from './types/QuoteItem';
+import type { TimeRange } from './types';
 
+type RangeParity = [PresentRange] extends [TimeRange] ? ([TimeRange] extends [PresentRange] ? true : false) : false;
+const _rangeParity: RangeParity = true;
+const _presentRangesParity: readonly TimeRange[] = PRESENT_RANGES;
+
+type QuotePanelController = Pick<ReturnType<typeof useQuotePanel>, 'closeChart' | 'dismissSpotlight' | 'openChart' | 'openSpotlight' | 'allItems'>;
+
+interface PresentationCommandExecutorDeps {
+    marketData: ReturnType<typeof useMarketData>['data'];
+    qp: QuotePanelController;
+    setRemoteCompare: React.Dispatch<React.SetStateAction<{ id: string; symbols: string[] } | null>>;
+    resetDwellCountdown: () => void;
+    mainView: PresentView;
+    setMainView: React.Dispatch<React.SetStateAction<PresentView>>;
+    slideMode: ReturnType<typeof useSlideSync>['slide']['mode'];
+    pdfRef: React.RefObject<PdfViewerHandle | null>;
+    setJargonEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+    persistPresentCycle: (next: PresentCycle) => void;
+    normalizedPresentCycle: PresentCycle;
+    setDataRange: React.Dispatch<React.SetStateAction<TimeRange>>;
+}
+
+export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: PresentationCommandExecutorDeps): boolean {
+    const {
+        marketData,
+        qp,
+        setRemoteCompare,
+        resetDwellCountdown,
+        mainView,
+        setMainView,
+        slideMode,
+        pdfRef,
+        setJargonEnabled,
+        persistPresentCycle,
+        normalizedPresentCycle,
+        setDataRange,
+    } = deps;
+
+    if (cmd.kind === 'clear') {
+        qp.closeChart();
+        qp.dismissSpotlight();
+        setRemoteCompare(null);
+        setMainView('slide');
+        resetDwellCountdown();
+        return true;
+    }
+
+    if (cmd.kind === 'view') {
+        setMainView(cmd.view!);
+        resetDwellCountdown();
+        return true;
+    }
+
+    if (cmd.kind === 'page') {
+        // Page commands are queue-drained (already consumed server-side): if the
+        // projector is not on a mounted PDF slide, the turn is dropped, not retried.
+        if (mainView !== 'slide' || slideMode !== 'pdf' || !pdfRef.current) return false;
+        if (cmd.direction === 'next') pdfRef.current.nextPage();
+        else pdfRef.current.prevPage();
+        resetDwellCountdown();
+        return true;
+    }
+
+    if (cmd.kind === 'goto') {
+        if (slideMode !== 'pdf') return false;
+        if (mainView !== 'slide') {
+            setMainView('slide');
+            resetDwellCountdown();
+            return false;
+        }
+        if (!pdfRef.current) return false;
+        pdfRef.current.goToPage(cmd.page === 'first' ? 1 : cmd.page === 'last' ? 'last' : cmd.page);
+        resetDwellCountdown();
+        return true;
+    }
+
+    if (cmd.kind === 'jargon') {
+        setJargonEnabled(cmd.on);
+        setSetting('jargonEnabled', cmd.on);
+        return true;
+    }
+
+    if (cmd.kind === 'cycle') {
+        persistPresentCycle({
+            ...normalizedPresentCycle,
+            enabled: cmd.on,
+            ...(cmd.dwellSec !== undefined ? { dwellSec: cmd.dwellSec } : {}),
+        });
+        return true;
+    }
+
+    if (cmd.kind === 'range') {
+        setDataRange(cmd.range);
+        resetDwellCountdown();
+        return true;
+    }
+
+    if (cmd.kind === 'chart' || cmd.kind === 'compare') {
+        if (cmd.range) setDataRange(cmd.range);
+        const found = marketData.find(d => d.symbol === cmd.symbols[0]);
+        if (!found) return false;
+        qp.dismissSpotlight();
+        setRemoteCompare({
+            id: cmd.id,
+            symbols: cmd.kind === 'compare' ? cmd.symbols.slice(1) : [],
+        });
+        qp.openChart(indexToQuoteItem(found));
+        return true;
+    }
+
+    const item = qp.allItems.find(i => i.id === cmd.symbols[0]);
+    if (!item) return false;
+    qp.closeChart();
+    setRemoteCompare(null);
+    qp.openSpotlight(item);
+    return true;
+}
 
 export default function PresentationPage() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
@@ -48,6 +165,7 @@ export default function PresentationPage() {
     const [mainView, setMainView] = useState<PresentView>('slide');
     const [presentCycle, setPresentCycle] = useState<PresentCycle>(() => normalizePresentCycle(initialSettings.presentCycle));
     const [jargonEnabled, setJargonEnabled] = useState(initialSettings.jargonEnabled);
+    const [dataRange, setDataRange] = useState<TimeRange>('YTD');
     const [dwellResetNonce, setDwellResetNonce] = useState(0);
     const [kioskHidden, setKioskHidden] = useState(false);
     const [statusNow, setStatusNow] = useState(() => Date.now());
@@ -71,9 +189,9 @@ export default function PresentationPage() {
         if (nextSymbols !== undefined) setTickerSymbols(nextSymbols);
     });
 
-    const t = React.useMemo(() => ({ ...getLocale(lang), language: lang, activeRange: 'YTD' as const }), [lang]);
+    const t = React.useMemo(() => ({ ...getLocale(lang), language: lang, activeRange: dataRange }), [lang, dataRange]);
 
-    const { data: marketData } = useMarketData({ range: 'YTD', lang, refreshMs: 10 * 60 * 1000 });
+    const { data: marketData } = useMarketData({ range: dataRange, lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
     const jargon = useJargon({ enabled: jargonEnabled && mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey, slideVersion: slide.mode === 'pdf' ? slide.updatedAt : undefined });
@@ -182,61 +300,6 @@ export default function PresentationPage() {
         setDwellResetNonce(n => n + 1);
     }, []);
 
-    // Returns false when the command's symbol isn't in the (possibly still
-    // loading) data — usePresentCommand then leaves the id unlocked and the
-    // next poll retries, instead of losing the command forever.
-    const executePresentCommand = useCallback((cmd: PresentCommand): boolean => {
-        if (cmd.kind === 'clear') {
-            qp.closeChart();
-            qp.dismissSpotlight();
-            setRemoteCompare(null);
-            setMainView('slide');
-            resetDwellCountdown();
-            return true;
-        }
-
-        if (cmd.kind === 'view') {
-            setMainView(cmd.view!);
-            resetDwellCountdown();
-            return true;
-        }
-
-        if (cmd.kind === 'page') {
-            // Page commands are queue-drained (already consumed server-side):
-            // if the projector is not on a mounted PDF slide, the turn is
-            // dropped, not retried — a relative page flip executed out of
-            // context is worse than a lost tap. The !pdfRef.current guard
-            // covers the SlideErrorBoundary fallback, where the viewer is
-            // unmounted while slide.mode is still 'pdf'.
-            if (mainView !== 'slide' || slide.mode !== 'pdf' || !pdfRef.current) return false;
-            if (cmd.direction === 'next') pdfRef.current.nextPage();
-            else pdfRef.current.prevPage();
-            resetDwellCountdown();
-            return true;
-        }
-
-        if (cmd.kind === 'chart' || cmd.kind === 'compare') {
-            const found = marketData.find(d => d.symbol === cmd.symbols[0]);
-            if (!found) return false;
-            qp.dismissSpotlight();
-            setRemoteCompare({
-                id: cmd.id,
-                symbols: cmd.kind === 'compare' ? cmd.symbols.slice(1) : [],
-            });
-            qp.openChart(indexToQuoteItem(found));
-            return true;
-        }
-
-        const item = qp.allItems.find(i => i.id === cmd.symbols[0]);
-        if (!item) return false;
-        qp.closeChart();
-        setRemoteCompare(null);
-        qp.openSpotlight(item);
-        return true;
-    }, [marketData, qp, resetDwellCountdown, mainView, slide.mode]);
-
-    usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
-
     const persistPresentCycle = useCallback((next: PresentCycle) => {
         const normalized = normalizePresentCycle(next);
         setPresentCycle(normalized);
@@ -251,6 +314,26 @@ export default function PresentationPage() {
             return next;
         });
     }, []);
+
+    // Returns false when the command's symbol isn't in the (possibly still
+    // loading) data — usePresentCommand then leaves the id unlocked and the
+    // next poll retries, instead of losing the command forever.
+    const executePresentCommand = useCallback((cmd: PresentCommand): boolean => executePresentationCommandWithDeps(cmd, {
+        marketData,
+        qp,
+        setRemoteCompare,
+        resetDwellCountdown,
+        mainView,
+        setMainView,
+        slideMode: slide.mode,
+        pdfRef,
+        setJargonEnabled,
+        persistPresentCycle,
+        normalizedPresentCycle,
+        setDataRange,
+    }), [marketData, qp, resetDwellCountdown, mainView, slide.mode, persistPresentCycle, normalizedPresentCycle, setDataRange]);
+
+    usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
 
     const cycleMainView = useCallback(() => {
         setMainView(v => v === 'slide' ? 'index' : v === 'index' ? 'heatmap' : 'slide');
@@ -267,8 +350,8 @@ export default function PresentationPage() {
     }, [normalizedPresentCycle, persistPresentCycle]);
 
     const cycleDwellPreset = useCallback(() => {
-        const presets = [15, 30, 45, 60, 120];
         const current = normalizedPresentCycle.dwellSec;
+        const presets: readonly number[] = CYCLE_DWELL_PRESETS;
         const currentIndex = presets.indexOf(current);
         const nextDwell = currentIndex >= 0
             ? presets[(currentIndex + 1) % presets.length]
