@@ -30,8 +30,12 @@ export function JargonSpotlight({ terms, lang }: Props) {
         // narrow preview window. Everything inside is sized in `em`, so this single
         // clamp drives the whole card: the 13px floor keeps a laptop preview
         // legible, and the 44px ceiling clears 4K's 2vmin (43.2px at 2160 CSS px)
-        // so an unscaled 4K display stays on the same curve.
-        <div className="absolute bottom-[1.2em] left-[1.2em] z-20 max-w-[30em] bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-[0.6em] px-[1.15em] py-[0.7em] pointer-events-none text-[clamp(13px,2vmin,44px)]">
+        // so an unscaled 4K display stays on the same curve. The max-width's
+        // `calc(100vw-2.4em)` arm mirrors the 1.2em left offset on the right, so
+        // at the 13px floor (30em card + offset = 406px) viewports narrower than
+        // 406px — phone-portrait previews — shrink the card and wrap its text
+        // instead of overflowing the right edge.
+        <div className="absolute bottom-[1.2em] left-[1.2em] z-20 max-w-[min(30em,calc(100vw-2.4em))] bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-[0.6em] px-[1.15em] py-[0.7em] pointer-events-none text-[clamp(13px,2vmin,44px)]">
             <div key={index} className="hints-in">
                 <div className="flex items-center justify-between gap-[1em] mb-[0.35em]">
                     <span className="text-[0.8em] font-mono uppercase tracking-widest text-emerald-500">
