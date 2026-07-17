@@ -30,6 +30,18 @@ describe('copilot macro helpers', () => {
         expect(findMacro('missing', [{ name: 'opening', steps: ['x'] }])).toBeNull();
     });
 
+    it('rejects (not throws on) non-string step values from malformed callers', () => {
+        const result = validateMacroDraft('My macro', [null, undefined, 42, 'show HSI'] as unknown as string[], {
+            catalog,
+            quickLabels: [],
+            existingMacros: [],
+        });
+
+        // Non-string entries are dropped like blank lines; the valid step survives.
+        expect(result).toEqual({ ok: true, macro: { name: 'My macro', steps: ['show HSI'] } });
+        expect(() => validateMacroDraft('My macro', [null] as unknown as string[], { catalog, quickLabels: [], existingMacros: [] })).not.toThrow();
+    });
+
     it('validates macro names against commands, glossary, prefixes, quick labels, and duplicates', () => {
         const existing: Macro[] = [{ name: 'Morning', steps: ['heatmap'] }];
 

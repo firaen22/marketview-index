@@ -77,7 +77,7 @@ export function validateMacroDraft(
     if (codePointLength(name) < 1) return { ok: false, message: 'Name is required' };
     if (codePointLength(name) > MAX_NAME_CODE_POINTS) return { ok: false, message: 'Name must be 24 characters or fewer' };
 
-    const steps = stepsInput.map(step => step.trim()).filter(Boolean);
+    const steps = stepsInput.map(step => (typeof step === 'string' ? step : '').trim()).filter(Boolean);
     if (steps.length < 1) return { ok: false, message: 'Add at least one step' };
     if (steps.length > MAX_STEPS) return { ok: false, message: 'Use 8 steps or fewer' };
     if (steps.some(step => codePointLength(step) > MAX_STEP_CODE_POINTS)) return { ok: false, message: 'Each step must be 200 characters or fewer' };

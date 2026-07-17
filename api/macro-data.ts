@@ -74,7 +74,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 const current = parseFloat(data.observations[0].value);
                 const prevQuarter = parseFloat(data.observations[1].value);
                 const prevYear = parseFloat(data.observations[4].value);
-                if (isNaN(current) || isNaN(prevQuarter) || isNaN(prevYear)) return null;
+                // Zero baselines (same contract as the monthly series below):
+                // a 0 denominator would emit Infinity, which JSON-serializes
+                // to null and reaches the client as a broken changePercent.
+                if (isNaN(current) || isNaN(prevQuarter) || isNaN(prevYear) || prevQuarter === 0 || prevYear === 0) return null;
 
                 const qoqChangePercent = ((current - prevQuarter) / prevQuarter) * 100;
                 const yoyChangePercent = ((current - prevYear) / prevYear) * 100;
@@ -151,7 +154,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 // current or year-ago value is missing (same contract as fetchGdp).
                 if (isNaN(currentValue) || isNaN(prevYearValue) || prevYearValue === 0) return null;
 
-                const momChangePercent = isNaN(prevMonthValue)
+                const momChangePercent = isNaN(prevMonthValue) || prevMonthValue === 0
                     ? undefined
                     : ((currentValue - prevMonthValue) / prevMonthValue) * 100;
                 const yoyChange = currentValue - prevYearValue;
