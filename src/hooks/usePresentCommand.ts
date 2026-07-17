@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { PresentCommand } from '../../lib/presentCommand';
 import { isExecutablePresentCommand, PAGE_COMMAND_FRESH_MS, shouldExecute } from '../../lib/presentCommand';
+import { authHeaders } from '../presentCommandApi';
 
 const POLL_MS = 2500;
 const BACKOFF_MS = [5000, 10000, 20000] as const;
@@ -38,7 +39,9 @@ export function presentCommandPollUrl(state: ProjectorState | null): string {
 
 async function fetchPresentCommand(signal: AbortSignal, state: ProjectorState | null): Promise<{ ok: true; command: PresentCommand | null; pageCommands: PresentCommand[]; serverTime: number } | { ok: false }> {
     try {
-        const response = await fetch(presentCommandPollUrl(state), { signal });
+        // The key rides along so the server honors the st=1 projector report
+        // (state write + page-queue drain are gated on it).
+        const response = await fetch(presentCommandPollUrl(state), { signal, headers: authHeaders() });
         if (!response.ok) return { ok: false };
         const payload = await response.json() as { command?: unknown; pageCommands?: unknown; serverTime?: unknown };
         // Staleness is judged in server time (issuedAt is server-stamped); a

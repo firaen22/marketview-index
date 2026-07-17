@@ -29,6 +29,10 @@ const COMMAND_KEY = 'present:cmd:v1';
 // page offset is wrong. They get a queue, not the single command slot.
 const PAGE_COMMANDS_KEY = 'present:pagecmd:v1';
 const PAGE_COMMANDS_MAX_DRAIN = 20;
+// Backlog cap (~2 drains): a stuck controller/macro must not bank hundreds of
+// page turns that the projector then replays for minutes. Oldest are dropped —
+// in an overflow the net offset is already wrong; bounding the damage wins.
+const PAGE_COMMANDS_MAX_QUEUE = 40;
 const PROJECTOR_STATE_KEY = 'present:pstate:v1';
 const COMMAND_TTL_SECONDS = 120;
 const PROJECTOR_STATE_TTL_SECONDS = 15;
@@ -128,7 +132,10 @@ async function storeCommand(command: PresentCommand) {
 }
 
 async function enqueuePageCommand(command: PresentCommand) {
-    await redis!.rpush(PAGE_COMMANDS_KEY, JSON.stringify(command));
+    const length = await redis!.rpush(PAGE_COMMANDS_KEY, JSON.stringify(command));
+    if (typeof length === 'number' && length > PAGE_COMMANDS_MAX_QUEUE) {
+        await redis!.ltrim(PAGE_COMMANDS_KEY, length - PAGE_COMMANDS_MAX_QUEUE, -1);
+    }
     await redis!.expire(PAGE_COMMANDS_KEY, COMMAND_TTL_SECONDS);
 }
 
@@ -283,7 +290,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'GET') {
         if (!await rateLimit(req)) return json(res, 429, { error: 'rate_limited' });
         const serverTime = Date.now();
-        const nextProjector = projectorStateFromQuery(req.query as Record<string, unknown>, serverTime);
+        // A projector report MUTATES server state (state write + queue drain),
+        // so it must carry the same soft-gate key as POST. Plain command polls
+        // stay unauthenticated; an unkeyed st=1 probe degrades to a plain poll
+        // instead of being able to consume page turns or forge visible state.
+        const getKey = process.env.PRESENT_API_KEY;
+        const projectorAuthed = !!getKey && authorize(req.headers?.['x-api-key'], getKey);
+        const nextProjector = projectorAuthed ? projectorStateFromQuery(req.query as Record<string, unknown>, serverTime) : null;
         if (oneQuery((req.query as Record<string, unknown>).st) === '1' && nextProjector) {
             try {
                 await redis.set(PROJECTOR_STATE_KEY, JSON.stringify(nextProjector), { ex: PROJECTOR_STATE_TTL_SECONDS });
@@ -291,7 +304,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 console.error('Present projector state write error:', error);
             }
         }
-        const hasProjectorReport = oneQuery((req.query as Record<string, unknown>).st) === '1';
+        const hasProjectorReport = projectorAuthed && oneQuery((req.query as Record<string, unknown>).st) === '1';
         const [command, projector, pageCommands] = await Promise.all([
             readCommand(),
             hasProjectorReport ? Promise.resolve(nextProjector) : readProjectorState(),
@@ -444,6 +457,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         const catalog = canonicalCatalog(parsed.body.catalog);
+        // Stamped BEFORE any NLU await: used below to detect that a newer
+        // command was stored while this one was still parsing.
+        const receivedAt = Date.now();
         let intent = parseCommandDeterministic(text, catalog);
         if (!intent) {
             try {
@@ -465,6 +481,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return json(res, 422, { error: 'cannot_parse' });
         }
 
+        // A slow NLU parse must not overwrite a command the presenter issued
+        // AFTER this one (send → NIM takes seconds → presenter hits clear →
+        // the old send lands last and resurrects stale intent). issuedAt is
+        // server-stamped, so anything stored after this request arrived wins.
+        const existing = await readCommand();
+        if (existing && existing.issuedAt > receivedAt) {
+            return json(res, 409, { error: 'superseded' });
+        }
         const command = buildPresentCommand(validation.intent, crypto.randomUUID(), Date.now());
         await storeCommand(command);
         return json(res, 200, { success: true, command });

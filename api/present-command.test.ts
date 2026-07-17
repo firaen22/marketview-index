@@ -10,6 +10,7 @@ const redisState = vi.hoisted(() => ({
         expire: vi.fn(),
         rpush: vi.fn(),
         lpop: vi.fn(),
+        ltrim: vi.fn(),
     } as any,
 }));
 
@@ -93,6 +94,11 @@ function authPost(body: any) {
     return makeReq({ method: 'POST', headers: { 'x-api-key': 'secret' }, body });
 }
 
+// Projector reports (st=1) mutate state, so they carry the soft-gate key.
+function projectorGet(query: any) {
+    return makeReq({ method: 'GET', headers: { 'x-api-key': 'secret' }, query });
+}
+
 function lastStoredCommand() {
     return JSON.parse(redisState.current.set.mock.calls.at(-1)[1]);
 }
@@ -110,6 +116,7 @@ describe('present-command API handler', () => {
             expire: vi.fn().mockResolvedValue(1),
             rpush: vi.fn().mockResolvedValue(1),
             lpop: vi.fn().mockResolvedValue(null),
+            ltrim: vi.fn().mockResolvedValue('OK'),
         };
         nimState.callNim.mockReset();
         nimState.callNimHedged.mockReset();
@@ -164,10 +171,7 @@ describe('present-command API handler', () => {
     it('GET stores valid projector state and includes it in the response', async () => {
         redisState.current.get.mockResolvedValue(null);
 
-        const res = await call(makeReq({
-            method: 'GET',
-            query: { st: '1', mode: 'pdf', page: '2', v: '0' },
-        }));
+        const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '2', v: '0' }));
 
         expect(res.statusCode).toBe(200);
         expect(redisState.current.set).toHaveBeenCalledWith(
@@ -202,7 +206,7 @@ describe('present-command API handler', () => {
                 issuedAt: 5000,
             }) : null);
 
-            const res = await call(makeReq({ method: 'GET', query }));
+            const res = await call(projectorGet(query));
 
             expect(res.statusCode).toBe(200);
             expect(redisState.current.set).not.toHaveBeenCalledWith('present:pstate:v1', expect.anything(), expect.anything());
@@ -350,7 +354,7 @@ describe('present-command API handler', () => {
             pageCmd('p2'),
         ]);
 
-        const res = await call(makeReq({ method: 'GET', query: { st: '1', mode: 'pdf', page: '2', v: '0' } }));
+        const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '2', v: '0' }));
 
         expect(res.statusCode).toBe(200);
         expect(redisState.current.lpop).toHaveBeenCalledWith('present:pagecmd:v1', 20);
@@ -373,11 +377,63 @@ describe('present-command API handler', () => {
         // GET is unauthenticated by design: a bare or malformed st=1 probe
         // must not be able to consume page turns queued for the projector.
         for (const query of [{ st: '1' }, { st: '1', mode: 'evil', page: '1', v: '0' }, { st: '1', mode: 'pdf', page: '0', v: '0' }]) {
-            const res = await call(makeReq({ method: 'GET', query }));
+            const res = await call(projectorGet(query));
             expect(res.statusCode).toBe(200);
             expect(res.body.pageCommands).toEqual([]);
         }
         expect(redisState.current.lpop).not.toHaveBeenCalled();
+    });
+
+    it('treats an unkeyed st=1 probe as a plain poll: no drain, no state write', async () => {
+        redisState.current.get.mockImplementation(async (key: string) => {
+            if (key === 'present:pstate:v1') return JSON.stringify({ mode: 'slide', page: 1, v: 3, at: 4000 });
+            return null;
+        });
+        redisState.current.lpop.mockResolvedValue([JSON.stringify({ v: 1, id: 'p1', kind: 'page', symbols: [], direction: 'next', issuedAt: 5000 })]);
+
+        // Valid report shape, but no (or wrong) x-api-key: must degrade to a
+        // plain read poll instead of consuming page turns / forging state.
+        for (const headers of [{}, { 'x-api-key': 'wrong' }]) {
+            const res = await call(makeReq({ method: 'GET', headers, query: { st: '1', mode: 'pdf', page: '2000', v: '999' } }));
+            expect(res.statusCode).toBe(200);
+            expect(res.body.pageCommands).toEqual([]);
+            // Stored state is served, not the forged report.
+            expect(res.body.projector).toMatchObject({ mode: 'slide', page: 1, v: 3 });
+        }
+        expect(redisState.current.lpop).not.toHaveBeenCalled();
+        expect(redisState.current.set).not.toHaveBeenCalledWith('present:pstate:v1', expect.anything(), expect.anything());
+    });
+
+    it('caps the page queue by trimming the oldest backlog', async () => {
+        redisState.current.rpush.mockResolvedValue(41);
+
+        const res = await call(authPost({ action: 'page', direction: 'next' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.ltrim).toHaveBeenCalledWith('present:pagecmd:v1', 1, -1);
+
+        redisState.current.ltrim.mockClear();
+        redisState.current.rpush.mockResolvedValue(40);
+        await call(authPost({ action: 'page', direction: 'next' }));
+        expect(redisState.current.ltrim).not.toHaveBeenCalled();
+    });
+
+    it('rejects a slow send when a newer command was stored while it parsed', async () => {
+        // Stored command is NEWER (issuedAt 9000) than this request's arrival
+        // (Date.now mocked at 5000): the presenter already superseded it.
+        redisState.current.get.mockImplementation(async (key: string) => key === 'present:cmd:v1' ? JSON.stringify({
+            v: 1,
+            id: 'newer',
+            kind: 'clear',
+            symbols: [],
+            issuedAt: 9000,
+        }) : null);
+
+        const res = await call(authPost({ action: 'send', text: 'show hsi', lang: 'en', catalog }));
+
+        expect(res.statusCode).toBe(409);
+        expect(res.body).toEqual({ error: 'superseded' });
+        expect(redisState.current.set).not.toHaveBeenCalledWith('present:cmd:v1', expect.anything(), expect.anything());
     });
 
     it('returns pageCommands [] when the drain itself fails', async () => {
@@ -385,7 +441,7 @@ describe('present-command API handler', () => {
         redisState.current.lpop.mockRejectedValue(new Error('redis down'));
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-        const res = await call(makeReq({ method: 'GET', query: { st: '1', mode: 'pdf', page: '1', v: '0' } }));
+        const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '1', v: '0' }));
 
         expect(res.statusCode).toBe(200);
         expect(res.body.pageCommands).toEqual([]);

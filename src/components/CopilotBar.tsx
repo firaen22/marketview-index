@@ -49,6 +49,9 @@ function errorMessage(error: unknown): string {
     if (error instanceof PresentCommandApiError && error.status === 422) {
         return "Couldn't understand — try e.g. 'HSI vs S&P'";
     }
+    if (error instanceof PresentCommandApiError && error.status === 409) {
+        return 'Skipped — a newer command already took over';
+    }
     if (error instanceof PresentCommandApiError) {
         return 'Command failed — try again';
     }

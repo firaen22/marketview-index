@@ -18,7 +18,9 @@ if (import.meta.env.DEV && import.meta.env.MODE !== 'test' && !API_KEY) {
     console.warn('VITE_PRESENT_API_KEY not set — present command writes may fail');
 }
 
-function authHeaders(): Record<string, string> {
+// Also used by the projector poll (usePresentCommand): st=1 reports mutate
+// server state, so the server only honors them when this key is present.
+export function authHeaders(): Record<string, string> {
     return API_KEY ? { 'x-api-key': API_KEY } : {};
 }
 

@@ -32,7 +32,8 @@ const { default: handler } = await import('../api/present-command');
 function makeReq(query: Record<string, unknown>) {
     return {
         method: 'GET',
-        headers: {},
+        // Projector reports (st=1) mutate state, so the poll carries the key.
+        headers: { 'x-api-key': 'secret' },
         query,
         socket: { remoteAddress: '127.0.0.1' },
     };
@@ -68,6 +69,7 @@ describe('present-command API projector lid reports', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         vi.spyOn(Date, 'now').mockReturnValue(5000);
+        process.env.PRESENT_API_KEY = 'secret';
         redisState.current = {
             get: vi.fn().mockResolvedValue(null),
             set: vi.fn().mockResolvedValue('OK'),
