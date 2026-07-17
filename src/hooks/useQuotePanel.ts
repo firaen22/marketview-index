@@ -25,6 +25,14 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
 
     const pinnedIds = useMemo(() => new Set(pinned.map(p => p.id)), [pinned]);
 
+    // Pinned/spotlight state holds pin-time snapshots; re-derive from the
+    // latest data so the panel can't show stale prices next to fresh cards
+    // after a refresh. The snapshot stays as a fallback for items that have
+    // left the data set (e.g. funds toggled off).
+    const liveById = useMemo(() => new Map(allItems.map(item => [item.id, item])), [allItems]);
+    const pinnedLive = useMemo(() => pinned.map(p => liveById.get(p.id) ?? p), [pinned, liveById]);
+    const spotlightLive = spotlight ? liveById.get(spotlight.id) ?? spotlight : null;
+
     const toggle = useCallback((item: QuoteItem) => {
         setPinned(prev =>
             prev.some(p => p.id === item.id)
@@ -67,12 +75,12 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
 
     return {
         // data
-        pinned,
+        pinned: pinnedLive,
         pinnedIds,
         allItems,
         isPickerOpen,
         chartItem,
-        spotlight,
+        spotlight: spotlightLive,
         isSearchOpen,
         hasPinned,
         // actions

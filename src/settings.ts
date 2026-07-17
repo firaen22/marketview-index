@@ -114,11 +114,37 @@ export function normalizePresentCycle(value: unknown): PresentCycle {
     };
 }
 
+// Keep in sync with PresentSlideMode and isValidPresentSlide in slideApi.ts
+// (not imported from there: settings.ts must stay free of module side effects).
+const SLIDE_MODES: PresentSlideMode[] = ['markdown', 'html', 'url', 'pdf'];
+
+function normalizePresentSlide(value: unknown): PresentSlide {
+    if (!value || typeof value !== 'object') return DEFAULT_SLIDE;
+    const slide = value as Record<string, unknown>;
+    if (!SLIDE_MODES.includes(slide.mode as PresentSlideMode)) return DEFAULT_SLIDE;
+    if (typeof slide.content !== 'string') return DEFAULT_SLIDE;
+    if (typeof slide.updatedAt !== 'number' || !Number.isFinite(slide.updatedAt)) return DEFAULT_SLIDE;
+    return { mode: slide.mode as PresentSlideMode, content: slide.content, updatedAt: slide.updatedAt };
+}
+
+function stringArray(value: unknown): string[] | null {
+    if (!Array.isArray(value)) return null;
+    return value.filter((v): v is string => typeof v === 'string');
+}
+
+// The consolidated key is written by other tabs and app versions, so every
+// field is re-validated on read; corrupt values fall back per-field to DEFAULTS.
 function withNormalizedSettings(value: Partial<MarketFlowSettings>): MarketFlowSettings {
     return {
-        ...DEFAULTS,
-        ...value,
+        lang: value.lang === 'en' || value.lang === 'zh-TW' ? value.lang : DEFAULTS.lang,
+        chartMode: value.chartMode === 'nominal' || value.chartMode === 'percent' ? value.chartMode : DEFAULTS.chartMode,
+        showFunds: typeof value.showFunds === 'boolean' ? value.showFunds : DEFAULTS.showFunds,
+        geminiKey: typeof value.geminiKey === 'string' ? value.geminiKey : DEFAULTS.geminiKey,
+        presentSlide: normalizePresentSlide(value.presentSlide),
+        tickerSymbols: value.tickerSymbols === null ? null : stringArray(value.tickerSymbols) ?? DEFAULTS.tickerSymbols,
+        morningBrief: stringArray(value.morningBrief) ?? DEFAULTS.morningBrief,
         presentCycle: normalizePresentCycle(value.presentCycle),
+        jargonEnabled: typeof value.jargonEnabled === 'boolean' ? value.jargonEnabled : DEFAULTS.jargonEnabled,
     };
 }
 
@@ -157,8 +183,13 @@ function loadFromStorage(): MarketFlowSettings {
     if (migrated.lang !== 'en' && migrated.lang !== 'zh-TW') migrated.lang = DEFAULTS.lang;
     if (migrated.chartMode !== 'nominal' && migrated.chartMode !== 'percent') migrated.chartMode = DEFAULTS.chartMode;
 
-    safeSetItem(SETTINGS_KEY, JSON.stringify(migrated));
-    LEGACY_KEYS.forEach(k => safeRemoveItem(k));
+    // Only retire the legacy keys once the consolidated write actually landed —
+    // if it failed (quota/private browsing) they are the sole durable copy of
+    // e.g. the user's Gemini key. A failed write also marks storage stale so
+    // setSetting stops treating re-reads as the source of truth.
+    const persisted = safeSetItem(SETTINGS_KEY, JSON.stringify(migrated));
+    _persistFailed = !persisted;
+    if (persisted) LEGACY_KEYS.forEach(k => safeRemoveItem(k));
     return withNormalizedSettings(migrated);
 }
 

@@ -20,7 +20,10 @@ export function JargonSpotlight({ terms, lang }: Props) {
 
     if (terms.length === 0) return null;
 
-    const current = terms[index] || terms[0];
+    // `terms` can shrink before the effect resets `index`, so clamp during
+    // render — otherwise the frame before the reset paints e.g. "5/2".
+    const safeIndex = Math.min(index, terms.length - 1);
+    const current = terms[safeIndex];
 
     return (
         // Base font scales with the viewport's shorter side (`vmin`, which equals
@@ -36,14 +39,14 @@ export function JargonSpotlight({ terms, lang }: Props) {
         // 406px — phone-portrait previews — shrink the card and wrap its text
         // instead of overflowing the right edge.
         <div className="absolute bottom-[1.2em] left-[1.2em] z-20 max-w-[min(30em,calc(100vw-2.4em))] bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-[0.6em] px-[1.15em] py-[0.7em] pointer-events-none text-[clamp(13px,2vmin,44px)]">
-            <div key={index} className="hints-in">
+            <div key={safeIndex} className="hints-in">
                 <div className="flex items-center justify-between gap-[1em] mb-[0.35em]">
                     <span className="text-[0.8em] font-mono uppercase tracking-widest text-emerald-500">
                         {lang === 'zh-TW' ? '關鍵詞解釋' : 'Jargon'}
                     </span>
                     {terms.length > 1 && (
                         <span className="text-[0.8em] font-mono text-zinc-400">
-                            {index + 1}/{terms.length}
+                            {safeIndex + 1}/{terms.length}
                         </span>
                     )}
                 </div>

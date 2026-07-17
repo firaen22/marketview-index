@@ -32,6 +32,9 @@ export default async function handler(req: any, res: any) {
     }
   }
 
+  // Partial success is not a failed invocation: a 500 here would page on one
+  // flaky range even though the others were cached. Reserve 5xx for total loss.
   const allOk = Object.values(results).every(r => r.success);
-  return res.status(allOk ? 200 : 500).json({ success: allOk, results });
+  const anyOk = Object.values(results).some(r => r.success);
+  return res.status(anyOk ? 200 : 500).json({ success: allOk, results });
 }
