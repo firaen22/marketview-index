@@ -57,14 +57,23 @@ describe('macro-data zero-baseline guards', () => {
         process.env.FRED_API_KEY = 'test-key';
     });
 
-    it('drops GDP when a zero baseline would make change percent Infinity', async () => {
+    it('drops GDP when the prev-quarter baseline is zero', async () => {
         const res = await callWith({
-            GDPC1: fredObservations(['100', '0', '99', '98', '0', '96']),
+            GDPC1: fredObservations(['100', '0', '99', '98', '97', '96']),
         });
 
         expect(res.statusCode).toBe(200);
-        // Zero prev-quarter AND prev-year baselines: the row is dropped, same
-        // contract as a missing (".") observation — never Infinity/null JSON.
+        // A zero baseline is dropped like a missing (".") observation —
+        // never emitted as Infinity (which JSON-serializes to null).
+        expect(res.body.data.some((row: any) => row.symbol === 'GDPC1')).toBe(false);
+    });
+
+    it('drops GDP when the prev-year baseline is zero', async () => {
+        const res = await callWith({
+            GDPC1: fredObservations(['100', '99', '98', '97', '0', '96']),
+        });
+
+        expect(res.statusCode).toBe(200);
         expect(res.body.data.some((row: any) => row.symbol === 'GDPC1')).toBe(false);
     });
 
