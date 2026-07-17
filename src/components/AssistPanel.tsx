@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { PageDirection } from '../../lib/presentCommand';
-import { sendPresentPageCommand } from '../presentCommandApi';
 import type { PresentSlide } from '../settings';
 import type { PresentAssistState } from '../hooks/usePresentAssist';
+
+export type PageCommandState =
+    | { kind: 'idle' }
+    | { kind: 'sending' }
+    | { kind: 'error'; direction: PageDirection };
 
 interface Props {
     slide: PresentSlide;
@@ -12,29 +16,16 @@ interface Props {
     // CSS hides one — but `hidden` does not unmount, so calling usePresentAssist
     // in here would mount TWO pollers and double every vision call.
     assist: PresentAssistState;
+    // Owned by the caller for the same reason: with per-instance state, crossing
+    // the responsive breakpoint mid-request (fold/unfold) revealed an instance
+    // that still showed idle/enabled buttons, allowing a duplicate page command
+    // and hiding the error/Retry state.
+    pageCmd: PageCommandState;
+    onSendPage: (direction: PageDirection) => void;
 }
 
-type PageCommandState =
-    | { kind: 'idle' }
-    | { kind: 'sending' }
-    | { kind: 'error'; direction: PageDirection };
-
-export function AssistPanel({ slide, assist }: Props) {
+export function AssistPanel({ slide, assist, pageCmd, onSendPage }: Props) {
     const [collapsed, setCollapsed] = useState(false);
-    // Local click state only, no hook/effect/poller — safe even though this
-    // component mounts twice (mobile + desktop slots, see Props comment).
-    const [pageCmd, setPageCmd] = useState<PageCommandState>({ kind: 'idle' });
-
-    const sendPage = async (direction: PageDirection) => {
-        setPageCmd({ kind: 'sending' });
-        try {
-            await sendPresentPageCommand(direction);
-            setPageCmd({ kind: 'idle' });
-            navigator.vibrate?.(30);
-        } catch {
-            setPageCmd({ kind: 'error', direction });
-        }
-    };
 
     return (
         <section className="border-b border-zinc-900 bg-zinc-950/95">
@@ -81,7 +72,7 @@ export function AssistPanel({ slide, assist }: Props) {
                                 <>
                                     <button
                                         type="button"
-                                        onClick={event => { event.stopPropagation(); void sendPage('prev'); }}
+                                        onClick={event => { event.stopPropagation(); onSendPage('prev'); }}
                                         disabled={pageCmd.kind === 'sending'}
                                         className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                                         title="Turn projector to previous page"
@@ -90,7 +81,7 @@ export function AssistPanel({ slide, assist }: Props) {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={event => { event.stopPropagation(); void sendPage('next'); }}
+                                        onClick={event => { event.stopPropagation(); onSendPage('next'); }}
                                         disabled={pageCmd.kind === 'sending'}
                                         className="w-11 h-11 sm:w-8 sm:h-8 inline-flex items-center justify-center rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                                         title="Turn projector to next page"
@@ -102,7 +93,7 @@ export function AssistPanel({ slide, assist }: Props) {
                                             <span>Page turn failed</span>
                                             <button
                                                 type="button"
-                                                onClick={event => { event.stopPropagation(); void sendPage(pageCmd.direction); }}
+                                                onClick={event => { event.stopPropagation(); onSendPage(pageCmd.direction); }}
                                                 className="inline-flex items-center gap-1 px-2 py-1 min-h-[36px] rounded bg-zinc-900 text-rose-300 hover:bg-zinc-800"
                                             >
                                                 <RefreshCw className="w-3 h-3" />

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { CatalogItem } from '../lib/presentCommand';
+import type { CatalogItem, PageDirection } from '../lib/presentCommand';
 import { deletePdf } from './slideApi';
 import { getSettings, type PresentSlideMode } from './settings';
 import { formatRelativeTime } from './utils';
@@ -14,8 +14,9 @@ import { Monitor, RotateCcw, Clipboard, Eye, EyeOff } from 'lucide-react';
 import { SaveButton } from './components/SaveButton';
 import { MODE_HINTS, EXAMPLES } from './presentationExamples';
 import { CopilotBar } from './components/CopilotBar';
-import { AssistPanel } from './components/AssistPanel';
+import { AssistPanel, type PageCommandState } from './components/AssistPanel';
 import { usePresentAssist } from './hooks/usePresentAssist';
+import { sendPresentPageCommand } from './presentCommandApi';
 
 export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
@@ -27,6 +28,28 @@ export default function PresentationControl() {
     // CSS hides one, but hiding is not unmounting — a hook inside the panel would
     // run twice and double every (expensive) vision call.
     const assist = usePresentAssist({ slide, lang, enabled: true });
+    // Page-turn request state is shared by both AssistPanel slots for the same
+    // reason as `assist`: per-instance state desyncs across the responsive
+    // breakpoint (fold/unfold mid-request re-enables buttons / hides the error).
+    const [pageCmd, setPageCmd] = useState<PageCommandState>({ kind: 'idle' });
+    // Synchronous in-flight guard: the disabled button only takes effect at the
+    // next commit, so a same-frame double-tap (or a tap on the other slot's
+    // instance) could otherwise queue a duplicate page turn.
+    const pageCmdInFlightRef = useRef(false);
+    const sendPage = async (direction: PageDirection) => {
+        if (pageCmdInFlightRef.current) return;
+        pageCmdInFlightRef.current = true;
+        setPageCmd({ kind: 'sending' });
+        try {
+            await sendPresentPageCommand(direction);
+            setPageCmd({ kind: 'idle' });
+            navigator.vibrate?.(30);
+        } catch {
+            setPageCmd({ kind: 'error', direction });
+        } finally {
+            pageCmdInFlightRef.current = false;
+        }
+    };
     const commandCatalog = useMemo<CatalogItem[]>(() => [
         ...marketData.map(item => ({
             symbol: item.symbol,
@@ -97,7 +120,7 @@ export default function PresentationControl() {
                 them — a presenter reaching for notes still needs the deck. */}
             <div className="sm:hidden shrink-0">
                 <CopilotBar catalog={commandCatalog} lang={lang} />
-                <AssistPanel slide={slide} assist={assist} />
+                <AssistPanel slide={slide} assist={assist} pageCmd={pageCmd} onSendPage={direction => void sendPage(direction)} />
             </div>
 
             {/* Body — two-column on desktop, single-column on mobile */}
@@ -108,7 +131,7 @@ export default function PresentationControl() {
                         <CopilotBar catalog={commandCatalog} lang={lang} />
                     </div>
                     <div className="hidden sm:block">
-                        <AssistPanel slide={slide} assist={assist} />
+                        <AssistPanel slide={slide} assist={assist} pageCmd={pageCmd} onSendPage={direction => void sendPage(direction)} />
                     </div>
 
                     {/* Mode tabs */}

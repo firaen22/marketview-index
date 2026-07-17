@@ -103,6 +103,81 @@ describe('settings persistence', () => {
         }
     });
 
+    it('keeps legacy keys when the migration write fails so settings are not permanently lost', async () => {
+        localStorage.setItem('marketflow_lang', 'en');
+        localStorage.setItem('user_gemini_key', 'secret-key');
+        const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+            throw new Error('QuotaExceededError');
+        });
+        try {
+            const { getSettings } = await import('./settings');
+            expect(getSettings().geminiKey).toBe('secret-key');
+        } finally {
+            spy.mockRestore();
+        }
+        // The consolidated write failed, so the legacy keys are still the only
+        // durable copy — deleting them here would lose the user's Gemini key.
+        expect(localStorage.getItem('user_gemini_key')).toBe('secret-key');
+        expect(localStorage.getItem('marketflow_lang')).toBe('en');
+    });
+
+    it('setSetting after a failed migration write must not revert in-memory settings to defaults', async () => {
+        localStorage.setItem('marketflow_lang', 'en');
+        localStorage.setItem('user_gemini_key', 'secret-key');
+        const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+            throw new Error('QuotaExceededError');
+        });
+        try {
+            const { getSettings, setSetting, getSetting } = await import('./settings');
+            expect(getSettings().lang).toBe('en');
+            setSetting('chartMode', 'percent');
+            expect(getSetting('lang')).toBe('en');
+            expect(getSetting('geminiKey')).toBe('secret-key');
+            expect(getSetting('chartMode')).toBe('percent');
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it('sanitizes corrupted field types in the consolidated settings key', async () => {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+            lang: 'fr',
+            chartMode: 5,
+            showFunds: 'yes',
+            geminiKey: 42,
+            presentSlide: null,
+            tickerSymbols: 123,
+            morningBrief: 'not-an-array',
+            jargonEnabled: 'nope',
+        }));
+        const { getSettings } = await import('./settings');
+        const s = getSettings();
+        expect(s.lang).toBe('zh-TW');
+        expect(s.chartMode).toBe('nominal');
+        expect(s.showFunds).toBe(true);
+        expect(s.geminiKey).toBe('');
+        expect(s.presentSlide.mode).toBe('markdown');
+        expect(typeof s.presentSlide.content).toBe('string');
+        expect(s.tickerSymbols).toBeNull();
+        expect(s.morningBrief).toEqual([]);
+        expect(s.jargonEnabled).toBe(true);
+    });
+
+    it('keeps valid values while dropping invalid elements from ticker/brief arrays', async () => {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+            lang: 'en',
+            tickerSymbols: ['^HSI', 7, null, 'AAPL'],
+            morningBrief: ['line one', {}, 'line two'],
+            presentSlide: { mode: 'pdf', content: 'https://x/y.pdf', updatedAt: 5 },
+        }));
+        const { getSettings } = await import('./settings');
+        const s = getSettings();
+        expect(s.lang).toBe('en');
+        expect(s.tickerSymbols).toEqual(['^HSI', 'AAPL']);
+        expect(s.morningBrief).toEqual(['line one', 'line two']);
+        expect(s.presentSlide).toEqual({ mode: 'pdf', content: 'https://x/y.pdf', updatedAt: 5 });
+    });
+
     it('getSettings does not throw when storage access itself throws', async () => {
         const getSpy = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
             throw new Error('SecurityError');
