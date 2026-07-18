@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { CatalogItem, PageDirection } from '../lib/presentCommand';
 import { deletePdf } from './slideApi';
 import { getSettings, type PresentSlideMode } from './settings';
+import { getLocale } from './locales';
 import { formatRelativeTime } from './utils';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useMarketData } from './hooks/useMarketData';
@@ -50,11 +51,16 @@ export default function PresentationControl() {
             pageCmdInFlightRef.current = false;
         }
     };
+    // Index names arrive from the API in English only; the zh display names
+    // live in the locale map and were never fed to the command parser or the
+    // NLU prompt — so "恒生指數" had nothing to match. Localize the catalog:
+    // name = zh display name, nameEn = the API's English name.
+    const zhIndexNames = getLocale('zh-TW').indexNames as Record<string, string>;
     const commandCatalog = useMemo<CatalogItem[]>(() => [
         ...marketData.map(item => ({
             symbol: item.symbol,
-            name: item.name,
-            ...(item.nameEn ? { nameEn: item.nameEn } : {}),
+            name: zhIndexNames[item.name] ?? item.name,
+            ...(zhIndexNames[item.name] ? { nameEn: item.name } : item.nameEn ? { nameEn: item.nameEn } : {}),
             group: 'market' as const,
         })),
         ...macroData.map(item => ({
@@ -63,7 +69,7 @@ export default function PresentationControl() {
             ...(item.nameEn ? { nameEn: item.nameEn } : {}),
             group: 'macro' as const,
         })),
-    ], [marketData, macroData]);
+    ], [marketData, macroData, zhIndexNames]);
 
     const updateMode = (mode: PresentSlideMode) => saveSlide({ mode });
     const updateContent = (content: string) => saveSlide({ content });

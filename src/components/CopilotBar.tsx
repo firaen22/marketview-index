@@ -31,6 +31,7 @@ function displayForSymbol(symbol: string, catalog: CatalogItem[]): string {
 
 function commandMessage(command: PresentCommand, catalog: CatalogItem[]): string {
     if (command.kind === 'clear') return 'Clear';
+    if (command.kind === 'page') return command.direction === 'next' ? 'Page: next' : 'Page: prev';
     if (command.kind === 'view') return `View: ${command.view}`;
     if (command.kind === 'goto') return `Page: ${command.page}`;
     if (command.kind === 'jargon') return `Jargon: ${command.on ? 'on' : 'off'}`;

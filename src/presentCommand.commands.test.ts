@@ -85,7 +85,8 @@ describe('new presenter deterministic commands', () => {
         expect(parseCommandDeterministic('夏普比率係咩', catalog)).toEqual({ kind: 'explain', symbols: [], term: '夏普比率' });
         expect(parseCommandDeterministic('解釋什麼是夏普比率', catalog)).toEqual({ kind: 'explain', symbols: [], term: '夏普比率' });
         expect(parseCommandDeterministic(' explain duration??? ', catalog)).toEqual({ kind: 'explain', symbols: [], term: 'duration' });
-        expect(parseCommandDeterministic('explain 500', catalog)).toEqual({ kind: 'explain', symbols: [], term: '500' });
+        // "explain <catalog item>" is a market lookup, not a jargon card.
+        expect(parseCommandDeterministic('explain 500', catalog)).toEqual({ kind: 'chart', symbols: ['^GSPC'] });
         expect(parseCommandDeterministic('explain', catalog)).toBeNull();
         expect(parseCommandDeterministic(`explain ${'x'.repeat(81)}`, catalog)).toBeNull();
         expect(parseCommandDeterministic(`explain ${'🧠'.repeat(80)}`, catalog)).toEqual({ kind: 'explain', symbols: [], term: '🧠'.repeat(80) });

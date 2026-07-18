@@ -344,6 +344,25 @@ describe('present-command API handler', () => {
         expect(res.body).toEqual({ error: 'invalid_direction' });
     });
 
+    it('routes text page turns (deterministic and NLU) to the page queue, not the command slot', async () => {
+        // Deterministic: "next page" never hits NIM and lands in the queue.
+        let res = await call(authPost({ action: 'send', text: 'next page', lang: 'en', catalog }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({ kind: 'page', direction: 'next' });
+        expect(nimState.callNim).not.toHaveBeenCalled();
+        expect(redisState.current.set).not.toHaveBeenCalledWith('present:cmd:v1', expect.anything(), expect.anything());
+        expect(redisState.current.rpush.mock.calls.at(-1)[0]).toBe('present:pagecmd:v1');
+        expect(JSON.parse(redisState.current.rpush.mock.calls.at(-1)[1])).toMatchObject({ kind: 'page', direction: 'next' });
+
+        // NLU fallback: a parsed page intent is enqueued too.
+        nimState.callNim.mockResolvedValueOnce(JSON.stringify({ kind: 'page', symbols: [], direction: 'prev' }));
+        res = await call(authPost({ action: 'send', text: 'flip backwards somehow', lang: 'en', catalog }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({ kind: 'page', direction: 'prev' });
+        expect(redisState.current.set).not.toHaveBeenCalledWith('present:cmd:v1', expect.anything(), expect.anything());
+        expect(JSON.parse(redisState.current.rpush.mock.calls.at(-1)[1])).toMatchObject({ kind: 'page', direction: 'prev' });
+    });
+
     it('drains queued page commands only on the projector poll and skips malformed entries', async () => {
         redisState.current.get.mockResolvedValue(null);
         const pageCmd = (id: string) => JSON.stringify({ v: 1, id, kind: 'page', symbols: [], direction: 'next', issuedAt: 5000 });
@@ -452,7 +471,7 @@ describe('present-command API handler', () => {
         expect(res.statusCode).toBe(401);
     });
 
-    it('validates NIM fallback output and rejects unknown symbols, none, garbage, and macro charts', async () => {
+    it('validates NIM fallback output, rejects unknown symbols/none/garbage, coerces macro charts', async () => {
         nimState.callNim.mockResolvedValueOnce(JSON.stringify({ kind: 'chart', symbols: ['^FAKE'] }));
         let res = await call(authPost({ action: 'send', text: 'mystery', lang: 'en', catalog }));
         expect(res.statusCode).toBe(422);
@@ -466,9 +485,11 @@ describe('present-command API handler', () => {
         res = await call(authPost({ action: 'send', text: 'mystery', lang: 'en', catalog }));
         expect(res.statusCode).toBe(422);
 
+        // A macro "chart" is coerced to the quote it renders as, not 422ed.
         nimState.callNim.mockResolvedValueOnce(JSON.stringify({ kind: 'chart', symbols: ['US10Y'] }));
         res = await call(authPost({ action: 'send', text: 'mystery', lang: 'en', catalog }));
-        expect(res.statusCode).toBe(422);
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command.kind).toBe('quote');
     });
 
     it('canonicalizes NIM compare dedupe, compare truncation, and macro quote', async () => {
