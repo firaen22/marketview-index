@@ -61,7 +61,11 @@ export async function uploadPdf(file: File): Promise<string> {
         const err = await tokenRes.json().catch(() => ({ error: tokenRes.statusText }));
         throw new Error(err.error || 'Failed to get upload URL');
     }
-    const { uploadUrl, proxyUrl } = await tokenRes.json();
+    const { uploadUrl, proxyUrl } = await tokenRes.json().catch(() => ({}));
+    if (typeof uploadUrl !== 'string' || !uploadUrl || typeof proxyUrl !== 'string' || !proxyUrl) {
+        // A 200 with a malformed body would otherwise PUT the file to "/undefined".
+        throw new Error('Upload URL response was invalid');
+    }
 
     // Step 2: PUT directly to R2 — bypasses Vercel's 4.5 MB function limit
     const uploadRes = await fetch(uploadUrl, {

@@ -152,7 +152,13 @@ function cleanString(value: unknown, maxLength: number): string | null {
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
-    return trimmed.slice(0, maxLength);
+    if (trimmed.length <= maxLength) return trimmed;
+    let clipped = trimmed.slice(0, maxLength);
+    // slice() can cut a surrogate pair in half, leaving a lone high surrogate
+    // that renders as U+FFFD and corrupts downstream JSON re-encoding.
+    const last = clipped.charCodeAt(clipped.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) clipped = clipped.slice(0, -1);
+    return clipped;
 }
 
 function hasPollutionKey(value: Record<string, unknown>): boolean {
