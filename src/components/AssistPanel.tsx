@@ -144,9 +144,14 @@ export function AssistPanel({ slide, assist, pageCmd, onSendPage }: Props) {
                         <div className="text-xs text-zinc-500">Cancelled at {assist.prepare.done}/{assist.prepare.total}.</div>
                     )}
 
-                    {assist.prepare.status === 'done' && assist.prepare.total > 0 && assist.prepare.failed.length > 0 && (
-                        <div className="text-xs text-amber-300">
-                            {assist.prepare.done}/{assist.prepare.total} ready — no notes for {assist.prepare.failed.map(p => `p.${p}`).join(', ')}.
+                    {assist.prepare.status === 'done' && assist.prepare.total > 0 && (assist.prepare.failed.length > 0 || assist.prepare.jargonFailed.length > 0) && (
+                        <div className="space-y-1 text-xs text-amber-300">
+                            {assist.prepare.failed.length > 0 && (
+                                <div>{assist.prepare.done}/{assist.prepare.total} ready — no notes for {assist.prepare.failed.map(p => `p.${p}`).join(', ')}.</div>
+                            )}
+                            {assist.prepare.jargonFailed.length > 0 && (
+                                <div>Jargon not pre-cached for {assist.prepare.jargonFailed.map(p => `p.${p}`).join(', ')}</div>
+                            )}
                         </div>
                     )}
 

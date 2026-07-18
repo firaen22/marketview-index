@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistResult } from '../../lib/presentAssist';
 import { ASSIST_MAX_TEXT_LEN, ASSIST_MIN_TEXT_LEN, normalizeAssistText } from '../../lib/presentAssist';
 import type { PresentSlide } from '../settings';
+import { getSettings } from '../settings';
 import { fetchAssist, fetchAssistImage, fetchProjectorState, type ProjectorState } from '../presentCommandApi';
 import { extractPdfPageText, loadPdf, renderPdfPageToJpeg } from '../pdfText';
+import { buildJargonWarmBody, isJargonEligible } from '../jargon';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 const POLL_MS = 4000;
@@ -35,6 +37,7 @@ export interface PresentAssistState {
         done: number;
         total: number;
         failed: number[];
+        jargonFailed: number[];
         start: () => void;
         cancel: () => void;
     };
@@ -99,7 +102,8 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         done: number;
         total: number;
         failed: number[];
-    }>({ status: 'idle', done: 0, total: 0, failed: [] });
+        jargonFailed: number[];
+    }>({ status: 'idle', done: 0, total: 0, failed: [], jargonFailed: [] });
     const cacheRef = useRef(new Map<string, AssistResult>());
     const activeRequestKeyRef = useRef<string | null>(null);
     const assistControllerRef = useRef<AbortController | null>(null);
@@ -112,7 +116,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     const lastPollSuccessRef = useRef<{ serverTime: number; localAt: number } | null>(null);
     const retryBypassDebounceRef = useRef(false);
     const prepareStatusRef = useRef(prepareState.status);
-    const prepareRunRef = useRef<{ cancelled: boolean; controller: AbortController | null } | null>(null);
+    const prepareRunRef = useRef<{ cancelled: boolean; controllers: Set<AbortController> } | null>(null);
 
     useEffect(() => {
         prepareStatusRef.current = prepareState.status;
@@ -391,7 +395,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         const run = prepareRunRef.current;
         if (run) {
             run.cancelled = true;
-            run.controller?.abort();
+            run.controllers.forEach(controller => controller.abort());
         }
         setPrepareState(prev => ({ ...prev, status: 'cancelled' }));
         setRetryNonce(n => n + 1);
@@ -413,20 +417,91 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         // pdfRef write strands the doc the loop's loadPdf returns.
         loadKeyRef.current += 1;
 
-        const run = { cancelled: false, controller: null as AbortController | null };
+        const run = { cancelled: false, controllers: new Set<AbortController>() };
         prepareRunRef.current = run;
         prepareStatusRef.current = 'preparing';
-        setPrepareState({ status: 'preparing', done: 0, total: numPages, failed: [] });
+        setPrepareState({ status: 'preparing', done: 0, total: numPages, failed: [], jargonFailed: [] });
 
-        const runPage = async (targetPage: number): Promise<'done' | 'failed' | 'cancelled'> => {
+        const trackPrepareController = (controller: AbortController) => {
+            run.controllers.add(controller);
+            return () => {
+                run.controllers.delete(controller);
+            };
+        };
+
+        const warmJargonPage = async (
+            doc: PDFDocumentProxy,
+            safePage: number,
+            text: string,
+            imageBase64: string | null,
+            allowImageRender: boolean,
+        ): Promise<'warmed' | 'failed' | 'skipped' | 'cancelled'> => {
+            const settings = getSettings();
+            if (settings.jargonEnabled === false) return 'skipped';
+
+            let jargonImageBase64 = imageBase64;
+            if (!isJargonEligible(text) && jargonImageBase64 === null && allowImageRender) {
+                if (
+                    typeof slide.updatedAt !== 'number'
+                    || !Number.isFinite(slide.updatedAt)
+                    || slide.updatedAt <= 0
+                    || !Number.isInteger(safePage)
+                    || safePage < 1
+                ) {
+                    return 'skipped';
+                }
+                try {
+                    jargonImageBase64 = await renderPdfPageToJpeg(doc, safePage);
+                } catch {
+                    return run.cancelled ? 'cancelled' : 'skipped';
+                }
+                if (run.cancelled) return 'cancelled';
+            }
+
+            const body = buildJargonWarmBody(text, jargonImageBase64, settings.lang, slide.updatedAt, safePage);
+            if (body === null) return 'skipped';
+
+            const controller = new AbortController();
+            const untrack = trackPrepareController(controller);
+            let timedOut = false;
+            const abortTimeout = window.setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+            }, 'imageBase64' in body ? ASSIST_IMAGE_TIMEOUT_MS : ASSIST_TIMEOUT_MS);
+
+            try {
+                const key = settings.geminiKey.trim();
+                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                if (key) headers.Authorization = `Bearer ${key}`;
+                const response = await fetch('/api/explain-jargon', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(body),
+                    signal: controller.signal,
+                });
+                return response.ok ? 'warmed' : 'failed';
+            } catch {
+                return controller.signal.aborted && !timedOut ? 'cancelled' : 'failed';
+            } finally {
+                window.clearTimeout(abortTimeout);
+                untrack();
+            }
+        };
+
+        const runPage = async (targetPage: number): Promise<{ assist: 'done' | 'failed' | 'cancelled'; jargonFailed: boolean }> => {
             const requestLoadKey = loadKeyRef.current;
-            if (run.cancelled) return 'cancelled';
+            if (run.cancelled) return { assist: 'cancelled', jargonFailed: false };
             let target: Target | AssistStatus;
+            let docForJargon: PDFDocumentProxy | null = null;
+            let textForJargon = '';
+            let pageForJargon = targetPage;
+            let imageForJargon: string | null = null;
+            let allowJargonImageRender = false;
             try {
                 let doc = pdfRef.current?.url === slide.content ? pdfRef.current.doc : await loadPdf(slide.content);
                 if (run.cancelled) {
                     if (pdfRef.current?.doc !== doc) doc.destroy();
-                    return 'cancelled';
+                    return { assist: 'cancelled', jargonFailed: false };
                 }
                 if (pdfRef.current?.url !== slide.content) {
                     pdfRef.current?.doc.destroy();
@@ -440,12 +515,17 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 }
                 const safePage = Math.max(1, Math.min(doc.numPages, targetPage));
                 const text = await extractPdfPageText(doc, safePage);
-                if (run.cancelled) return 'cancelled';
+                docForJargon = doc;
+                textForJargon = text;
+                pageForJargon = safePage;
+                if (run.cancelled) return { assist: 'cancelled', jargonFailed: false };
                 if (isAssistTextEligible(text)) {
+                    allowJargonImageRender = true;
                     target = { kind: 'text', mode: 'pdf', page: safePage, text };
                 } else {
                     const imageBase64 = await renderPdfPageToJpeg(doc, safePage);
-                    if (run.cancelled) return 'cancelled';
+                    imageForJargon = imageBase64;
+                    if (run.cancelled) return { assist: 'cancelled', jargonFailed: false };
                     target = imageBase64
                         ? {
                             kind: 'image',
@@ -458,49 +538,77 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                         : 'notext';
                 }
             } catch {
-                return run.cancelled ? 'cancelled' : 'failed';
+                return { assist: run.cancelled ? 'cancelled' : 'failed', jargonFailed: false };
             }
-            if (run.cancelled || loadKeyRef.current !== requestLoadKey) return 'cancelled';
-            if (typeof target === 'string') return target === 'notext' ? 'failed' : 'cancelled';
+            if (run.cancelled || loadKeyRef.current !== requestLoadKey) return { assist: 'cancelled', jargonFailed: false };
+            if (typeof target === 'string') {
+                const jargonPromise = docForJargon
+                    ? warmJargonPage(docForJargon, pageForJargon, textForJargon, imageForJargon, allowJargonImageRender)
+                    : Promise.resolve<'skipped'>('skipped');
+                const jargonResult = await jargonPromise;
+                return {
+                    assist: target === 'notext' ? 'failed' : 'cancelled',
+                    jargonFailed: jargonResult === 'failed',
+                };
+            }
             const key = assistCacheKey(slide.updatedAt, target, lang);
             const cached = cacheRef.current.get(key);
-            if (cached) return 'done';
-            const controller = new AbortController();
-            run.controller = controller;
-            let timedOut = false;
-            const abortTimeout = window.setTimeout(() => {
-                timedOut = true;
-                controller.abort();
-            }, target.kind === 'image' ? ASSIST_IMAGE_TIMEOUT_MS : ASSIST_TIMEOUT_MS);
-            try {
-                const next = await fetchTargetAssist(target, lang, controller.signal);
-                if (run.cancelled) return 'cancelled';
-                cacheRef.current.set(key, next);
-                return 'done';
-            } catch {
-                return controller.signal.aborted && !timedOut ? 'cancelled' : 'failed';
-            } finally {
-                window.clearTimeout(abortTimeout);
-                if (run.controller === controller) run.controller = null;
-            }
+            const assistPromise = cached
+                ? Promise.resolve<'done' | 'failed' | 'cancelled'>('done')
+                : (async (): Promise<'done' | 'failed' | 'cancelled'> => {
+                    const controller = new AbortController();
+                    const untrack = trackPrepareController(controller);
+                    let timedOut = false;
+                    const abortTimeout = window.setTimeout(() => {
+                        timedOut = true;
+                        controller.abort();
+                    }, target.kind === 'image' ? ASSIST_IMAGE_TIMEOUT_MS : ASSIST_TIMEOUT_MS);
+                    try {
+                        const next = await fetchTargetAssist(target, lang, controller.signal);
+                        if (run.cancelled) return 'cancelled';
+                        cacheRef.current.set(key, next);
+                        return 'done';
+                    } catch {
+                        return controller.signal.aborted && !timedOut ? 'cancelled' : 'failed';
+                    } finally {
+                        window.clearTimeout(abortTimeout);
+                        untrack();
+                    }
+                })();
+            // Vision calls measured across this flow swing from ~16s to 60s.
+            // Keep assist and jargon warming overlapped so image-heavy deck
+            // preparation does not serialize two long AI requests per page.
+            const jargonPromise = docForJargon
+                ? warmJargonPage(docForJargon, pageForJargon, textForJargon, imageForJargon, allowJargonImageRender)
+                : Promise.resolve<'skipped'>('skipped');
+            const [assistResult, jargonResult] = await Promise.all([assistPromise, jargonPromise]);
+            return { assist: assistResult, jargonFailed: jargonResult === 'failed' };
         };
 
         void (async () => {
             const failed: number[] = [];
+            const jargonFailed: number[] = [];
             let done = 0;
             for (let targetPage = 1; targetPage <= numPages; targetPage += 1) {
                 if (run.cancelled) break;
-                const result = await runPage(targetPage);
-                if (run.cancelled || result === 'cancelled') break;
-                if (result === 'done') done += 1;
-                if (result === 'failed') failed.push(targetPage);
-                setPrepareState({ status: 'preparing', done, total: numPages, failed: [...failed] });
+                // A rejection escaping runPage (both fetch paths catch their own
+                // errors, but e.g. a settings read could throw synchronously)
+                // would otherwise kill this driver loop and wedge the panel at
+                // 'preparing' with nothing left to cancel it.
+                const result = await runPage(targetPage).catch(
+                    () => ({ assist: 'failed' as const, jargonFailed: false }),
+                );
+                if (run.cancelled || result.assist === 'cancelled') break;
+                if (result.assist === 'done') done += 1;
+                if (result.assist === 'failed') failed.push(targetPage);
+                if (result.jargonFailed) jargonFailed.push(targetPage);
+                setPrepareState({ status: 'preparing', done, total: numPages, failed: [...failed], jargonFailed: [...jargonFailed] });
             }
             if (prepareRunRef.current !== run) return;
             prepareRunRef.current = null;
             if (run.cancelled) return;
             prepareStatusRef.current = 'done';
-            setPrepareState({ status: 'done', done, total: numPages, failed });
+            setPrepareState({ status: 'done', done, total: numPages, failed, jargonFailed });
             setRetryNonce(n => n + 1);
         })();
     }, [lang, numPages, slide.content, slide.mode, slide.updatedAt]);
@@ -510,11 +618,11 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         const run = prepareRunRef.current;
         if (run) {
             run.cancelled = true;
-            run.controller?.abort();
+            run.controllers.forEach(controller => controller.abort());
         }
         prepareRunRef.current = null;
         prepareStatusRef.current = 'idle';
-        setPrepareState({ status: 'idle', done: 0, total: 0, failed: [] });
+        setPrepareState({ status: 'idle', done: 0, total: 0, failed: [], jargonFailed: [] });
         // The assist effect shares these deps and is declared FIRST, so on this
         // very render it already ran, saw 'preparing', and bailed — without a
         // nonce bump nothing re-triggers it and the notes stay dead until the
@@ -531,7 +639,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
             const run = prepareRunRef.current;
             if (run) {
                 run.cancelled = true;
-                run.controller?.abort();
+                run.controllers.forEach(controller => controller.abort());
             }
             prepareRunRef.current = null;
         };
@@ -549,6 +657,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
         prepare: {
             ...prepareState,
             failed: [...prepareState.failed].sort((a, b) => a - b),
+            jargonFailed: [...prepareState.jargonFailed].sort((a, b) => a - b),
             start: startPrepare,
             cancel: cancelPrepare,
         },
