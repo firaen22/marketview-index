@@ -74,7 +74,9 @@ export function parseJargonResponse(payload: unknown): JargonTerm[] {
         .filter((entry): entry is { term: unknown; explanation: unknown } => !!entry && typeof entry === 'object')
         .map(entry => ({
             term: typeof entry.term === 'string' ? entry.term.trim().slice(0, 80) : '',
-            explanation: typeof entry.explanation === 'string' ? entry.explanation.trim().slice(0, 200) : '',
+            // 240 matches the server sanitize cap (PR #12 raised it from 200 so a
+            // 30-word explanation doesn't truncate mid-sentence).
+            explanation: typeof entry.explanation === 'string' ? entry.explanation.trim().slice(0, 240) : '',
         }))
         .filter(entry => entry.term.length > 0 && entry.explanation.length > 0)
         .slice(0, 4);

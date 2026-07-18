@@ -69,10 +69,10 @@ describe('jargon helpers', () => {
     it('caps parsed term and explanation lengths', () => {
         const [term] = parseJargonResponse({
             success: true,
-            terms: [{ term: 'x'.repeat(100), explanation: 'y'.repeat(240) }],
+            terms: [{ term: 'x'.repeat(100), explanation: 'y'.repeat(300) }],
         });
         expect(term.term).toHaveLength(80);
-        expect(term.explanation).toHaveLength(200);
+        expect(term.explanation).toHaveLength(240);
     });
 
     it('returns an empty list for invalid payload shapes without throwing', () => {

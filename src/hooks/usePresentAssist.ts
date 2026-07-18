@@ -458,7 +458,10 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 if (run.cancelled) return 'cancelled';
             }
 
-            const body = buildJargonWarmBody(text, jargonImageBase64, settings.lang, slide.updatedAt, safePage);
+            // Use the hook's closed-over lang, not a fresh settings read: the run
+            // is cancelled-and-restarted on a lang change, and the assist cache
+            // keys in this same run are built from the closed-over value.
+            const body = buildJargonWarmBody(text, jargonImageBase64, lang, slide.updatedAt, safePage);
             if (body === null) return 'skipped';
 
             const controller = new AbortController();
