@@ -11,13 +11,14 @@ import { useMacroData } from './hooks/useMacroData';
 import { SlideRenderer } from './components/SlideRenderer';
 import { SlideErrorBoundary } from './components/SlideErrorBoundary';
 import { PdfUploader } from './components/PdfUploader';
-import { Monitor, RotateCcw, Clipboard, Eye, EyeOff } from 'lucide-react';
+import { Monitor, RotateCcw, Clipboard, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { SaveButton } from './components/SaveButton';
 import { MODE_HINTS, EXAMPLES } from './presentationExamples';
 import { CopilotBar } from './components/CopilotBar';
 import { AssistPanel, type PageCommandState } from './components/AssistPanel';
 import { usePresentAssist } from './hooks/usePresentAssist';
 import { sendPresentPageCommand } from './presentCommandApi';
+import { PreflightPanel } from './components/PreflightPanel';
 
 export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
@@ -25,6 +26,7 @@ export default function PresentationControl() {
     const { data: marketData } = useMarketData({ range: 'YTD', lang });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const [showPreview, setShowPreview] = useState(false);
+    const [preflightOpen, setPreflightOpen] = useState(false);
     // Owned here, not in AssistPanel: the panel renders in two layout slots and
     // CSS hides one, but hiding is not unmounting — a hook inside the panel would
     // run twice and double every (expensive) vision call.
@@ -119,8 +121,17 @@ export default function PresentationControl() {
                         <Monitor className="w-3.5 h-3.5" />
                         <span>Launch</span>
                     </button>
+                    <button
+                        onClick={() => setPreflightOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 text-zinc-200 rounded-lg text-xs font-bold hover:bg-zinc-700"
+                        title="Run go-live checks"
+                    >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Preflight</span>
+                    </button>
                 </div>
             </header>
+            {preflightOpen && <PreflightPanel lang={lang} onClose={() => setPreflightOpen(false)} />}
 
             {/* Mobile: notes live above the grid so the Preview toggle cannot hide
                 them — a presenter reaching for notes still needs the deck. */}

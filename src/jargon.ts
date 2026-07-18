@@ -49,6 +49,22 @@ export function prepareJargonText(text: string): string {
     return text.trim().replace(/\s+/g, ' ').slice(0, JARGON_MAX_TEXT_LEN);
 }
 
+export function buildJargonWarmBody(
+    text: string,
+    imageBase64: string | null,
+    lang: 'en' | 'zh-TW',
+    slideVersion: unknown,
+    page: unknown,
+): { text: string; lang: string; slideId: string } | { imageBase64: string; lang: string; slideId: string } | null {
+    if (typeof slideVersion !== 'number' || !Number.isFinite(slideVersion) || slideVersion <= 0) return null;
+    if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) return null;
+
+    const slideId = `${slideVersion}#${page}`;
+    if (isJargonEligible(text)) return { text: prepareJargonText(text), lang, slideId };
+    if (typeof imageBase64 === 'string' && imageBase64.length > 0) return { imageBase64, lang, slideId };
+    return null;
+}
+
 export function parseJargonResponse(payload: unknown): JargonTerm[] {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
     const data = payload as { success?: unknown; terms?: unknown };
