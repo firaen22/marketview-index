@@ -44,4 +44,11 @@ describe('applyAiArticleData (sweep 10)', () => {
         expect(result[1]).toEqual(articles[1]);
         expect(result[2]).toEqual(articles[2]);
     });
+
+    it('keeps a non-neutral original sentiment when the AI entry omits sentiment', () => {
+        const seeded: Article[] = [{ title: 'Oil crashes', summary: 'Oil crashes', sentiment: 'Bearish' }];
+        const result = applyAiArticleData(seeded, [{ summary: 'better summary' }]);
+        expect(result[0].sentiment).toBe('Bearish');
+        expect(result[0].summary).toBe('better summary');
+    });
 });

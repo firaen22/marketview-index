@@ -44,7 +44,7 @@ async function readJson(response: Response): Promise<any> {
 // readJson's {} fallback; callers would then hand `undefined` to UI code
 // expecting a session. Fail loudly instead.
 function requireSession(payload: any): ClientGlossarySession {
-    if (!payload?.session || typeof payload.session !== 'object') {
+    if (!payload?.session || typeof payload.session !== 'object' || Array.isArray(payload.session)) {
         throw new GlossaryApiError(502, 'Glossary server returned an invalid response');
     }
     return payload.session as ClientGlossarySession;
@@ -70,7 +70,7 @@ export async function fetchGlossarySession(code: string): Promise<ClientGlossary
     if (!response.ok) {
         throw new GlossaryApiError(response.status, payload?.error || `Glossary session load failed (${response.status})`);
     }
-    if (!payload?.session || typeof payload.session !== 'object') return null;
+    if (!payload?.session || typeof payload.session !== 'object' || Array.isArray(payload.session)) return null;
     // The public view omits keepAfter — leave it undefined so callers know it
     // is unknown rather than assuming the server kept the session.
     return { ...payload.session, joinCode: code } as ClientGlossarySession;

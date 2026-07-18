@@ -20,9 +20,13 @@ export function applyAiArticleData<T extends { title: string; summary: string; s
         const aiData: any = aiArticles[i];
         if (!aiData || typeof aiData !== 'object') return article;
 
-        let sentiment: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
-        if (aiData.sentiment?.toUpperCase?.().includes('BULLISH')) sentiment = 'Bullish';
-        else if (aiData.sentiment?.toUpperCase?.().includes('BEARISH')) sentiment = 'Bearish';
+        // Only an explicit string sentiment overrides; a missing/malformed
+        // field keeps the article's existing sentiment.
+        let sentiment = article.sentiment;
+        if (typeof aiData.sentiment === 'string') {
+            const upper = aiData.sentiment.toUpperCase();
+            sentiment = upper.includes('BULLISH') ? 'Bullish' : upper.includes('BEARISH') ? 'Bearish' : 'Neutral';
+        }
 
         return {
             ...article,

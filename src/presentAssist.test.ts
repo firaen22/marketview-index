@@ -72,6 +72,12 @@ describe('present assist helpers', () => {
         expect(validateAssistResult({ points: [], questions: [] })).toBeNull();
     });
 
+    it('leaves non-truncated strings untouched even with a trailing lone surrogate', () => {
+        const point = 'abc\uD800';
+        const result = validateAssistResult({ points: [point], questions: [] });
+        expect(result!.points[0]).toBe(point);
+    });
+
     it('never leaves a lone high surrogate when truncation lands mid-emoji', () => {
         const point = `${'a'.repeat(239)}😀`;
         const result = validateAssistResult({ points: [point], questions: [] });

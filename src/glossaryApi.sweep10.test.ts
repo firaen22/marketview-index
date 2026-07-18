@@ -39,6 +39,13 @@ describe('glossary session responses without a session payload (sweep 10)', () =
         stubFetch({ json: () => Promise.resolve({ session: 'live' }) });
         await expect(fetchGlossarySession('ABCD')).resolves.toBeNull();
     });
+
+    it('rejects an array session payload', async () => {
+        stubFetch({ json: () => Promise.resolve({ session: ['live'] }) });
+        await expect(reopenGlossarySession('ABCD')).rejects.toBeInstanceOf(GlossaryApiError);
+        stubFetch({ json: () => Promise.resolve({ session: ['live'] }) });
+        await expect(fetchGlossarySession('ABCD')).resolves.toBeNull();
+    });
 });
 
 describe('uploadPdf token response validation (sweep 10)', () => {
