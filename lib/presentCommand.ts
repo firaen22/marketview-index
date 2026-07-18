@@ -35,6 +35,7 @@ export type PresentIntent =
     | { kind: 'quote'; symbols: string[] }
     | { kind: 'view'; symbols: []; view: PresentView }
     | { kind: 'clear'; symbols: [] }
+    | { kind: 'page'; symbols: []; direction: PageDirection }
     | { kind: 'goto'; symbols: []; page: number | 'first' | 'last' }
     | { kind: 'jargon'; symbols: []; on: boolean }
     | { kind: 'cycle'; symbols: []; on: boolean; dwellSec?: number }
@@ -47,8 +48,17 @@ const VIEWS = ['slide', 'index', 'heatmap'] as const;
 const CLEAR_WORDS = new Set(['clear', 'close', 'back', 'slides', 'slide', '返回', '清除', '關閉', '投影片']);
 const HEATMAP_WORDS = new Set(['heatmap', '熱圖', '熱力圖']);
 const INDEX_WORDS = new Set(['dashboard', 'index', '指數', '大盤']);
-const COMPARE_SPLIT = /\s*(?:vs\.?|對比|比較|,|，)\s*/i;
-const LEADING_VERB = /^(?:show|display|open|看|顯示|睇)\s*/i;
+const COMPARE_SPLIT = /\s*(?:vs\.?|versus|對比|比較|,|，)\s*|\s+(?:and|with)\s+|\s*(?:同埋|同|與|和)\s*/i;
+const LEADING_VERB = /^(?:show me|show|display|open up|open|pull up|put up|compare|check|see|看|顯示|睇下|睇吓|睇返|睇|開返|開|拉|整)\s*/i;
+// Politeness/particle shell around the actual command ("唔該幫我...", "... please").
+// Stripped once up front so every later pattern sees the bare command.
+const LEADING_COURTESY = /^(?:唔該|請|请|麻煩|麻烦|please)[\s,，]*(?:幫我|帮我|同我|比我|給我|给我)?\s*/i;
+const LEADING_HELPER = /^(?:幫我|帮我|同我|比我|給我|给我)\s*/;
+const TRAILING_COURTESY = /[\s,，]*(?:please|唔該|thanks|thank you|啦|先|呀|佢)$/i;
+const TRAILING_PUNCTUATION = /[\s。．.!！?？]+$/;
+// Generic chart nouns a presenter appends to a symbol ("標普500走勢", "gold
+// price"): stripped as a RETRY only after the raw text fails to resolve.
+const TRAILING_CHART_NOUN = /\s*(?:嘅)?(?:走勢圖|走勢|圖表|個圖|張圖|圖|價格|价格|chart|graph|price|timeline)$/i;
 const CYCLE_SUBJECT = String.raw`(?:auto[- ]?cycle|auto[- ]?play|auto|cycle|rotation|自動輪播|自動播|輪播|自動)`;
 const MAX_COMPARE_SYMBOLS = 5;
 const MAX_EXPLAIN_TERM_CODE_POINTS = 80;
@@ -62,11 +72,40 @@ type RawIntent = {
     symbols?: unknown;
     view?: unknown;
     page?: unknown;
+    direction?: unknown;
     on?: unknown;
     dwellSec?: unknown;
     range?: unknown;
     term?: unknown;
 };
+
+// Spoken/typed nicknames for the FIXED index/commodity set. The dynamic
+// catalog (funds) never gets aliases. Matching is EXACT-only (after verb/noun
+// stripping): substring alias matching was reviewed and rejected — short
+// aliases like "gold"/"oil"/"btc" collide with fund-name substrings and a
+// wrong chart on a live projector is worse than a 422.
+const SYMBOL_ALIASES: Record<string, string[]> = {
+    '^HSI': ['恒指', '恆指', '恒生指數', '恒生指数', '恆生指數', '大市', 'hang seng'],
+    '^GSPC': ['標普', '标普', '標普500', '標普五百', '標準普爾', 'spx', 's&p', 's&p500', 'sp500'],
+    '^IXIC': ['納指', '纳指', '納斯達克', '纳斯达克', 'nasdaq'],
+    '^DJI': ['道指', '杜指', '道瓊斯', '道琼斯', '道瓊', 'dow'],
+    '^N225': ['日經', '日经', '日經225', '日经225', 'nikkei'],
+    '^VIX': ['恐慌指數', '恐慌指数'],
+    '^FTSE': ['富時', '富时', '英股'],
+    '^GDAXI': ['德股', 'dax'],
+    'DX-Y.NYB': ['美元指數', '美元指数', 'dxy'],
+    'JPY=X': ['日圓', '日元', '美元兌日圓', 'yen'],
+    'EURUSD=X': ['歐元', '欧元', 'euro'],
+    'HKD=X': ['港元', '港紙', '港幣'],
+    'BTC-USD': ['比特幣', '比特币', 'btc', 'bitcoin'],
+    'ETH-USD': ['以太幣', '乙太幣', '以太坊', 'eth'],
+    'CL=F': ['油價', '油价', '原油', '石油', 'oil'],
+    'GC=F': ['金價', '金价', '黃金', '黄金', 'gold'],
+};
+
+export function aliasesForSymbol(symbol: string): string[] {
+    return SYMBOL_ALIASES[symbol] ?? [];
+}
 
 function isKind(value: unknown): value is PresentCommandKind {
     return typeof value === 'string' && (KINDS as readonly string[]).includes(value);
@@ -106,6 +145,15 @@ function stripLeadingVerb(value: string): string {
     return normalizeText(value).replace(LEADING_VERB, '').trim();
 }
 
+function stripCourtesy(value: string): string {
+    let text = normalizeText(value);
+    text = text.replace(TRAILING_PUNCTUATION, '');
+    text = text.replace(LEADING_COURTESY, '');
+    text = text.replace(LEADING_HELPER, '');
+    text = text.replace(TRAILING_COURTESY, '');
+    return text.trim();
+}
+
 function parsePageNumber(value: string): number | null {
     const page = Number.parseInt(value, 10);
     return Number.isInteger(page) && page >= 1 && page <= MAX_GOTO_PAGE ? page : null;
@@ -139,8 +187,12 @@ function parsePolarity(value: string): boolean | null {
 }
 
 const EXPLAIN_PREFIX_EN = /^(?:explain|define|what\s+is|what's|whats)\s+(.+)$/i;
-const EXPLAIN_PREFIX_ZH = /^(?:解釋|解释|咩係|乜係|什麼是|甚麼是|点解是)\s*(.+)$/;
+// The 下 particle after 解釋 ("解釋下 Duration") is only stripped when a space
+// or Latin text follows — terms genuinely starting with 下 (下行風險) survive.
+const EXPLAIN_PREFIX_ZH = /^(?:(?:同我|幫我|帮我)?\s*(?:解釋|解释)(?:一下|吓|下(?=[\sA-Za-z]))?|咩係|乜係|咩叫|什麼是|甚麼是|点解是)\s*(.+)$/;
 const EXPLAIN_SUFFIX_ZH = /^(.+?)\s*(?:係咩|係乜|是什麼|是甚麼)$/;
+// "...係咩意思" trailing a prefix-form capture ("解釋下 Duration 係咩意思").
+const EXPLAIN_TERM_TRAILER = /\s*(?:係咩意思|係乜意思|是什麼意思|是甚麼意思|的意思|嘅意思|係咩|係乜|是什麼|是甚麼)$/;
 const HIGHLIGHT_PREFIX = /^(?:highlight|focus|spotlight|聚焦|標示|重點)\s+(.+)$/i;
 
 function stripExplainPunctuation(value: string): string {
@@ -156,11 +208,29 @@ function validExplainTerm(value: string): string | null {
     return term && codePointLength(term) <= MAX_EXPLAIN_TERM_CODE_POINTS ? term : null;
 }
 
-function parseExplainIntent(normalized: string): PresentIntent | null {
+// "what is X" phrasing where X is really a market question, not a concept
+// ("what's the S&P doing", "what is VIX today"): must NOT become a jargon
+// card with a junk term. Falls through to the NLU instead (return null).
+const MARKET_QUESTION_CUE = /\b(?:doing|at|today|now|price|prices|quote|chart|level|up|down|going)\b|%|點樣|依家|而家|今日/i;
+
+function explainOrCatalogIntent(term: string, catalog: CatalogItem[], requireCleanTerm: boolean): PresentIntent | null {
+    // A term that IS a catalog item ("what's the hang seng", "咩係恒指") is a
+    // market lookup, not jargon: chart it (market) or quote it (macro).
+    const item = resolveCatalogItem(term.replace(/^(?:the|a|an)\s+/i, ''), catalog);
+    if (item) {
+        return item.group === 'market'
+            ? { kind: 'chart', symbols: [item.symbol] }
+            : { kind: 'quote', symbols: [item.symbol] };
+    }
+    if (requireCleanTerm && MARKET_QUESTION_CUE.test(term)) return null;
+    return { kind: 'explain', symbols: [], term };
+}
+
+function parseExplainIntent(normalized: string, catalog: CatalogItem[]): PresentIntent | null {
     const en = EXPLAIN_PREFIX_EN.exec(normalized);
     if (en) {
         const term = validExplainTerm(en[1]);
-        return term ? { kind: 'explain', symbols: [], term } : null;
+        return term ? explainOrCatalogIntent(term, catalog, true) : null;
     }
 
     let zh = EXPLAIN_PREFIX_ZH.exec(normalized);
@@ -168,23 +238,27 @@ function parseExplainIntent(normalized: string): PresentIntent | null {
         let rest = zh[1].trim();
         const nested = EXPLAIN_PREFIX_ZH.exec(rest);
         if (nested) rest = nested[1].trim();
+        rest = rest.replace(EXPLAIN_TERM_TRAILER, '').trim();
+        // A "why" question (點解...) isn't a term — the NLU condenses it into
+        // one ("殖利率曲線點解會倒掛" → 殖利率曲線倒掛) better than a regex can.
+        if (/點解|点解|為什麼|为什么/.test(rest)) return null;
         const term = validExplainTerm(rest);
-        return term ? { kind: 'explain', symbols: [], term } : null;
+        return term ? explainOrCatalogIntent(term, catalog, false) : null;
     }
 
     zh = EXPLAIN_SUFFIX_ZH.exec(normalized);
     if (zh) {
         const term = validExplainTerm(zh[1]);
-        return term ? { kind: 'explain', symbols: [], term } : null;
+        return term ? explainOrCatalogIntent(term, catalog, false) : null;
     }
     return null;
 }
 
 const RANGE_TOKEN_ENTRIES: Array<[PresentRange, string[]]> = [
-    ['1M', ['1m', '1 m', '1 month', '1個月', '一個月', '1个月']],
-    ['3M', ['3m', '3 m', '3 months', '3個月', '三個月', '3个月']],
-    ['YTD', ['ytd', '年初至今', '今年以來', '今年']],
-    ['1Y', ['1y', '1 yr', '1 year', '1年', '一年']],
+    ['1M', ['1m', '1 m', '1 month', '1-month', 'one month', '1個月', '一個月', '1个月']],
+    ['3M', ['3m', '3 m', '3 months', '3-month', 'three months', '3個月', '三個月', '3个月']],
+    ['YTD', ['ytd', 'year to date', '年初至今', '今年以來', '今年']],
+    ['1Y', ['1y', '1 yr', '1 year', '1-year', 'one year', '1年', '一年']],
 ];
 
 function escapeRegExp(value: string): string {
@@ -205,7 +279,7 @@ function parseClosedFormIntent(normalized: string, lower: string, catalog: Catal
         return item?.group === 'market' ? { kind: 'highlight', symbols: [item.symbol] } : null;
     }
 
-    const explain = parseExplainIntent(normalized);
+    const explain = parseExplainIntent(normalized, catalog);
     if (explain) return explain;
 
     const bareInteger = /^\d{1,3}$/.exec(lower);
@@ -218,32 +292,44 @@ function parseClosedFormIntent(normalized: string, lower: string, catalog: Catal
         return page ? { kind: 'goto', symbols: [], page } : null;
     }
 
-    const gotoNumber = /^(?:go\s*to|turn\s*to|jump\s*to|去|跳到|翻到|轉到)?\s*(?:page|pg?|第)\s*(\d{1,3})\s*(?:頁|页)?$/.exec(lower);
+    // Relative page turns typed as text (the buttons already exist; presenters
+    // also SAY it): "next page", "下一頁". Bare "back" stays a clear word.
+    if (/^(?:go\s+)?(?:to\s+)?(?:the\s+)?(?:next|forward)(?:\s+(?:one\s+)?(?:page|slide))?$/.test(lower)
+        || /^(?:下一頁|下頁|下一页|下一張|下一张|下一版|落一頁|翻下一頁|去下一頁|轉下一頁|跳下一頁)$/.test(normalized)) {
+        return { kind: 'page', symbols: [], direction: 'next' };
+    }
+    if (/^(?:go\s+)?(?:to\s+)?(?:the\s+)?(?:previous|prev)(?:\s+(?:one\s+)?(?:page|slide))?$/.test(lower)
+        || /^(?:go\s+|page\s+|slide\s+)?back\s+(?:one\s+|a\s+)?(?:page|slide)$/.test(lower)
+        || /^(?:上一頁|上頁|上一页|上一張|上一张|前一頁|退一頁|返上一頁|返上頁|翻返上一頁|翻去上一頁|回上一頁)$/.test(normalized)) {
+        return { kind: 'page', symbols: [], direction: 'prev' };
+    }
+
+    const gotoNumber = /^(?:go\s*to|turn\s*to|jump\s*to|skip\s*to|去|跳到|跳去|去到|翻到|翻去|轉到|轉去|返去)?\s*(?:page|pg?|第)\s*(\d{1,3})\s*(?:頁|页)?$/.exec(lower);
     if (gotoNumber) {
         const page = parsePageNumber(gotoNumber[1]);
         return page ? { kind: 'goto', symbols: [], page } : null;
     }
 
-    const gotoZh = /^(?:去|跳到|翻到|轉到)?\s*第\s*([一二三四五六七八九十]{1,3})\s*[頁页]?$/.exec(normalized);
+    const gotoZh = /^(?:去|跳到|跳去|去到|翻到|翻去|轉到|轉去|返去)?\s*第\s*([一二三四五六七八九十]{1,3})\s*[頁页]?$/.exec(normalized);
     if (gotoZh) {
         const page = chinesePageNumber(gotoZh[1]);
         return page ? { kind: 'goto', symbols: [], page } : null;
     }
 
-    if (new Set(['first page', 'first', '第一頁', '首頁']).has(lower)) return { kind: 'goto', symbols: [], page: 'first' };
-    if (new Set(['last page', 'last', '最後一頁', '最尾', '尾頁']).has(lower)) return { kind: 'goto', symbols: [], page: 'last' };
+    if (new Set(['first page', 'first', '第一頁', '第一張', '首頁', '返去第一頁']).has(lower)) return { kind: 'goto', symbols: [], page: 'first' };
+    if (new Set(['last page', 'last', '最後一頁', '最後一張', '最後嗰張', '最尾', '尾頁']).has(lower)) return { kind: 'goto', symbols: [], page: 'last' };
 
     const jargon = /^(?:jargon|術語卡?|术语卡?)\s*(on|off|開|關|开|关)$/.exec(lower);
     if (jargon) return { kind: 'jargon', symbols: [], on: parsePolarity(jargon[1])! };
-    if (/^(?:開|著|开|打開|開啟)\s*(?:術語|术语)卡?$/.test(lower)) return { kind: 'jargon', symbols: [], on: true };
-    if (/^(?:關|閂|熄|关|關閉|收起)\s*(?:術語|术语)卡?$/.test(lower)) return { kind: 'jargon', symbols: [], on: false };
+    if (/^(?:開|著|开|打開|開啟)(?:返|埋)?\s*(?:個|个)?\s*(?:術語|术语)卡?$/.test(lower)) return { kind: 'jargon', symbols: [], on: true };
+    if (/^(?:關|閂|熄|关|關閉|收起)(?:咗|埋|返)?\s*(?:個|个)?\s*(?:術語|术语)卡?$/.test(lower)) return { kind: 'jargon', symbols: [], on: false };
     if (/^(?:open|show|enable|turn on)\s+jargon$/.test(lower)) return { kind: 'jargon', symbols: [], on: true };
     if (/^(?:close|hide|disable|turn off)\s+jargon$/.test(lower)) return { kind: 'jargon', symbols: [], on: false };
 
     const cyclePolarity = new RegExp(`^${CYCLE_SUBJECT}\\s*(on|off|開|關|开|关)$`).exec(lower);
     if (cyclePolarity) return { kind: 'cycle', symbols: [], on: parsePolarity(cyclePolarity[1])! };
-    if (new RegExp(`^(?:開|開始|著)\\s*${CYCLE_SUBJECT}$`).test(lower)) return { kind: 'cycle', symbols: [], on: true };
-    if (new RegExp(`^(?:關|停|熄|閂|停止|暫停)\\s*${CYCLE_SUBJECT}$`).test(lower) || lower === '停播') return { kind: 'cycle', symbols: [], on: false };
+    if (new RegExp(`^(?:開|開始|著)(?:返|埋)?\\s*(?:個|个)?\\s*${CYCLE_SUBJECT}$`).test(lower)) return { kind: 'cycle', symbols: [], on: true };
+    if (new RegExp(`^(?:關|停|熄|閂|停止|暫停)(?:咗|埋|返)?\\s*(?:個|个)?\\s*${CYCLE_SUBJECT}$`).test(lower) || lower === '停播') return { kind: 'cycle', symbols: [], on: false };
     const cycleDwell = new RegExp(`^${CYCLE_SUBJECT}\\s*(\\d{1,3})\\s*(?:s|sec|secs|seconds|秒)?$`).exec(lower);
     if (cycleDwell) {
         const dwell = Number.parseInt(cycleDwell[1], 10);
@@ -252,6 +338,20 @@ function parseClosedFormIntent(normalized: string, lower: string, catalog: Catal
 
     const range = standaloneRange(lower);
     if (range) return { kind: 'range', symbols: [], range };
+
+    // Whole-utterance range switch with verb/chart-noun shell: "睇返一年圖",
+    // "switch to 3 months", "1y chart". Exact-token only after stripping, so a
+    // range word next to a symbol still goes through parseChartRange instead.
+    const rangeShell = stripLeadingVerb(normalized)
+        .replace(/^(?:switch to|change to|轉去|轉返|切換到|切換)\s*/i, '')
+        .replace(TRAILING_CHART_NOUN, '')
+        .replace(/\s*(?:嘅)?(?:時間範圍|时间范围|timeframe|period|range|view)$/i, '')
+        .trim()
+        .toLowerCase();
+    if (rangeShell !== lower) {
+        const shellRange = standaloneRange(rangeShell);
+        if (shellRange) return { kind: 'range', symbols: [], range: shellRange };
+    }
 
     return null;
 }
@@ -265,9 +365,12 @@ function parseChartRange(normalized: string, catalog: CatalogItem[]): PresentInt
     for (const [range, tokens] of RANGE_TOKEN_ENTRIES) {
         for (const token of tokens) {
             const pattern = rangeTokenPattern(token);
-            const leading = new RegExp(`^${pattern}\\s+(.+)$`, 'i').exec(normalized);
+            // CJK range tokens ("一年") sit flush against the symbol part
+            // ("恒指一年圖") — no whitespace boundary exists to require.
+            const boundary = /[一-鿿]/.test(token) ? '\\s*' : '\\s+';
+            const leading = new RegExp(`^${pattern}${boundary}(.+)$`, 'i').exec(normalized);
             if (leading) candidates.push({ range, remainder: leading[1] });
-            const trailing = new RegExp(`^(.+)\\s+${pattern}$`, 'i').exec(normalized);
+            const trailing = new RegExp(`^(.+?)${boundary}${pattern}$`, 'i').exec(normalized);
             if (trailing) candidates.push({ range, remainder: trailing[1] });
         }
     }
@@ -282,6 +385,15 @@ function parseChartRange(normalized: string, catalog: CatalogItem[]): PresentInt
 }
 
 function resolveCatalogItem(part: string, catalog: CatalogItem[]): CatalogItem | null {
+    const direct = resolveCatalogItemOnce(part, catalog);
+    if (direct) return direct;
+    // Retry once with a trailing generic chart noun removed ("標普500走勢",
+    // "gold price") — only as a fallback so exact names keep priority.
+    const stripped = stripLeadingVerb(part).replace(TRAILING_CHART_NOUN, '').trim();
+    return stripped && stripped !== stripLeadingVerb(part) ? resolveCatalogItemOnce(stripped, catalog) : null;
+}
+
+function resolveCatalogItemOnce(part: string, catalog: CatalogItem[]): CatalogItem | null {
     const raw = stripLeadingVerb(part);
     if (!raw) return null;
     const lower = raw.toLowerCase();
@@ -295,6 +407,10 @@ function resolveCatalogItem(part: string, catalog: CatalogItem[]): CatalogItem |
 
     const nameExact = catalog.find(item => item.name.toLowerCase() === lower || item.nameEn?.toLowerCase() === lower);
     if (nameExact) return nameExact;
+
+    const aliasExact = catalog.find(item =>
+        (SYMBOL_ALIASES[item.symbol] ?? []).some(alias => alias.toLowerCase() === lower));
+    if (aliasExact) return aliasExact;
 
     const matches = catalog.filter(item => {
         const symbol = item.symbol.toLowerCase();
@@ -320,7 +436,7 @@ function dedupeSymbols(symbols: string[]): string[] {
 }
 
 export function parseCommandDeterministic(text: string, catalog: CatalogItem[]): PresentIntent | null {
-    const normalized = normalizeText(text);
+    const normalized = normalizeText(stripCourtesy(text));
     if (!normalized) return null;
     const lower = normalized.toLowerCase();
 
@@ -355,6 +471,9 @@ export function parseCommandDeterministic(text: string, catalog: CatalogItem[]):
     if (compareParts.length >= 2) {
         const resolved = compareParts.map(part => resolveCatalogItem(part, catalog));
         if (resolved.some(item => item === null)) return null;
+        // Compare is market-only; a macro member (e.g. "CPI 同 GDP") must fall
+        // through to the NLU instead of a guaranteed-422 deterministic intent.
+        if (resolved.some(item => item!.group !== 'market')) return null;
         return {
             kind: 'compare',
             symbols: (resolved as CatalogItem[]).map(item => item.symbol),
@@ -431,7 +550,11 @@ export function validatePresentIntent(
             : { ok: false };
     }
 
-    if (raw.kind === 'page') return { ok: false };
+    if (raw.kind === 'page') {
+        return Array.isArray(raw.symbols) && raw.symbols.length === 0 && isPageDirection(raw.direction)
+            ? { ok: true, intent: { kind: 'page', symbols: [], direction: raw.direction } }
+            : { ok: false };
+    }
 
     if (!Array.isArray(raw.symbols) || !raw.symbols.every(symbol => typeof symbol === 'string')) {
         return { ok: false };
@@ -466,9 +589,11 @@ export function validatePresentIntent(
     const item = catalog.find(entry => entry.symbol === symbols[0]);
     if (!item) return { ok: false };
     if (raw.kind === 'chart') {
+        // "chart" of a macro series is what a quote shows here — coerce
+        // instead of 422ing a correct symbol pick ("Show US GDP chart").
         return item.group === 'market'
             ? { ok: true, intent: { kind: 'chart', symbols, ...(range ? { range } : {}) } }
-            : { ok: false };
+            : { ok: true, intent: { kind: 'quote', symbols } };
     }
     return raw.kind === 'quote' ? { ok: true, intent: { kind: 'quote', symbols } } : { ok: false };
 }
@@ -482,6 +607,7 @@ export function buildPresentCommand(intent: PresentIntent, id: string, issuedAt:
         id,
         kind: intent.kind,
         symbols: intent.symbols,
+        ...(intent.kind === 'page' ? { direction: intent.direction } : {}),
         ...(intent.kind === 'goto' ? { page: intent.page } : {}),
         ...(intent.kind === 'jargon' ? { on: intent.on } : {}),
         ...(intent.kind === 'cycle' ? { on: intent.on, ...(intent.dwellSec !== undefined ? { dwellSec: intent.dwellSec } : {}) } : {}),
@@ -492,23 +618,32 @@ export function buildPresentCommand(intent: PresentIntent, id: string, issuedAt:
     };
 }
 
+function promptField(value: string): string {
+    // Names are client-supplied; tabs/newlines would corrupt the line format.
+    return value.replace(/[\t\r\n]+/g, ' ');
+}
+
 export function buildParsePrompt(text: string, catalog: CatalogItem[], lang: 'en' | 'zh-TW') {
     const catalogLines = catalog
-        .map(item => `${item.symbol}\t${item.name}\t${item.nameEn ?? ''}\t${item.group}`)
+        .map(item => {
+            const aliases = (SYMBOL_ALIASES[item.symbol] ?? []).join(' / ');
+            return `${promptField(item.symbol)}\t${promptField(item.name)}\t${promptField(item.nameEn ?? '')}\t${item.group}\t${aliases}`;
+        })
         .join('\n');
     return [{
         role: 'user' as const,
         content: [
             'Parse a presenter command into a structured intent.',
-            `Language hint: ${lang}. User text can be zh-TW or English.`,
-            'Catalog lines are SYMBOL\tname\tnameEn\tgroup:',
+            `Language hint: ${lang}. User text can be zh-TW, Cantonese colloquial, or English.`,
+            'Catalog lines are SYMBOL\tname\tnameEn\tgroup\taliases. Aliases are alternative spoken names for MATCHING ONLY — output must always use the exact SYMBOL.',
             catalogLines,
-            'Kinds: chart = show one market chart; compare = chart one market symbol against 1-4 market symbols; quote = show one market or macro quote; view = switch projector view; clear = return to slides and close overlays; goto = jump to a slide page; jargon = turn jargon spotlight on/off; cycle = turn auto-cycle on/off; range = switch market-data time range; explain = show a jargon explanation card for one financial term; highlight = visually emphasize one market card on the index dashboard.',
+            'Kinds: chart = show one market chart; compare = chart one market symbol against 1-4 market symbols; quote = show one market or macro quote; view = switch projector view; clear = return to slides and close overlays; page = turn one slide forward/back relative to current; goto = jump to a slide page; jargon = turn jargon spotlight on/off; cycle = turn auto-cycle on/off; range = switch market-data time range; explain = show a jargon explanation card for one financial term; highlight = visually emphasize one market card on the index dashboard.',
             'View names: slide, index, heatmap. index = dashboard overview.',
-            'page is an integer 1-999 or "first"/"last". on is boolean. dwellSec must be one of 15,30,45,60,120. range must be one of 1M,3M,YTD,1Y. term is the term to explain, 1-80 chars; highlight takes exactly 1 market symbol.',
-            'symbols MUST be [] for goto/jargon/cycle/range/view/clear/explain. range may accompany chart/compare ONLY, never quote. Only emit the fields documented per kind; extra fields are ignored. If toggle polarity is unclear, respond {"kind":"none"}.',
+            'direction is "next" or "prev" for page. page is an integer 1-999 or "first"/"last" for goto. on is boolean. dwellSec must be one of 15,30,45,60,120. range must be one of 1M,3M,YTD,1Y. term is the term to explain, 1-80 chars; highlight takes exactly 1 market symbol.',
+            'symbols MUST be [] for page/goto/jargon/cycle/range/view/clear/explain. chart/quote need exactly 1 catalog symbol and highlight exactly 1 market symbol — never emit an empty symbols array for them. view REQUIRES the view field. range may accompany chart/compare ONLY, never quote. Asking how a catalog item is doing = chart (market) or quote (macro), NOT explain. Only emit the fields documented per kind; extra fields are ignored. If toggle polarity is unclear, respond {"kind":"none"}.',
             'Examples: {"kind":"goto","symbols":[],"page":5}; {"kind":"jargon","symbols":[],"on":true}; {"kind":"cycle","symbols":[],"on":true,"dwellSec":30}; {"kind":"range","symbols":[],"range":"1Y"}; {"kind":"chart","symbols":["^HSI"],"range":"1Y"}; {"kind":"explain","symbols":[],"term":"duration"}; {"kind":"explain","symbols":[],"term":"久期"}; {"kind":"highlight","symbols":["^HSI"]}.',
-            'Respond with ONLY a JSON object {"kind":...,"symbols":[...],"view":...}. symbols MUST be copied exactly from the catalog. If the request does not match anything, respond {"kind":"none"}.',
+            'zh-TW examples: "下一頁" -> {"kind":"page","symbols":[],"direction":"next"}; "翻返上一頁" -> {"kind":"page","symbols":[],"direction":"prev"}; "睇下恒指" -> {"kind":"chart","symbols":["^HSI"]}; "返回投影片" -> {"kind":"clear","symbols":[]}; "睇返一年圖" -> {"kind":"range","symbols":[],"range":"1Y"}; "恒指同日經比較" -> {"kind":"compare","symbols":["^HSI","^N225"]}.',
+            'Respond with ONLY a JSON object {"kind":...,"symbols":[...],...}. symbols MUST be copied exactly from the catalog. If the request does not match anything, respond {"kind":"none"}.',
             `User text: ${text}`,
         ].join('\n'),
     }];

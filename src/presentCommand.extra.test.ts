@@ -25,11 +25,17 @@ describe('parseCommandDeterministic – edge‑case parsing', () => {
 
   // Mixed‑width comma separator (English comma + full‑width comma) → still parses as compare
   it('handles mixed‑width commas in compare', () => {
-    const intent = parseCommandDeterministic('AAA, BBB，CCC', catalog);
+    const intent = parseCommandDeterministic('AAA, BBB，AAA', catalog);
     expect(intent).toEqual({
       kind: 'compare',
-      symbols: ['AAA', 'BBB', 'CCC'],
+      symbols: ['AAA', 'BBB', 'AAA'],
     });
+  });
+
+  // Compare is market-only: a macro member makes the deterministic parse
+  // fall through (null) to the NLU instead of a guaranteed-422 intent.
+  it('falls through to NLU when a compare member is macro', () => {
+    expect(parseCommandDeterministic('AAA, BBB，CCC', catalog)).toBeNull();
   });
 
   // Caret variants: leading '^' should be stripped when matching symbols

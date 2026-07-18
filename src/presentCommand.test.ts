@@ -100,8 +100,10 @@ describe('validatePresentIntent', () => {
         expect(result).toEqual({ ok: true, intent: { kind: 'compare', symbols: ['^HSI', '^GSPC', '^IXIC', '^DJI', '^FTSE'] } });
     });
 
-    it('rejects macro symbols in chart and compare but accepts macro quote', () => {
-        expect(validatePresentIntent({ kind: 'chart', symbols: ['US10Y'] }, catalog)).toEqual({ ok: false });
+    it('coerces macro chart to quote, rejects macro compare, accepts macro quote', () => {
+        // A "chart" of a macro series is what the quote panel shows — coerce
+        // instead of 422ing a correct symbol pick ("Show US GDP chart").
+        expect(validatePresentIntent({ kind: 'chart', symbols: ['US10Y'] }, catalog)).toEqual({ ok: true, intent: { kind: 'quote', symbols: ['US10Y'] } });
         expect(validatePresentIntent({ kind: 'compare', symbols: ['^HSI', 'US10Y'] }, catalog)).toEqual({ ok: false });
         expect(validatePresentIntent({ kind: 'quote', symbols: ['US10Y'] }, catalog)).toEqual({ ok: true, intent: { kind: 'quote', symbols: ['US10Y'] } });
     });

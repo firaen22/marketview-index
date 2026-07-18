@@ -481,6 +481,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return json(res, 422, { error: 'cannot_parse' });
         }
 
+        // A parsed "next page"/"上一頁" is a RELATIVE command like the page
+        // buttons: it goes to the page queue (each turn must be delivered),
+        // not the last-writer-wins slot, and the supersede check below does
+        // not apply — a newer absolute command doesn't invalidate a page turn.
+        if (validation.intent.kind === 'page') {
+            const command = buildPresentCommand(validation.intent, crypto.randomUUID(), Date.now());
+            await enqueuePageCommand(command);
+            return json(res, 200, { success: true, command });
+        }
+
         // A slow NLU parse must not overwrite a command the presenter issued
         // AFTER this one (send → NIM takes seconds → presenter hits clear →
         // the old send lands last and resurrects stale intent). issuedAt is
