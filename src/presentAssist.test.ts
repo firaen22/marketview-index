@@ -72,6 +72,17 @@ describe('present assist helpers', () => {
         expect(validateAssistResult({ points: [], questions: [] })).toBeNull();
     });
 
+    it('never leaves a lone high surrogate when truncation lands mid-emoji', () => {
+        const point = `${'a'.repeat(239)}😀`;
+        const result = validateAssistResult({ points: [point], questions: [] });
+
+        expect(result).not.toBeNull();
+        const clipped = result!.points[0];
+        expect(clipped).toHaveLength(239);
+        const last = clipped.charCodeAt(clipped.length - 1);
+        expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
+    });
+
     it('drops prototype-pollution-shaped question entries', () => {
         const result = validateAssistResult({
             points: ['point'],

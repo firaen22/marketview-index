@@ -40,6 +40,16 @@ async function readJson(response: Response): Promise<any> {
     return response.json().catch(() => ({}));
 }
 
+// A 200 whose body is not our JSON (captive portal, proxy error page) reaches
+// readJson's {} fallback; callers would then hand `undefined` to UI code
+// expecting a session. Fail loudly instead.
+function requireSession(payload: any): ClientGlossarySession {
+    if (!payload?.session || typeof payload.session !== 'object') {
+        throw new GlossaryApiError(502, 'Glossary server returned an invalid response');
+    }
+    return payload.session as ClientGlossarySession;
+}
+
 async function postGlossary(body: Record<string, unknown>): Promise<any> {
     const response = await fetch('/api/glossary-session', {
         method: 'POST',
@@ -60,7 +70,7 @@ export async function fetchGlossarySession(code: string): Promise<ClientGlossary
     if (!response.ok) {
         throw new GlossaryApiError(response.status, payload?.error || `Glossary session load failed (${response.status})`);
     }
-    if (!payload?.session) return null;
+    if (!payload?.session || typeof payload.session !== 'object') return null;
     // The public view omits keepAfter — leave it undefined so callers know it
     // is unknown rather than assuming the server kept the session.
     return { ...payload.session, joinCode: code } as ClientGlossarySession;
@@ -72,7 +82,7 @@ export async function startGlossarySession(
     slideVersion = 0,
 ): Promise<ClientGlossarySession> {
     const payload = await postGlossary({ action: 'start', mode, keepAfter, slideVersion });
-    return payload.session as ClientGlossarySession;
+    return requireSession(payload);
 }
 
 export async function pushGlossaryTerms(
@@ -91,7 +101,7 @@ export async function pushGlossaryTerms(
         ...(push ? { pushEpoch: push.epoch, pushSeq: push.seq } : {}),
     });
     return {
-        session: payload.session as ClientGlossarySession,
+        session: requireSession(payload),
         termLimitReached: payload.termLimitReached === true,
     };
 }
@@ -101,7 +111,7 @@ export async function configGlossarySession(
     config: { mode?: GlossarySession['mode']; keepAfter?: boolean },
 ): Promise<ClientGlossarySession> {
     const payload = await postGlossary({ action: 'config', code, ...config });
-    return payload.session as ClientGlossarySession;
+    return requireSession(payload);
 }
 
 export async function endGlossarySession(code: string): Promise<void> {
@@ -110,5 +120,5 @@ export async function endGlossarySession(code: string): Promise<void> {
 
 export async function reopenGlossarySession(code: string): Promise<ClientGlossarySession> {
     const payload = await postGlossary({ action: 'reopen', code });
-    return payload.session as ClientGlossarySession;
+    return requireSession(payload);
 }

@@ -130,7 +130,12 @@ function normalizeRange(value: unknown): PresentRange | null {
 }
 
 function normalizeText(text: string): string {
-    return text.trim().replace(/\s+/g, ' ');
+    // zh IMEs emit full-width digits ("第５頁"); every numeric pattern below
+    // expects ASCII, so a stray full-width digit would dead-end to the NLU.
+    return text
+        .replace(/[０-９]/g, digit => String.fromCharCode(digit.charCodeAt(0) - 0xfee0))
+        .trim()
+        .replace(/\s+/g, ' ');
 }
 
 function codePointLength(value: string): number {
@@ -150,7 +155,11 @@ function stripCourtesy(value: string): string {
     text = text.replace(TRAILING_PUNCTUATION, '');
     text = text.replace(LEADING_COURTESY, '');
     text = text.replace(LEADING_HELPER, '');
-    text = text.replace(TRAILING_COURTESY, '');
+    // Particles stack ("睇恒指啦 thanks") — strip until stable, not once.
+    for (let prev = ''; prev !== text;) {
+        prev = text;
+        text = text.replace(TRAILING_COURTESY, '');
+    }
     return text.trim();
 }
 

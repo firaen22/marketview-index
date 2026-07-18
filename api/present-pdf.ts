@@ -94,7 +94,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const key = `${Date.now()}-${suffix}-${filename}`;
 
     const contentLength = Number(body?.size);
-    if (!Number.isFinite(contentLength) || contentLength <= 0 || contentLength > MAX_BYTES) {
+    if (!Number.isInteger(contentLength) || contentLength <= 0 || contentLength > MAX_BYTES) {
         return res.status(400).json({ error: `PDF size must be greater than 0 and no more than ${MAX_BYTES / 1024 / 1024} MB.` });
     }
 
