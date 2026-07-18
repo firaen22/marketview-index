@@ -7,6 +7,32 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 const CACHE_KEY = 'global_market_news_v1';
 const NEWS_CACHE_TTL = 60 * 15; // 15 minutes in seconds
 
+// Overlays AI summaries/sentiment onto the fetched headlines. The join is
+// positional, so it is only safe when the model echoed exactly one entry per
+// article — a dropped or merged item would shift every later summary onto the
+// wrong headline on the projector. On any length mismatch, keep the originals.
+export function applyAiArticleData<T extends { title: string; summary: string; sentiment: 'Bullish' | 'Bearish' | 'Neutral' }>(
+    articles: T[],
+    aiArticles: unknown,
+): T[] {
+    if (!Array.isArray(aiArticles) || aiArticles.length !== articles.length) return articles;
+    return articles.map((article, i) => {
+        const aiData: any = aiArticles[i];
+        if (!aiData || typeof aiData !== 'object') return article;
+
+        let sentiment: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
+        if (aiData.sentiment?.toUpperCase?.().includes('BULLISH')) sentiment = 'Bullish';
+        else if (aiData.sentiment?.toUpperCase?.().includes('BEARISH')) sentiment = 'Bearish';
+
+        return {
+            ...article,
+            title: typeof aiData.title === 'string' && aiData.title ? aiData.title : article.title,
+            summary: typeof aiData.summary === 'string' && aiData.summary ? aiData.summary : article.summary,
+            sentiment,
+        };
+    });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Hoisted above the try so the catch block's stale-cache fallback can see it.
     let staleCacheKey: string | null = null;
@@ -154,24 +180,8 @@ OUTPUT FORMAT (Valid JSON only):
                     marketSummary = `[OVERVIEW]\n${overview}\n[HIGHLIGHTS]\n${highlights.map((h: string) => `- ${h}`).join('\n')}`;
                 }
 
-                // Map results back to articles
-                if (Array.isArray(aiResponse.articles)) {
-                    processedNews = processedNews.map((article, i) => {
-                        const aiData = aiResponse.articles[i];
-                        if (!aiData) return article;
-
-                        let sentiment: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
-                        if (aiData.sentiment?.toUpperCase().includes('BULLISH')) sentiment = 'Bullish';
-                        else if (aiData.sentiment?.toUpperCase().includes('BEARISH')) sentiment = 'Bearish';
-
-                        return {
-                            ...article,
-                            title: aiData.title || article.title,
-                            summary: aiData.summary || article.summary,
-                            sentiment
-                        };
-                    });
-                }
+                // Map results back to articles (positional; length-gated).
+                processedNews = applyAiArticleData(processedNews, aiResponse.articles);
             } catch (err) {
                 console.error('Consolidated AI processing failed:', err);
                 aiFailed = true;
