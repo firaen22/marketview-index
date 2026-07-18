@@ -314,7 +314,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         let parsed: any;
         try {
-            parsed = JSON.parse(raw || '{}');
+            parsed = JSON.parse(raw);
         } catch {
             return res.status(502).json({ success: false, error: 'AI processing failed' });
         }
