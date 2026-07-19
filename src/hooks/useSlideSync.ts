@@ -84,6 +84,26 @@ export function useSlideSync(): UseSlideSyncResult {
 
     const doRemoteSave = (s?: PresentSlide) => {
         const target = s ?? slideRef.current;
+        // A slide nobody has edited on this device still carries DEFAULT_SLIDE's
+        // updatedAt of 0 — and loadRemoteSlide() returns null on ANY failure, so a
+        // failed mount load leaves it at 0 for good. Posting that hits the server's
+        // legacy branch (api/present-slide.ts: `hasClientUpdatedAt` needs > 0), which
+        // skips the read, the staleness check AND the CAS, then stamps Date.now() —
+        // replacing the live deck with the placeholder and winning every later
+        // reconcile. A Save press here means "the deck never loaded", not "save this".
+        // The condition mirrors the server's `hasClientUpdatedAt` exactly: both
+        // validators accept any finite number, so a negative timestamp from corrupt
+        // or hand-edited storage also lands on that legacy branch.
+        if (!Number.isFinite(target.updatedAt) || target.updatedAt <= 0) {
+            if (statusTimerRef.current) {
+                clearTimeout(statusTimerRef.current);
+                statusTimerRef.current = null;
+            }
+            saveEpochRef.current += 1;
+            setSizeWarning('Slide has not loaded yet — nothing to save. Reload the page first.');
+            setCloudStatus('error');
+            return;
+        }
         const byteSize = new Blob([target.content]).size;
         if (byteSize > MAX_CONTENT_BYTES) {
             // A pending idle-reset from a prior 'ok' must not wipe this 'error'

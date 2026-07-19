@@ -5,6 +5,10 @@ import { displayName } from '../utils';
 interface Props {
     item: QuoteItem;
     lang: 'en' | 'zh-TW';
+    /** Label for the period `item.ytdPct` was actually computed over. The field is
+     *  named ytd but holds the change over whatever range the page fetched, so a
+     *  hardcoded "YTD" mislabels every other period. */
+    rangeLabel?: string;
     onDismiss: () => void;
     index?: number;
     total?: number;
@@ -30,10 +34,10 @@ function pctColor(p: number | undefined): string {
     return 'text-zinc-300';
 }
 
-export function QuoteSpotlight({ item, lang, onDismiss, index, total, onPrev, onNext }: Props) {
+export function QuoteSpotlight({ item, lang, rangeLabel, onDismiss, index, total, onPrev, onNext }: Props) {
     const hasNav = total !== undefined && total > 1 && index !== undefined;
     const isMarket = item.group === 'market';
-    const secondaryLabel = isMarket ? 'YTD' : item.secondaryLabel;
+    const secondaryLabel = isMarket ? (rangeLabel || 'YTD') : item.secondaryLabel;
     const secondaryPct = isMarket ? item.ytdPct : item.secondaryPct;
     const primaryLabel = item.changeLabel ?? 'CHG';
 

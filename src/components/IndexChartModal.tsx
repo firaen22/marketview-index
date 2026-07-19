@@ -13,10 +13,22 @@ interface Props {
     initialCompareSymbols?: string[];
     /** Range the surrounding page already fetched; the modal opens on it. */
     pageRange?: TimeRange;
+    /** True while the page's own market-data fetch is in flight. Distinguishes
+     *  "allData is empty because we're mid-refetch" from "empty because it failed". */
+    pageLoading?: boolean;
 }
 
 const PALETTE = ['#4a57f2', '#0d9488', '#db2777', '#ea580c', '#7c3aed'];
 const MAX_COMPARE = 4;
+
+// Month+day was fine when 1Y was the longest range. A 5Y axis written that way
+// prints "Mar 3 … Mar 3" for ticks five years apart, and the audience only sees
+// the axis — the year lives in the tooltip, which the projector never shows.
+const AXIS_DATE_OPTS: Record<string, Intl.DateTimeFormatOptions> = {
+    '5Y': { year: '2-digit', month: 'short' },
+    '1Y': { year: '2-digit', month: 'short' },
+    default: { month: 'short', day: 'numeric' },
+};
 
 function formatDate(v: unknown, opts: Intl.DateTimeFormatOptions): string {
     if (typeof v !== 'string' || !v) return '';
@@ -102,7 +114,7 @@ function useRangeOverride(range: TimeRange, pageRange: TimeRange, lang: 'en' | '
     };
 }
 
-export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCompareSymbols = [], pageRange = 'YTD' }: Props) {
+export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCompareSymbols = [], pageRange = 'YTD', pageLoading = false }: Props) {
     const L = LABELS[lang];
     const [range, setRange] = useState<TimeRange>(pageRange);
     const override = useRangeOverride(range, pageRange, lang);
@@ -153,11 +165,25 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
     // only the plotted history swaps when another period is selected. Looking
     // the history up in one source keeps every line on the same period rather
     // than silently mixing a missing symbol's page-range history back in.
+    // The fallback reads allData rather than `s.item.history` for the same reason:
+    // `item` is the object the page held when the chart OPENED, so on a page-range
+    // switch it carries the previous period's history. Sourcing every line from the
+    // one array the page is currently showing means a series we cannot vouch for
+    // resolves to [] and hits the "no history" placeholder, instead of being drawn
+    // under a period label it does not belong to.
+    //
+    // Deliberate tradeoff, re-litigated in review: this drops the primary's snapshot
+    // fallback, so a symbol Yahoo omits from a batch quote (api/market-data.ts:232
+    // warns and skips it) blanks the chart body until the next good refresh. Adding
+    // the fallback back for "allData populated but symbol missing" would reintroduce
+    // the wrong-period draw, because in that exact state `chartItem` is still the
+    // pre-switch snapshot. A blank chart is recoverable and honest; a chart labelled
+    // 5Y showing YTD data is not. Note the whole market card disappears in that case
+    // too, so a blank chart is consistent with the rest of the page, not an anomaly.
     const historyFor = useMemo(() => {
-        const source = override.data;
-        return (s: Series) =>
-            source ? (source.find(d => d.symbol === s.item.symbol)?.history ?? []) : (s.item.history || []);
-    }, [override.data]);
+        const source = override.data ?? allData;
+        return (s: Series) => source.find(d => d.symbol === s.item.symbol)?.history ?? [];
+    }, [override.data, allData]);
 
     const chartData = useMemo(() => {
         const dateMap = new Map<string, Record<string, number | string>>();
@@ -189,7 +215,15 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
     // A selected period whose data hasn't landed yet: the page-range history is
     // still in hand, but drawing it under a highlighted "5Y" would misreport the
     // chart on a live projector. Show the placeholder until the right data is in.
-    const periodPending = range !== pageRange && !override.data && !override.failed;
+    // Second clause: useMarketData empties allData for the whole refetch after a
+    // page-range switch. historyFor already refuses to draw anything in that window,
+    // so this only picks the honest message — "Loading…" while the page really is
+    // fetching, and the plain no-history placeholder once it has stopped. It must
+    // stay gated on pageLoading: a failed fetch leaves allData empty indefinitely
+    // (useMarketData sets error without restoring data), and inferring "loading"
+    // from emptiness alone would strand the modal on a spinner for the whole show.
+    const periodPending = (range !== pageRange && !override.data && !override.failed)
+        || (pageLoading && allData.length === 0 && !override.data);
 
     const available = useMemo(() => {
         const pickedSymbols = new Set([item.symbol, ...compareSymbols]);
@@ -287,7 +321,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                         dataKey="date"
                                         stroke="#52525b"
                                         fontSize={10}
-                                        tickFormatter={(v) => formatDate(v, { month: 'short', day: 'numeric' })}
+                                        tickFormatter={(v) => formatDate(v, AXIS_DATE_OPTS[range] ?? AXIS_DATE_OPTS.default)}
                                         minTickGap={40}
                                     />
                                     <YAxis

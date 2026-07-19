@@ -156,3 +156,61 @@ describe('useSlideSync oversize edit vs. in-flight save', () => {
         expect(latest.sizeWarning).not.toBeNull();
     });
 });
+
+// loadRemoteSlide is mocked to return null for every test in this file, which is
+// exactly the state that makes this reachable in production: the mount load fails
+// (or has not landed), so the hook is still holding DEFAULT_SLIDE with updatedAt 0.
+describe('useSlideSync Save before the deck has loaded', () => {
+    beforeEach(async () => {
+        vi.useFakeTimers();
+        localStorage.clear();
+        window.dispatchEvent(new StorageEvent('storage', { key: 'marketflow_settings' }));
+        resolveSave = null;
+        rejectSave = null;
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+        await act(async () => {
+            root.render(createElement(Harness));
+        });
+        await flush();
+    });
+
+    afterEach(async () => {
+        await act(async () => {
+            root.unmount();
+        });
+        container.remove();
+        vi.useRealTimers();
+    });
+
+    it('refuses to post the never-loaded placeholder instead of overwriting the live deck', async () => {
+        // Precondition: nothing has been loaded or edited, so updatedAt is still 0.
+        expect(latest.slide.updatedAt).toBe(0);
+
+        // Both Save buttons call doRemoteSave() with no argument
+        // (PresentationControl.tsx, SlideEditorPanel.tsx), so it saves slideRef.
+        await act(async () => {
+            latest.doRemoteSave();
+        });
+
+        // No request at all: updatedAt 0 would take the server's legacy branch,
+        // which writes unconditionally with a fresh Date.now() and beats the real deck.
+        expect(resolveSave).toBeNull();
+        expect(latest.cloudStatus).toBe('error');
+        expect(latest.sizeWarning).not.toBeNull();
+    });
+
+    it('still saves normally once the slide has a real timestamp', async () => {
+        await act(async () => {
+            latest.saveSlide({ content: 'real edit' });
+        });
+        expect(latest.slide.updatedAt).toBeGreaterThan(0);
+
+        await act(async () => {
+            latest.doRemoteSave();
+        });
+        expect(latest.cloudStatus).toBe('saving');
+        expect(resolveSave).toBeTypeOf('function');
+    });
+});

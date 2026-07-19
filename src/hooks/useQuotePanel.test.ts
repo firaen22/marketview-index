@@ -59,6 +59,37 @@ describe('useQuotePanel pinned/spotlight freshness', () => {
         expect(latest.spotlight?.value).toBe(120);
     });
 
+    it('chart item picks up the refreshed history instead of the open-time snapshot', () => {
+        // The chart modal reads .history off this object. marketData is fetched per
+        // time range, so a frozen snapshot draws the OLD range under the NEW range's
+        // label while the modal's comparison lines (read from live marketData) draw
+        // the new one — one chart, two periods, no error surfaced.
+        const ytd = index('^HSI', 100);
+        (ytd as { history: unknown }).history = [{ date: '2026-01-02', value: 100 }];
+        const oneYear = index('^HSI', 110);
+        (oneYear as { history: unknown }).history = [
+            { date: '2025-07-19', value: 90 },
+            { date: '2026-07-19', value: 110 },
+        ];
+
+        const rerender = render([ytd]);
+        act(() => latest.openChart(latest.allItems[0]));
+        expect(latest.chartItem?.history).toHaveLength(1);
+
+        rerender([oneYear]);
+        expect(latest.chartItem?.history).toHaveLength(2);
+        expect(latest.chartItem?.price).toBe(110);
+    });
+
+    it('keeps the chart snapshot as a fallback when the charted item leaves the data set', () => {
+        const rerender = render([index('^HSI', 100), index('^GSPC', 50)]);
+        act(() => latest.openChart(latest.allItems[0]));
+
+        rerender([index('^GSPC', 55)]);
+        expect(latest.chartItem?.symbol).toBe('^HSI');
+        expect(latest.chartItem?.price).toBe(100);
+    });
+
     it('keeps the snapshot as a fallback when the item leaves the data set', () => {
         const rerender = render([index('^HSI', 100), index('^GSPC', 50)]);
         act(() => latest.toggle(latest.allItems[0]));
