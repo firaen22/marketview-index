@@ -3,7 +3,7 @@ import type { TimeRange } from '../types';
 
 export type { TimeRange };
 
-export const TIME_RANGES = ['1M', '3M', 'YTD', '1Y'] as const;
+export const TIME_RANGES = ['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'] as const;
 
 type Variant = 'default' | 'blue' | 'subtle';
 

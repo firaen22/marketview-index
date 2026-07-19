@@ -76,10 +76,13 @@ export default {
     awaitingData: "等待資料中...",
     noMarketData: "市場數據不可用。",
     rangeLabels: {
+        '1W': '1週漲跌',
         '1M': '1個月漲跌',
         '3M': '3個月漲跌',
+        '6M': '6個月漲跌',
         'YTD': '今年至今',
-        '1Y': '1年漲跌'
+        '1Y': '1年漲跌',
+        '5Y': '5年漲跌'
     },
     fundsPage: {
         title: '財富管理基金',

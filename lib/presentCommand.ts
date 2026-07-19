@@ -1,9 +1,9 @@
 export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range' | 'explain' | 'highlight';
 export type PresentView = 'slide' | 'index' | 'heatmap';
 export type PageDirection = 'next' | 'prev';
-export type PresentRange = '1M' | '3M' | 'YTD' | '1Y';
+export type PresentRange = '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '5Y';
 
-export const PRESENT_RANGES = ['1M', '3M', 'YTD', '1Y'] as const;
+export const PRESENT_RANGES = ['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'] as const;
 export const CYCLE_DWELL_PRESETS = [15, 30, 45, 60, 120] as const;
 export const MAX_GOTO_PAGE = 999;
 
@@ -264,10 +264,13 @@ function parseExplainIntent(normalized: string, catalog: CatalogItem[]): Present
 }
 
 const RANGE_TOKEN_ENTRIES: Array<[PresentRange, string[]]> = [
+    ['1W', ['1w', '1 w', '1 week', '1-week', 'one week', '1週', '一週', '1周', '一周', '一星期']],
     ['1M', ['1m', '1 m', '1 month', '1-month', 'one month', '1個月', '一個月', '1个月']],
     ['3M', ['3m', '3 m', '3 months', '3-month', 'three months', '3個月', '三個月', '3个月']],
+    ['6M', ['6m', '6 m', '6 months', '6-month', 'six months', '6個月', '六個月', '6个月', '半年']],
     ['YTD', ['ytd', 'year to date', '年初至今', '今年以來', '今年']],
     ['1Y', ['1y', '1 yr', '1 year', '1-year', 'one year', '1年', '一年']],
+    ['5Y', ['5y', '5 yr', '5 years', '5-year', 'five years', '5年', '五年']],
 ];
 
 function escapeRegExp(value: string): string {
@@ -648,7 +651,7 @@ export function buildParsePrompt(text: string, catalog: CatalogItem[], lang: 'en
             catalogLines,
             'Kinds: chart = show one market chart; compare = chart one market symbol against 1-4 market symbols; quote = show one market or macro quote; view = switch projector view; clear = return to slides and close overlays; page = turn one slide forward/back relative to current; goto = jump to a slide page; jargon = turn jargon spotlight on/off; cycle = turn auto-cycle on/off; range = switch market-data time range; explain = show a jargon explanation card for one financial term; highlight = visually emphasize one market card on the index dashboard.',
             'View names: slide, index, heatmap. index = dashboard overview.',
-            'direction is "next" or "prev" for page. page is an integer 1-999 or "first"/"last" for goto. on is boolean. dwellSec must be one of 15,30,45,60,120. range must be one of 1M,3M,YTD,1Y. term is the term to explain, 1-80 chars; highlight takes exactly 1 market symbol.',
+            'direction is "next" or "prev" for page. page is an integer 1-999 or "first"/"last" for goto. on is boolean. dwellSec must be one of 15,30,45,60,120. range must be one of 1W,1M,3M,6M,YTD,1Y,5Y. term is the term to explain, 1-80 chars; highlight takes exactly 1 market symbol.',
             'symbols MUST be [] for page/goto/jargon/cycle/range/view/clear/explain. chart/quote need exactly 1 catalog symbol and highlight exactly 1 market symbol — never emit an empty symbols array for them. view REQUIRES the view field. range may accompany chart/compare ONLY, never quote. Asking how a catalog item is doing = chart (market) or quote (macro), NOT explain. Only emit the fields documented per kind; extra fields are ignored. If toggle polarity is unclear, respond {"kind":"none"}.',
             'Examples: {"kind":"goto","symbols":[],"page":5}; {"kind":"jargon","symbols":[],"on":true}; {"kind":"cycle","symbols":[],"on":true,"dwellSec":30}; {"kind":"range","symbols":[],"range":"1Y"}; {"kind":"chart","symbols":["^HSI"],"range":"1Y"}; {"kind":"explain","symbols":[],"term":"duration"}; {"kind":"explain","symbols":[],"term":"久期"}; {"kind":"highlight","symbols":["^HSI"]}.',
             'zh-TW examples: "下一頁" -> {"kind":"page","symbols":[],"direction":"next"}; "翻返上一頁" -> {"kind":"page","symbols":[],"direction":"prev"}; "睇下恒指" -> {"kind":"chart","symbols":["^HSI"]}; "返回投影片" -> {"kind":"clear","symbols":[]}; "睇返一年圖" -> {"kind":"range","symbols":[],"range":"1Y"}; "恒指同日經比較" -> {"kind":"compare","symbols":["^HSI","^N225"]}.',

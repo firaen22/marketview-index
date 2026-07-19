@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Search } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
-import type { IndexData } from '../types';
+import type { IndexData, MarketDataResponse, TimeRange } from '../types';
 import { displayName, formatPrice, formatSigned, formatWhole } from '../utils';
+import { TimeRangeSelector } from './TimeRangeSelector';
 
 interface Props {
     item: IndexData;
@@ -10,6 +11,8 @@ interface Props {
     onClose: () => void;
     lang?: 'en' | 'zh-TW';
     initialCompareSymbols?: string[];
+    /** Range the surrounding page already fetched; the modal opens on it. */
+    pageRange?: TimeRange;
 }
 
 const PALETTE = ['#4a57f2', '#0d9488', '#db2777', '#ea580c', '#7c3aed'];
@@ -31,6 +34,9 @@ const LABELS = {
         nominal: 'Nominal',
         noHistory: 'No history data available for this index.',
         limit: `Max ${MAX_COMPARE} comparisons`,
+        period: 'Period',
+        loading: 'Loading…',
+        rangeFailed: (want: string) => `Couldn't load ${want} data. Pick another period or try again.`,
     },
     'zh-TW': {
         compare: '比較',
@@ -41,13 +47,70 @@ const LABELS = {
         nominal: '原始值',
         noHistory: '此指數暫無歷史數據。',
         limit: `最多 ${MAX_COMPARE} 個比較`,
+        period: '期間',
+        loading: '載入中…',
+        rangeFailed: (want: string) => `無法載入 ${want} 數據，請選擇其他期間或重試。`,
     },
 };
 
 type Series = { item: IndexData; color: string };
 
-export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCompareSymbols = [] }: Props) {
+/**
+ * History for a period other than the one the page already fetched.
+ * `range === pageRange` never fetches — the caller's `allData` is that data.
+ * `/api/market-data` is cached per range in Redis, so toggling between periods
+ * is a warm read after the first hit.
+ */
+function useRangeOverride(range: TimeRange, pageRange: TimeRange, lang: 'en' | 'zh-TW') {
+    const [loaded, setLoaded] = useState<{ range: TimeRange; data: IndexData[] } | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [failed, setFailed] = useState(false);
+
+    useEffect(() => {
+        if (range === pageRange) {
+            setIsLoading(false);
+            setFailed(false);
+            return;
+        }
+        const controller = new AbortController();
+        setIsLoading(true);
+        setFailed(false);
+        (async () => {
+            try {
+                const params = new URLSearchParams({ range, lang });
+                const res = await fetch(`/api/market-data?${params.toString()}`, { signal: controller.signal });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const json: MarketDataResponse = await res.json();
+                if (!json.success || !Array.isArray(json.data)) throw new Error('malformed payload');
+                setLoaded({ range, data: json.data });
+            } catch (err) {
+                if ((err as Error)?.name === 'AbortError') return;
+                setFailed(true);
+            } finally {
+                if (!controller.signal.aborted) setIsLoading(false);
+            }
+        })();
+        // Aborting on range change also discards the in-flight response, so a
+        // slow earlier request can never overwrite a newer range's data.
+        return () => controller.abort();
+    }, [range, pageRange, lang]);
+
+    return {
+        data: loaded && loaded.range === range ? loaded.data : null,
+        isLoading,
+        failed,
+    };
+}
+
+export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCompareSymbols = [], pageRange = 'YTD' }: Props) {
     const L = LABELS[lang];
+    const [range, setRange] = useState<TimeRange>(pageRange);
+    const override = useRangeOverride(range, pageRange, lang);
+
+    // A copilot `range`/`chart … 1Y` command moves the page range while this
+    // modal is mounted; follow it rather than stranding the chart on the period
+    // that was current when it opened.
+    useEffect(() => { setRange(pageRange); }, [pageRange]);
     const [compareSymbols, setCompareSymbols] = useState<string[]>(() => initialCompareSymbols.slice(0, MAX_COMPARE));
     const [pickerOpen, setPickerOpen] = useState(false);
     const [search, setSearch] = useState('');
@@ -86,10 +149,20 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
         return [{ item, color: PALETTE[0] }, ...comparedSeries];
     }, [item, comparedSeries]);
 
+    // Series identity (name, colour, order) always comes from the page's data;
+    // only the plotted history swaps when another period is selected. Looking
+    // the history up in one source keeps every line on the same period rather
+    // than silently mixing a missing symbol's page-range history back in.
+    const historyFor = useMemo(() => {
+        const source = override.data;
+        return (s: Series) =>
+            source ? (source.find(d => d.symbol === s.item.symbol)?.history ?? []) : (s.item.history || []);
+    }, [override.data]);
+
     const chartData = useMemo(() => {
         const dateMap = new Map<string, Record<string, number | string>>();
         for (const s of series) {
-            const hist = s.item.history || [];
+            const hist = historyFor(s);
             if (hist.length === 0) continue;
             const base = hist[0].value;
             hist.forEach((pt, idx) => {
@@ -109,9 +182,14 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
             const db = typeof b.date === 'string' ? b.date : '';
             return da.localeCompare(db);
         });
-    }, [series, effectiveMode]);
+    }, [series, effectiveMode, historyFor]);
 
-    const primaryHasHistory = (item.history?.length ?? 0) > 0;
+    const primaryHasHistory = historyFor(series[0]).length > 0;
+
+    // A selected period whose data hasn't landed yet: the page-range history is
+    // still in hand, but drawing it under a highlighted "5Y" would misreport the
+    // chart on a live projector. Show the placeholder until the right data is in.
+    const periodPending = range !== pageRange && !override.data && !override.failed;
 
     const available = useMemo(() => {
         const pickedSymbols = new Set([item.symbol, ...compareSymbols]);
@@ -128,8 +206,8 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
     }, [allData, item.symbol, compareSymbols, search]);
 
     const addCompare = (symbol: string) => {
-        if (compareSymbols.length >= MAX_COMPARE) return;
-        setCompareSymbols(prev => prev.includes(symbol) ? prev : [...prev, symbol]);
+        setCompareSymbols(prev =>
+            prev.length >= MAX_COMPARE || prev.includes(symbol) ? prev : [...prev, symbol]);
         setSearch('');
         setPickerOpen(false);
     };
@@ -174,9 +252,29 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                     </button>
                 </div>
 
+                {/* Period */}
+                <div className="flex items-center gap-3 px-5 pt-4">
+                    <span className="text-[10px] font-mono tracking-widest text-zinc-500 uppercase">
+                        {L.period}:
+                    </span>
+                    <TimeRangeSelector
+                        value={range}
+                        onChange={(r) => setRange(r as TimeRange)}
+                        variant="subtle"
+                    />
+                </div>
+
                 {/* Chart */}
                 <div className="p-5 flex-1 min-h-0 flex flex-col">
-                    {!primaryHasHistory ? (
+                    {periodPending ? (
+                        <div className="h-[340px] flex items-center justify-center text-sm text-zinc-500">
+                            {L.loading}
+                        </div>
+                    ) : override.failed ? (
+                        <div className="h-[340px] flex items-center justify-center text-sm text-amber-500 px-6 text-center">
+                            {L.rangeFailed(range)}
+                        </div>
+                    ) : !primaryHasHistory ? (
                         <div className="h-[340px] flex items-center justify-center text-sm text-zinc-500">
                             {L.noHistory}
                         </div>

@@ -72,6 +72,11 @@ describe('new presenter deterministic commands', () => {
         expect(parseCommandDeterministic('hsi 1y', catalog)).toEqual({ kind: 'chart', symbols: ['^HSI'], range: '1Y' });
         expect(parseCommandDeterministic('hsi 1y chart', catalog)).toEqual({ kind: 'chart', symbols: ['^HSI'], range: '1Y' });
         expect(parseCommandDeterministic('睇 hsi 一年圖', catalog)).toEqual({ kind: 'chart', symbols: ['^HSI'], range: '1Y' });
+        expect(parseCommandDeterministic('1 week', catalog)).toEqual({ kind: 'range', symbols: [], range: '1W' });
+        expect(parseCommandDeterministic('半年', catalog)).toEqual({ kind: 'range', symbols: [], range: '6M' });
+        expect(parseCommandDeterministic('五年', catalog)).toEqual({ kind: 'range', symbols: [], range: '5Y' });
+        expect(parseCommandDeterministic('hsi 5y', catalog)).toEqual({ kind: 'chart', symbols: ['^HSI'], range: '5Y' });
+        expect(parseCommandDeterministic('睇 hsi 半年圖', catalog)).toEqual({ kind: 'chart', symbols: ['^HSI'], range: '6M' });
         expect(parseCommandDeterministic('US10Y 1y', catalog)).toBeNull();
         expect(parseCommandDeterministic('Growth vs Value', catalog)).toEqual({ kind: 'chart', symbols: ['GVX'] });
     });
@@ -175,7 +180,7 @@ describe('new presenter command building and executable checks', () => {
         expect(isExecutablePresentCommand({ v: 1, id: 'g', kind: 'goto', symbols: ['X'], page: 5, issuedAt: 1000 })).toBe(false);
         expect(isExecutablePresentCommand({ v: 1, id: 'j', kind: 'jargon', symbols: [], issuedAt: 1000 })).toBe(false);
         expect(isExecutablePresentCommand({ v: 1, id: 'c', kind: 'cycle', symbols: [], on: true, dwellSec: 31, issuedAt: 1000 })).toBe(false);
-        expect(isExecutablePresentCommand({ v: 1, id: 'r', kind: 'range', symbols: [], range: '5Y', issuedAt: 1000 })).toBe(false);
+        expect(isExecutablePresentCommand({ v: 1, id: 'r', kind: 'range', symbols: [], range: '10Y', issuedAt: 1000 })).toBe(false);
         expect(isExecutablePresentCommand({ v: 1, id: 'r', kind: 'range', symbols: [], range: 'ytd', issuedAt: 1000 })).toBe(false);
         expect(isExecutablePresentCommand({ v: 1, id: 'ch', kind: 'chart', symbols: ['^HSI'], view: 'slide', range: '1Y', issuedAt: 1000 })).toBe(false);
         expect(isExecutablePresentCommand({ v: 1, id: 'g', kind: 'goto', symbols: [], page: 5, junk: true, issuedAt: 1000 })).toBe(false);
@@ -191,7 +196,7 @@ describe('parse prompt for new command kinds', () => {
         const prompt = buildParsePrompt('jargon', catalog, 'en')[0].content;
 
         expect(prompt).toContain('goto = jump to a slide page');
-        expect(prompt).toContain('range must be one of 1M,3M,YTD,1Y');
+        expect(prompt).toContain('range must be one of 1W,1M,3M,6M,YTD,1Y,5Y');
         expect(prompt).toContain('{"kind":"goto","symbols":[],"page":5}');
         expect(prompt).toContain('{"kind":"chart","symbols":["^HSI"],"range":"1Y"}');
         expect(prompt).toContain('explain = show a jargon explanation card');
