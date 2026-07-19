@@ -25,12 +25,29 @@ All file:line refs verified 2026-07-13 at commit 6feeff2. Line numbers drift; an
 ## Invariant 2 — Write auth: timing-safe x-api-key, fail closed
 
 - **Tempting change:** "just compare strings" / "skip auth in dev".
-- **Invariant:** POST/DELETE on `/api/present-slide` and `/api/present-pdf` compare
-  sha256(`x-api-key`) with `crypto.timingSafeEqual` (present-pdf.ts:35, present-slide.ts:33)
-  against `PRESENT_API_KEY`; when the env var is set, requests without it fail. Slide GET
-  is deliberately unauthenticated (the projector reads without a key). `VITE_PRESENT_API_KEY`
-  is baked into the client bundle — it is a soft gate against drive-by writes, not a secret.
-- **Done-check:** `cd "/Users/yauch/Documents/market index/marketview-index" && grep -n timingSafeEqual api/present-*.ts` → 2 hits.
+- **Invariant:** every authenticated write endpoint compares sha256(`x-api-key`) with
+  `crypto.timingSafeEqual` against `PRESENT_API_KEY`; when the env var is set, requests
+  without it fail. Each endpoint owns its own `authorize()` — currently
+  present-pdf.ts:36, present-slide.ts:35, present-command.ts:68 (the projector-report
+  write path, added in PR #46 / f147144) and glossary-session.ts:59 (gates the presenter
+  POST at :201). **This list is open, not an allowlist** — enumerate it with
+  `grep -rn timingSafeEqual api/`, and expect it to grow. Slide GET is deliberately unauthenticated (the
+  projector reads without a key). `VITE_PRESENT_API_KEY` is baked into the client bundle
+  — it is a soft gate against drive-by writes, not a secret.
+- **Done-check (verified 2026-07-19 at commit a7ca3dd, clean tree):** assert per file, not
+  by glob count — each of these must be exactly 1:
+  `grep -c timingSafeEqual api/present-slide.ts` → 1;
+  `grep -c timingSafeEqual api/present-pdf.ts` → 1;
+  `grep -c timingSafeEqual api/present-command.ts` → 1;
+  `grep -c timingSafeEqual api/glossary-session.ts` → 1.
+- ⚠️ **A higher total across `api/present-*.ts` is NORMAL and must never be "fixed."** The
+  count grows every time a new authenticated endpoint is added (2 → 3 when
+  present-command.ts gained its own `authorize()`). Deleting a compare to make a stale
+  number match is the failure this invariant exists to prevent: drop the one in
+  present-slide.ts and POST/DELETE on `/api/present-slide` becomes unauthenticated. If a
+  file shows 0, that endpoint's auth is gone — restore it, don't edit this number. Note
+  that no count can detect a *rewritten* `authorize()` body (e.g. swapped for `===`), so
+  read the compare in any file your diff touches rather than trusting the tally.
 - **Incident:** fail-closed + constant-time compare added in sweep #1 (3be82c8).
 
 ## Invariant 3 — Jargon server cache: slide-identity key, non-empty-only writes, override-on-read
@@ -80,7 +97,7 @@ All file:line refs verified 2026-07-13 at commit 6feeff2. Line numbers drift; an
   through the imperative `pdfRef` handle. PageUp/Down always flip PDF pages (presentation
   clickers emit them) even when the quote spotlight owns ←/→. Iframe keydowns are
   re-dispatched to the parent (same-origin only).
-- **Done-check:** `cd "/Users/yauch/Documents/market index/marketview-index" && grep -rn "addEventListener('keydown'" src/ --include="*.tsx" --include="*.ts"` — baseline is 6 hits (2026-07-13): useKeyboardShortcuts.ts, two blocks in PresentationPage.tsx (kiosk presenter handler + iframe re-dispatch), Modal.tsx, IndexChartModal.tsx, PdfViewer.tsx — all owned/coordinated (modals own their Esc; PdfViewer's is the handler that /present disables). Any hit your diff ADDS needs justification against the single-owner rule; do NOT remove the baseline hits.
+- **Done-check:** `cd "/Users/yauch/Documents/market index/marketview-index" && grep -rn "addEventListener('keydown'" src/ --include="*.tsx" --include="*.ts"` — baseline is 7 hits (verified 2026-07-19 at commit a7ca3dd, clean tree): useKeyboardShortcuts.ts:41, two blocks in PresentationPage.tsx (kiosk presenter handler :564 + iframe re-dispatch :641), Modal.tsx:33, IndexChartModal.tsx:81, PdfViewer.tsx:202, GlossarySessionPanel.tsx:77 — all owned/coordinated (modals and the glossary panel own their own Esc; PdfViewer's is the handler that /present disables). Any hit your diff ADDS needs justification against the single-owner rule; do NOT remove the baseline hits.
 - **Incident:** "single keyboard owner" was the fix for fighting listeners in sweep #1 (3be82c8).
 
 ## Invariant 6 — Slide state contract
