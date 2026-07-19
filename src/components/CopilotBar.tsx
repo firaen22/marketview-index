@@ -1,16 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Edit2, Send, Trash2, XCircle } from 'lucide-react';
 import type { CatalogItem, PresentCommand } from '../../lib/presentCommand';
 import { clearPresentCommand, fetchProjectorState, PresentCommandApiError, sendPresentCommand } from '../presentCommandApi';
 import { findMacro, resolveMacros, runMacro, validateMacroDraft, type Macro } from '../copilotMacros';
 import { getSetting, setSetting } from '../settings';
-
-type Status =
-    | { type: 'idle' }
-    | { type: 'sending' }
-    | { type: 'macro'; name: string; step: number; total: number }
-    | { type: 'success'; message: string; confirmed?: boolean; failed?: boolean }
-    | { type: 'error'; message: string };
+import type { CopilotCommandLifecycle, Status } from '../hooks/useCopilotCommand';
 
 export const QUICK_COMMANDS = [
     { label: 'HSI', cmd: 'show HSI' },
@@ -28,6 +22,11 @@ interface Props {
     // Required (not optional) so tsc forces any future slot to opt in.
     text: string;
     onTextChange: React.Dispatch<React.SetStateAction<string>>;
+    // Owned by PresentationControl, not here: both layout slots stay mounted
+    // while CSS hides one, so per-instance status/controllers desync across the
+    // breakpoint and Clear cannot abort the hidden slot's in-flight command.
+    // Required (not optional) so tsc forces any future slot to opt in.
+    command: CopilotCommandLifecycle;
 }
 
 function displayForSymbol(symbol: string, catalog: CatalogItem[]): string {
@@ -65,26 +64,25 @@ function errorMessage(error: unknown): string {
     return 'Timed out — try again';
 }
 
-export function CopilotBar({ catalog, lang, text, onTextChange: setText }: Props) {
-    const [status, setStatus] = useState<Status>({ type: 'idle' });
+export function CopilotBar({ catalog, lang, text, onTextChange: setText, command }: Props) {
+    const {
+        status,
+        setStatus,
+        requestControllerRef,
+        ackControllerRef,
+        macroControllerRef,
+        dismissTimerRef,
+        clearDismissTimer,
+        abortAck,
+        abortMacro,
+    } = command;
     const [customMacros, setCustomMacros] = useState<Macro[]>(() => getSetting('copilotMacros'));
     const [editing, setEditing] = useState(false);
     const [editingName, setEditingName] = useState('');
     const [macroName, setMacroName] = useState('');
     const [macroSteps, setMacroSteps] = useState('');
-    const requestControllerRef = useRef<AbortController | null>(null);
-    const ackControllerRef = useRef<AbortController | null>(null);
-    const macroControllerRef = useRef<AbortController | null>(null);
-    const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const canSend = catalog.length > 0;
     const macros = useMemo(() => resolveMacros(customMacros), [customMacros]);
-
-    const clearDismissTimer = () => {
-        if (dismissTimerRef.current) {
-            clearTimeout(dismissTimerRef.current);
-            dismissTimerRef.current = null;
-        }
-    };
 
     const setDismissibleStatus = (nextStatus: Extract<Status, { type: 'success' | 'error' }>) => {
         const delay = nextStatus.type === 'success' ? 3000 : 6000;
@@ -93,16 +91,6 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText }: Props
             setStatus(current => current === nextStatus ? { type: 'idle' } : current);
             dismissTimerRef.current = null;
         }, delay);
-    };
-
-    const abortAck = () => {
-        ackControllerRef.current?.abort();
-        ackControllerRef.current = null;
-    };
-
-    const abortMacro = () => {
-        macroControllerRef.current?.abort();
-        macroControllerRef.current = null;
     };
 
     const pollAck = (command: PresentCommand, message: string) => {
@@ -116,6 +104,7 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText }: Props
                 const result = await fetchProjectorState(controller.signal);
                 if (controller.signal.aborted) return;
                 if (result.projector?.lid === command.id) {
+                    if (ackControllerRef.current !== controller) return;
                     ackControllerRef.current = null;
                     setDismissibleStatus({ type: 'success', message, confirmed: true });
                     return;
@@ -124,6 +113,7 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText }: Props
                 if ((error as DOMException).name === 'AbortError') return;
             }
             if (attempts >= 8) {
+                if (ackControllerRef.current !== controller) return;
                 ackControllerRef.current = null;
                 setDismissibleStatus({ type: 'success', message });
                 return;
@@ -132,12 +122,6 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText }: Props
         };
         void tick();
     };
-
-    useEffect(() => () => {
-        clearDismissTimer();
-        abortAck();
-        abortMacro();
-    }, []);
 
     const hint = useMemo(() => {
         if (!canSend) return 'Loading market data…';
