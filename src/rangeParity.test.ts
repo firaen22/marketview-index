@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { VALID_RANGES } from '../api/market-data';
-import { PRESENT_RANGES } from '../lib/presentCommand';
+import { buildParsePrompt, parseCommandDeterministic, PRESENT_RANGES, type CatalogItem } from '../lib/presentCommand';
 import { TIME_RANGES as SELECTOR_RANGES } from './components/TimeRangeSelector';
 import { TIME_RANGES as CONSTANT_RANGES } from './constants';
 import en from './locales/en';
@@ -32,5 +32,25 @@ describe('time range parity across frontend, copilot and server', () => {
             expect(en.rangeLabels[range as keyof typeof en.rangeLabels]).toBeTruthy();
             expect(zhTW.rangeLabels[range as keyof typeof zhTW.rangeLabels]).toBeTruthy();
         }
+    });
+
+    // Two lists the checks above do not reach. Both fail SILENTLY: a range added to
+    // PRESENT_RANGES but not to the parser's token table just loses its fast path and
+    // falls through to the model, and the prompt's range clause is a hand-typed string
+    // that can drift from PRESENT_RANGES with nothing comparing the two.
+    const catalog: CatalogItem[] = [
+        { symbol: '^HSI', name: '恒生指數', nameEn: 'Hang Seng Index', group: 'market' },
+    ];
+
+    it('the deterministic parser has a token for every range', () => {
+        for (const range of PRESENT_RANGES) {
+            expect(parseCommandDeterministic(range.toLowerCase(), catalog))
+                .toEqual({ kind: 'range', symbols: [], range });
+        }
+    });
+
+    it('the model prompt offers exactly the ranges the parser accepts', () => {
+        const prompt = JSON.stringify(buildParsePrompt('anything', catalog, 'en'));
+        expect(prompt).toContain(PRESENT_RANGES.join(','));
     });
 });

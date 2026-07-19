@@ -33,6 +33,16 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
     const pinnedLive = useMemo(() => pinned.map(p => liveById.get(p.id) ?? p), [pinned, liveById]);
     const spotlightLive = spotlight ? liveById.get(spotlight.id) ?? spotlight : null;
 
+    // chartItem is the third open-time snapshot and needs the same treatment — it
+    // stays IndexData (the chart reads .history), so it re-derives from marketData
+    // rather than liveById. Since marketData is fetched PER TIME RANGE, a frozen
+    // item plots the range that was current when the chart opened while the modal's
+    // comparison lines, read from live marketData, plot the new one — one chart, two
+    // periods, no error shown.
+    const chartItemLive = chartItem
+        ? marketData.find(d => d.symbol === chartItem.symbol) ?? chartItem
+        : null;
+
     const toggle = useCallback((item: QuoteItem) => {
         setPinned(prev =>
             prev.some(p => p.id === item.id)
@@ -79,7 +89,7 @@ export function useQuotePanel({ marketData, macroData }: UseQuotePanelOptions) {
         pinnedIds,
         allItems,
         isPickerOpen,
-        chartItem,
+        chartItem: chartItemLive,
         spotlight: spotlightLive,
         isSearchOpen,
         hasPinned,

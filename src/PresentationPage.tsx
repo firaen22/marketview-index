@@ -275,7 +275,7 @@ export default function PresentationPage() {
 
     const t = React.useMemo(() => ({ ...getLocale(lang), language: lang, activeRange: dataRange }), [lang, dataRange]);
 
-    const { data: marketData } = useMarketData({ range: dataRange, lang, refreshMs: 10 * 60 * 1000 });
+    const { data: marketData, isLoading: marketLoading } = useMarketData({ range: dataRange, lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
     const jargon = useJargon({ enabled: jargonEnabled && mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey, slideVersion: slide.mode === 'pdf' ? slide.updatedAt : undefined });
@@ -927,6 +927,7 @@ export default function PresentationPage() {
                             <QuoteSpotlight
                                 item={qp.spotlight}
                                 lang={lang}
+                                rangeLabel={t.rangeLabels?.[dataRange] || t.ytd}
                                 onDismiss={qp.dismissSpotlight}
                                 index={canCycle ? idx : undefined}
                                 total={canCycle ? cycleList.length : undefined}
@@ -1003,6 +1004,7 @@ export default function PresentationPage() {
                     lang={lang}
                     initialCompareSymbols={remoteCompare?.symbols ?? []}
                     pageRange={dataRange}
+                    pageLoading={marketLoading}
                 />
             )}
 
