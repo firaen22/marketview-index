@@ -5,6 +5,7 @@ import crypto from 'crypto';
 const SLIDE_KEY = 'slide-state/marketflow_present_slide_v1.json';
 // Keep in sync with PresentSlideMode in src/settings.ts.
 const ALLOWED_MODES = ['markdown', 'html', 'url', 'pdf'];
+const MAX_CAS_ATTEMPTS = 3;
 
 function makeClient(): S3Client | null {
     const endpoint = process.env.CLOUDFLARE_R2_ENDPOINT;
@@ -32,6 +33,12 @@ function authorize(providedKey: unknown, requiredKey: string): boolean {
     const providedHash = crypto.createHash('sha256').update(provided).digest();
     const requiredHash = crypto.createHash('sha256').update(requiredKey).digest();
     return crypto.timingSafeEqual(providedHash, requiredHash);
+}
+
+function isCasConflict(err: any): boolean {
+    return err?.name === 'PreconditionFailed'
+        || err?.name === 'ConditionalRequestConflict'
+        || err?.$metadata?.httpStatusCode === 412;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -97,24 +104,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Client timestamps preserve save ordering across devices; legacy clients
         // still get server-stamped saves and skip conflicts for compatibility.
         if (hasClientUpdatedAt) {
-            try {
-                const { Body } = await client.send(new GetObjectCommand({ Bucket: bucket, Key: SLIDE_KEY }));
-                const text = await readStream(Body as NodeJS.ReadableStream);
-                const storedSlide = JSON.parse(text);
-                // Strictly newer only: re-posting the same timestamp (manual Save after
-                // the debounced autosave) must stay idempotent, not 409.
-                if (Number.isFinite(storedSlide?.updatedAt) && storedSlide.updatedAt > incomingUpdatedAt) {
-                    return res.status(409).json({ error: 'Stale save: newer content already stored' });
+            for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
+                let condition: { IfMatch?: string; IfNoneMatch?: string } = {};
+                try {
+                    const { Body, ETag } = await client.send(new GetObjectCommand({ Bucket: bucket, Key: SLIDE_KEY }));
+                    const text = await readStream(Body as NodeJS.ReadableStream);
+                    const storedSlide = JSON.parse(text);
+                    // Strictly newer only: re-posting the same timestamp (manual Save after
+                    // the debounced autosave) must stay idempotent, not 409.
+                    if (Number.isFinite(storedSlide?.updatedAt) && storedSlide.updatedAt > incomingUpdatedAt) {
+                        return res.status(409).json({ error: 'Stale save: newer content already stored' });
+                    }
+                    // The AWS SDK returns S3/R2 ETags as received, normally including
+                    // surrounding double quotes; pass the exact string through for CAS.
+                    if (typeof ETag === 'string' && ETag.length > 0) {
+                        condition = { IfMatch: ETag };
+                    }
+                } catch (e: any) {
+                    if (e?.name === 'NoSuchKey') {
+                        condition = { IfNoneMatch: '*' };
+                    } else {
+                        console.error('Slide conflict read error:', e);
+                    }
                 }
-            } catch (e: any) {
-                if (e?.name !== 'NoSuchKey') console.error('Slide conflict read error:', e);
+                try {
+                    // Clamp client timestamps to ~now: a future-skewed device clock must not
+                    // make every other device's saves 409 until wall-clock catches up.
+                    const now = Date.now();
+                    const slide = { mode, content, updatedAt: Math.min(incomingUpdatedAt, now + 60_000) };
+                    await client.send(new PutObjectCommand({
+                        Bucket: bucket,
+                        Key: SLIDE_KEY,
+                        Body: JSON.stringify(slide),
+                        ContentType: 'application/json',
+                        ...condition,
+                    }));
+                    return res.status(200).json({ success: true, slide });
+                } catch (e: any) {
+                    if (isCasConflict(e)) continue;
+                    console.error('Slide save error:', e);
+                    return res.status(500).json({ error: 'Failed to save slide' });
+                }
             }
+            return res.status(503).json({ error: 'Concurrent save conflict; retry save' });
         }
         try {
             // Clamp client timestamps to ~now: a future-skewed device clock must not
             // make every other device's saves 409 until wall-clock catches up.
             const now = Date.now();
-            const slide = { mode, content, updatedAt: hasClientUpdatedAt ? Math.min(incomingUpdatedAt, now + 60_000) : now };
+            const slide = { mode, content, updatedAt: now };
             await client.send(new PutObjectCommand({
                 Bucket: bucket,
                 Key: SLIDE_KEY,
