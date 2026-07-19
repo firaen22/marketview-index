@@ -1,6 +1,9 @@
 import { redis } from '../../lib/redis.js';
 import { fetchAllIndices, CACHE_KEY } from '../market-data.js';
 
+// Deliberately a subset of VALID_RANGES: pre-warming all seven would multiply
+// this cron's Yahoo fan-out past the function timeout. The extra ranges
+// (1W/6M/5Y) fetch live on first request and then sit in Redis for an hour.
 const RANGES = ['1M', '3M', 'YTD', '1Y'];
 
 export default async function handler(req: any, res: any) {

@@ -1,4 +1,4 @@
-export type TimeRange = '1M' | '3M' | 'YTD' | '1Y';
+export type TimeRange = '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '5Y';
 
 export type IndexCategory = 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Volatility' | 'Fund';
 

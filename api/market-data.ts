@@ -78,7 +78,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
   const forceRefresh = searchParams.get('refresh') === 'true';
   const requestedRange = searchParams.get('range') || 'YTD';
-  const range = ['1M', '3M', 'YTD', '1Y'].includes(requestedRange) ? requestedRange : 'YTD';
+  const range = VALID_RANGES.includes(requestedRange) ? requestedRange : 'YTD';
 
   // Unique cache key per range
   const RANGE_CACHE_KEY = `${CACHE_KEY}_${range}`;
@@ -180,6 +180,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// Keep in sync with TimeRange (src/types/index.ts) and PresentRange (lib/presentCommand.ts).
+export const VALID_RANGES = ['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'];
+
 export async function fetchAllIndices(range: string) {
   const symbols = INDICES_TO_FETCH.map(i => i.symbol);
   let quotes: any[] = [];
@@ -191,12 +194,18 @@ export async function fetchAllIndices(range: string) {
 
   // Calculate dynamic start date based on range
   const d1 = new Date();
-  if (range === '1M') {
+  if (range === '1W') {
+    d1.setDate(d1.getDate() - 7);
+  } else if (range === '1M') {
     d1.setMonth(d1.getMonth() - 1);
   } else if (range === '3M') {
     d1.setMonth(d1.getMonth() - 3);
+  } else if (range === '6M') {
+    d1.setMonth(d1.getMonth() - 6);
   } else if (range === '1Y') {
     d1.setFullYear(d1.getFullYear() - 1);
+  } else if (range === '5Y') {
+    d1.setFullYear(d1.getFullYear() - 5);
   } else {
     // Default YTD
     d1.setFullYear(d1.getFullYear(), 0, 1);
@@ -205,9 +214,15 @@ export async function fetchAllIndices(range: string) {
   const d2 = new Date();
   const period2 = d2.toISOString().split('T')[0];
 
-  // Fetch true dynamic history in parallel with daily interval
+  // Daily bars everywhere except 5Y, where ~1300 points per symbol would bloat
+  // the cached payload for no visual gain at projector resolution.
+  // 1W stays daily: mutual-fund symbols (0P…) only publish a daily NAV, so an
+  // intraday interval would return an empty series for exactly the funds page.
+  const interval = range === '5Y' ? '1wk' : '1d';
+
+  // Fetch true dynamic history in parallel
   const rawHistories = await Promise.all(symbols.map(s =>
-    yahooFinance.chart(s, { period1, period2, interval: '1d' }).catch(() => ({ quotes: [] }))
+    yahooFinance.chart(s, { period1, period2, interval }).catch(() => ({ quotes: [] }))
   ));
 
   const results = [];

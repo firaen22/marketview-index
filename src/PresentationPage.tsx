@@ -1002,6 +1002,7 @@ export default function PresentationPage() {
                     onClose={qp.closeChart}
                     lang={lang}
                     initialCompareSymbols={remoteCompare?.symbols ?? []}
+                    pageRange={dataRange}
                 />
             )}
 

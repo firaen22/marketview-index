@@ -76,10 +76,13 @@ export default {
     awaitingData: "Awaiting data...",
     noMarketData: "No market data available.",
     rangeLabels: {
+        '1W': '1 Week',
         '1M': '1 Month',
         '3M': '3 Months',
+        '6M': '6 Months',
         'YTD': 'YTD Change',
-        '1Y': '1 Year'
+        '1Y': '1 Year',
+        '5Y': '5 Years'
     },
     fundsPage: {
         title: 'Wealth Management',
