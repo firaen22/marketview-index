@@ -135,7 +135,11 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
             return false;
         }
         if (!pdfRef.current) return false;
-        pdfRef.current.goToPage(cmd.page === 'first' ? 1 : cmd.page === 'last' ? 'last' : cmd.page);
+        // The imperative handle is published the moment PdfViewer mounts, well
+        // before the document finishes downloading — so a goto issued during
+        // that window must NOT be reported as executed, or usePresentCommand
+        // locks its id and the page turn is lost instead of retried.
+        if (!pdfRef.current.goToPage(cmd.page === 'first' ? 1 : cmd.page === 'last' ? 'last' : cmd.page)) return false;
         resetDwellCountdown();
         return true;
     }

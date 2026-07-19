@@ -57,7 +57,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             // and avoids cold-start timeouts when opening a new tab.
             ...(rangeHeader ? { Range: rangeHeader } : {}),
         });
+        // A client that goes away mid-request (tab closed, or pdfjs cancelling
+        // an in-flight range request on a page turn) leaves pipe() with nothing
+        // to do but unpipe: the R2 stream stays paused, so neither 'end' nor
+        // 'error' ever fires and the await below would stay pending until the
+        // function hits its platform timeout. The guard is armed BEFORE the
+        // GetObject round-trip, because a disconnect during that await would
+        // otherwise fire 'close' with no listener attached at all.
+        let clientGone = false;
+        let source: (NodeJS.ReadableStream & { destroy?: () => void }) | null = null;
+        let settleOnAbort: (() => void) | null = null;
+        const onAbort = () => {
+            clientGone = true;
+            source?.destroy?.();
+            settleOnAbort?.();
+        };
+        res.once('close', onAbort);
+
         const { Body, ContentLength, ContentType, ContentRange } = await client.send(command);
+        source = Body as NodeJS.ReadableStream & { destroy?: () => void };
+        // destroy() on an aborted body can still emit 'error'; without a listener
+        // that is an unhandled 'error' event, i.e. an uncaught exception in the
+        // function. Attach before any path that can destroy the stream. The real
+        // error handling is the one registered alongside pipe() below.
+        source.on('error', () => {});
+        if (clientGone || res.destroyed) {
+            res.off('close', onAbort);
+            source?.destroy?.();
+            return;
+        }
 
         const statusCode = ContentRange ? 206 : 200;
         res.setHeader('Content-Type', ContentType || 'application/pdf');
@@ -69,14 +97,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.status(statusCode);
 
         // Await stream end so Vercel doesn't terminate the function prematurely
-        const stream = Body as NodeJS.ReadableStream;
+        const stream = source;
         await new Promise<void>((resolve, reject) => {
-            stream.on('end', resolve);
-            stream.on('error', reject);
+            settleOnAbort = resolve;
+            stream.on('end', () => {
+                res.off('close', onAbort);
+                resolve();
+            });
+            stream.on('error', (err) => {
+                res.off('close', onAbort);
+                reject(err);
+            });
             stream.pipe(res);
         });
     } catch (e: any) {
-        if (e?.name === 'NoSuchKey') return res.status(404).json({ error: 'PDF not found' });
+        // GetObject reports a missing key as NoSuchKey, but HeadObject has no
+        // response body to parse and surfaces it as NotFound — matching only the
+        // former turned "deck was deleted" into a 500 on the HEAD that pdfjs
+        // issues first.
+        // Deliberately name-only: matching $metadata 404 would also swallow
+        // NoSuchBucket, turning a misconfigured bucket (a total deck outage) into
+        // a per-file "not found" with no console.error to diagnose it.
+        if (e?.name === 'NoSuchKey' || e?.name === 'NotFound') {
+            return res.status(404).json({ error: 'PDF not found' });
+        }
         console.error('R2 proxy error:', e);
         if (!res.headersSent) return res.status(500).json({ error: 'Failed to proxy PDF' });
         res.destroy(e);

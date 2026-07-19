@@ -4,6 +4,12 @@ import { isExecutablePresentCommand, PAGE_COMMAND_FRESH_MS, shouldExecute } from
 import { authHeaders } from '../presentCommandApi';
 
 const POLL_MS = 2500;
+// fetch() has no default timeout: a stalled socket (flaky venue wifi) never
+// settles, and since the next poll is only armed after the previous one
+// resolves, one hung request would silently end page-turn delivery for the rest
+// of the presentation. Abort well past a normal poll so slow-but-alive networks
+// still succeed.
+const POLL_TIMEOUT_MS = 10000;
 const BACKOFF_MS = [5000, 10000, 20000] as const;
 const PROJECTOR_MODES = ['slide', 'pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
 
@@ -91,8 +97,11 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
 
         const run = async () => {
             controller = new AbortController();
+            const pollController = controller;
+            const timeoutId = window.setTimeout(() => pollController.abort(), POLL_TIMEOUT_MS);
             const state = getStateRef.current?.() ?? null;
-            const result = await fetchPresentCommand(controller.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state);
+            const result = await fetchPresentCommand(pollController.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state);
+            window.clearTimeout(timeoutId);
             if (stopped) return;
 
             if (result.ok) {

@@ -187,7 +187,11 @@ export function CopilotBar({ catalog, lang }: Props) {
             if (requestControllerRef.current !== controller) return;
             const message = commandMessage(command, catalog);
             setStatus({ type: 'success', message });
-            pollAck(command, message);
+            // `page` commands ride the drained queue, which never writes the
+            // projector's `lid` — so their ack can never arrive, and polling for
+            // it just burns 8 projector-state requests against the poll rate
+            // limit on the single most frequent command in a presentation.
+            if (command.kind !== 'page') pollAck(command, message);
             navigator.vibrate?.(30);
             if (overrideText === undefined) setText('');
         } catch (error) {
@@ -232,13 +236,18 @@ export function CopilotBar({ catalog, lang }: Props) {
             setStatus({ type: 'error', message });
             return;
         }
-        const next = [
-            ...customMacros.filter(macro => {
-                const lower = macro.name.toLowerCase();
-                return lower !== draft.macro.name.toLowerCase() && lower !== editingName.toLowerCase();
-            }),
-            draft.macro,
-        ].slice(0, 12);
+        const kept = customMacros.filter(macro => {
+            const lower = macro.name.toLowerCase();
+            return lower !== draft.macro.name.toLowerCase() && lower !== editingName.toLowerCase();
+        });
+        // The old `[...kept, draft.macro].slice(0, 12)` trimmed from the END, so
+        // at the cap it silently threw away the macro just written and still
+        // reported "Macro saved". Refuse instead of lying.
+        if (kept.length >= 12) {
+            setStatus({ type: 'error', message: 'Macro limit reached (12) — delete one first' });
+            return;
+        }
+        const next = [...kept, draft.macro];
         setCustomMacros(next);
         setSetting('copilotMacros', next);
         setEditing(false);

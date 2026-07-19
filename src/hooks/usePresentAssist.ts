@@ -66,7 +66,13 @@ export function presentAssistBackoffMs(failureCount: number): number {
 }
 
 export function prepareAssistRequestText(text: string): string {
-    return text.trim().slice(0, ASSIST_MAX_TEXT_LEN);
+    const sliced = text.trim().slice(0, ASSIST_MAX_TEXT_LEN);
+    // slice() cuts by UTF-16 code unit, so a supplementary-plane character (an
+    // emoji, or a CJK ext-B glyph) sitting on the boundary is halved and leaves
+    // an orphaned high surrogate that serializes as U+FFFD downstream. Drop the
+    // orphan — trimming never lengthens the string, so the server's
+    // ASSIST_MAX_TEXT_LEN check (api/present-command.ts) still holds.
+    return /[\uD800-\uDBFF]$/.test(sliced) ? sliced.slice(0, -1) : sliced;
 }
 
 function assistCacheKey(slideUpdatedAt: number, target: Target, lang: 'en' | 'zh-TW'): string {
