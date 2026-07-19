@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AlertCircle, Bookmark, Languages, Radio, Search, SlidersHorizontal, WifiOff } from 'lucide-react';
 import type { GlossaryLang, GlossaryTermSnapshot } from '../lib/glossarySession';
@@ -56,10 +56,17 @@ export default function GlossarySessionPage() {
         setSavedTerms(getSavedTerms(poll.code));
     }, [poll.code]);
 
+    // Fire once per entry into not_found. Keying on savedTerms.length alone
+    // meant every bookmark tap re-ran this and yanked the reader back to Saved.
+    const forcedSavedTabRef = useRef(false);
     useEffect(() => {
-        if (poll.status === 'not_found' && savedTerms.length > 0) {
-            setTab('saved');
+        if (poll.status !== 'not_found') {
+            forcedSavedTabRef.current = false;
+            return;
         }
+        if (forcedSavedTabRef.current || savedTerms.length === 0) return;
+        forcedSavedTabRef.current = true;
+        setTab('saved');
     }, [poll.status, savedTerms.length]);
 
     const liveTerms = poll.session?.terms ?? [];

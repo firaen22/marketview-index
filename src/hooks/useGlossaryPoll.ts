@@ -18,6 +18,9 @@ export interface GlossaryPollState {
     session: AudienceSessionView | null;
     reconnecting: boolean;
     failureCount: number;
+    // Consecutive dormant polls (ended / unknown code). Resets the moment the
+    // session is live again, so an end -> reopen cycle gets a fresh window.
+    idlePolls: number;
     error: string | null;
 }
 
@@ -32,6 +35,12 @@ export interface PollResult {
 const JOIN_CODE_PATTERN = /^[A-HJKMNP-Z2-9]{8}$/;
 const POLL_MS = 5000;
 const RATE_LIMIT_MS = 10000;
+// A session that has ended — or a code the server does not know yet — is
+// dormant, not finished: the presenter's "Reopen session" flips the same join
+// code back to live, and phones already on the page have to notice. Poll slowly
+// rather than stopping, but bound it so a tab left open overnight goes quiet.
+const DORMANT_POLL_MS = 15000;
+const MAX_DORMANT_POLLS = 40; // ~10 minutes of dormancy before giving up
 const BACKOFF_MS = [5000, 10000, 20000] as const;
 
 export function normalizeAudienceCode(input: unknown): string | null {
@@ -44,9 +53,19 @@ export function reconnectDelayMs(failureCount: number): number {
     return BACKOFF_MS[Math.min(Math.max(failureCount - 1, 0), BACKOFF_MS.length - 1)];
 }
 
+export function isDormantResult(result: PollResult): boolean {
+    if (result.type === 'not_found') return true;
+    return result.type === 'success' && result.session?.status !== 'live';
+}
+
 export function nextPollDelayMs(result: PollResult, state: GlossaryPollState): number | null {
-    if (result.type === 'success') {
-        return result.session?.status === 'live' ? POLL_MS : null;
+    if (result.type === 'success' && result.session?.status === 'live') return POLL_MS;
+    if (isDormantResult(result)) {
+        // Only keep watching a code we have actually seen live. A mistyped join
+        // code should cost one request, not forty; the reopen case always has a
+        // previously-loaded session behind it.
+        if (result.type === 'not_found' && !state.session) return null;
+        return state.idlePolls < MAX_DORMANT_POLLS ? DORMANT_POLL_MS : null;
     }
     if (result.type === 'rate_limited') return RATE_LIMIT_MS;
     if (result.type === 'network_error' || result.type === 'server_error') {
@@ -76,6 +95,7 @@ export function reducePollState(state: GlossaryPollState, result: PollResult): G
             session: result.session,
             reconnecting: false,
             failureCount: 0,
+            idlePolls: result.session.status === 'live' ? 0 : state.idlePolls + 1,
             error: null,
         };
     }
@@ -86,6 +106,7 @@ export function reducePollState(state: GlossaryPollState, result: PollResult): G
             session: state.session,
             reconnecting: false,
             failureCount: 0,
+            idlePolls: state.idlePolls + 1,
             error: 'not_found',
         };
     }
@@ -105,6 +126,7 @@ export function reducePollState(state: GlossaryPollState, result: PollResult): G
             session: null,
             reconnecting: false,
             failureCount: 0,
+            idlePolls: 0,
             error: 'invalid_code',
         };
     }
@@ -161,6 +183,7 @@ export function useGlossaryPoll(rawCode: string | undefined) {
         session: null,
         reconnecting: false,
         failureCount: 0,
+        idlePolls: 0,
         error: code ? null : 'invalid_code',
     }));
     const stateRef = useRef(state);
@@ -178,6 +201,7 @@ export function useGlossaryPoll(rawCode: string | undefined) {
                 session: null,
                 reconnecting: false,
                 failureCount: 0,
+                idlePolls: 0,
                 error: 'invalid_code',
             });
             return;
@@ -207,12 +231,13 @@ export function useGlossaryPoll(rawCode: string | undefined) {
         };
 
         const initialState: GlossaryPollState = codeChanged
-            ? { status: 'loading', session: null, reconnecting: false, failureCount: 0, error: null }
+            ? { status: 'loading', session: null, reconnecting: false, failureCount: 0, idlePolls: 0, error: null }
             : {
                 status: stateRef.current.session ? 'ready' : 'loading',
                 session: stateRef.current.session,
                 reconnecting: false,
                 failureCount: 0,
+                idlePolls: 0,
                 error: null,
             };
         stateRef.current = initialState;

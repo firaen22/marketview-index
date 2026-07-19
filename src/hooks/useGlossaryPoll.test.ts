@@ -13,6 +13,7 @@ const emptyState: GlossaryPollState = {
     session: null,
     reconnecting: false,
     failureCount: 0,
+    idlePolls: 0,
     error: null,
 };
 
@@ -49,6 +50,7 @@ describe('glossary poll pure helpers', () => {
             session: liveSession,
             reconnecting: false,
             failureCount: 0,
+            idlePolls: 0,
             error: null,
         });
         expect(nextPollDelayMs(result, state)).toBe(5000);
@@ -87,12 +89,45 @@ describe('glossary poll pure helpers', () => {
         });
     });
 
-    it('stops polling after an ended session success', () => {
+    it('slow-polls an ended session so a presenter reopen still reaches the phone', () => {
         const result: PollResult = { type: 'success', session: { ...liveSession, status: 'ended' } };
         const state = reducePollState(emptyState, result);
 
         expect(state.session?.status).toBe('ended');
-        expect(nextPollDelayMs(result, state)).toBeNull();
+        expect(state.idlePolls).toBe(1);
+        expect(nextPollDelayMs(result, state)).toBe(15000);
+    });
+
+    it('gives up on a session that stays dormant, and rearms when it reopens', () => {
+        const ended: PollResult = { type: 'success', session: { ...liveSession, status: 'ended' } };
+        const missing: PollResult = { type: 'not_found' };
+
+        const seen = { ...emptyState, session: liveSession };
+        // 40 dormant polls (~10 minutes) still poll; the 40th result stops it.
+        expect(nextPollDelayMs(ended, { ...seen, idlePolls: 39 })).toBe(15000);
+        expect(nextPollDelayMs(ended, { ...seen, idlePolls: 40 })).toBeNull();
+        expect(nextPollDelayMs(missing, { ...seen, idlePolls: 40 })).toBeNull();
+
+        // A live result resets the budget, so an end -> reopen -> end cycle
+        // gets a fresh window rather than inheriting the old count.
+        const revived = reducePollState({ ...emptyState, idlePolls: 30 }, { type: 'success', session: liveSession });
+        expect(revived.idlePolls).toBe(0);
+        expect(nextPollDelayMs({ type: 'success', session: liveSession }, revived)).toBe(5000);
+    });
+
+    it('stops immediately on a code that was never live, but keeps watching one that was', () => {
+        const result: PollResult = { type: 'not_found' };
+
+        // Mistyped code: never resolved, so one request and done.
+        const neverSeen = reducePollState(emptyState, result);
+        expect(neverSeen.status).toBe('not_found');
+        expect(nextPollDelayMs(result, neverSeen)).toBeNull();
+
+        // A session we already loaded that has since vanished stays watched, so
+        // a reopen under the same code still reaches this phone.
+        const wasLive = reducePollState({ ...emptyState, session: liveSession }, result);
+        expect(wasLive.session).toEqual(liveSession);
+        expect(nextPollDelayMs(result, wasLive)).toBe(15000);
     });
 
     it('keeps last data and backs off network or server errors', () => {
@@ -101,6 +136,7 @@ describe('glossary poll pure helpers', () => {
             session: liveSession,
             reconnecting: false,
             failureCount: 0,
+            idlePolls: 0,
             error: null,
         };
         const first = reducePollState(withData, { type: 'network_error' });
@@ -116,11 +152,12 @@ describe('glossary poll pure helpers', () => {
         expect(nextPollDelayMs({ type: 'server_error' }, third)).toBe(20000);
     });
 
-    it('handles 404 as terminal not-found and 429 as a 10s retry', () => {
+    it('handles 404 as dormant not-found and 429 as a 10s retry', () => {
         const notFound = reducePollState(emptyState, { type: 'not_found' });
         const rateLimited = reducePollState(emptyState, { type: 'rate_limited' });
 
         expect(notFound).toMatchObject({ status: 'not_found', reconnecting: false, error: 'not_found' });
+        // Terminal for a code that was never live (see the dedicated test).
         expect(nextPollDelayMs({ type: 'not_found' }, notFound)).toBeNull();
         expect(rateLimited).toMatchObject({ status: 'rate_limited', reconnecting: true, error: 'rate_limited' });
         expect(nextPollDelayMs({ type: 'rate_limited' }, rateLimited)).toBe(10000);

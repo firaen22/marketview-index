@@ -22,7 +22,9 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
         mainView: 'heatmap',
         setMainView: vi.fn(),
         slideMode: 'pdf',
-        pdfRef: { current: { prevPage: vi.fn(), nextPage: vi.fn(), goToPage: vi.fn() } },
+        // Mirrors the real handle: goToPage reports false until the document
+        // has pages (PdfViewer returns false while numPages <= 0).
+        pdfRef: { current: { prevPage: vi.fn(), nextPage: vi.fn(), goToPage: vi.fn(() => true) } },
         setJargonEnabled: vi.fn(),
         persistPresentCycle: vi.fn(),
         normalizedPresentCycle: { enabled: false, dwellSec: 45, views: ['slide', 'heatmap'] },
@@ -55,6 +57,32 @@ describe('executePresentationCommandWithDeps', () => {
         expect(executePresentationCommandWithDeps(command, retryDeps)).toBe(true);
         expect(deps.pdfRef.current.goToPage).toHaveBeenCalledWith(5);
         expect(deps.resetDwellCountdown).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not consume a goto while the PDF document is still loading', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'goto-2',
+            kind: 'goto',
+            symbols: [],
+            page: 12,
+            issuedAt: 1000,
+        };
+        // PdfViewer publishes its imperative handle at mount, before
+        // getDocument() resolves, so the ref is non-null but paging fails.
+        const loading = baseDeps({
+            mainView: 'slide',
+            pdfRef: { current: { prevPage: vi.fn(), nextPage: vi.fn(), goToPage: vi.fn(() => false) } },
+        });
+
+        // false => usePresentCommand leaves the id unlocked, so the next poll
+        // retries instead of losing the page turn.
+        expect(executePresentationCommandWithDeps(command, loading)).toBe(false);
+        expect(loading.resetDwellCountdown).not.toHaveBeenCalled();
+
+        const ready = baseDeps({ mainView: 'slide' });
+        expect(executePresentationCommandWithDeps(command, ready)).toBe(true);
+        expect(ready.pdfRef.current.goToPage).toHaveBeenCalledWith(12);
     });
 
     it('executes explain immediately through the injected presenter callback', () => {

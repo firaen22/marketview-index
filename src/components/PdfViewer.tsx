@@ -24,7 +24,10 @@ interface Props {
 export interface PdfViewerHandle {
     prevPage: () => void;
     nextPage: () => void;
-    goToPage: (page: number | 'last') => void;
+    // Returns false when the document is not paged yet (still downloading, or
+    // it failed to load) so a remote `goto` can be retried instead of being
+    // acknowledged and lost.
+    goToPage: (page: number | 'last') => boolean;
 }
 
 export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText, onPageChange, lang = 'en' }, ref) => {
@@ -75,7 +78,11 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
             canvas.style.height = `${viewport.height / dpr}px`;
             const rt = page.render({ canvasContext: canvas.getContext('2d')!, canvas, viewport });
             renderTaskRef.current = rt;
-            rt.promise.catch(err => {
+            rt.promise.then(() => {
+                // Clear a previous page's failure once any page renders again,
+                // so a one-off error does not outlive the page that caused it.
+                if (!cancelled) setError('');
+            }, err => {
                 if (err?.name !== 'RenderingCancelledException') {
                     console.error('PDF render error:', err);
                     if (!cancelled) setError(err?.message || L.pdfRenderError);
@@ -177,8 +184,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     const prev = useCallback(() => setPageNum(p => Math.max(1, p - 1)), []);
     const next = useCallback(() => setPageNum(p => Math.max(1, Math.min(numPages, p + 1))), [numPages]);
     const goToPage = useCallback((page: number | 'last') => {
-        if (numPages <= 0) return;
+        if (numPages <= 0) return false;
         setPageNum(page === 'last' ? numPages : Math.max(1, Math.min(numPages, page)));
+        return true;
     }, [numPages]);
 
     useImperativeHandle(ref, () => ({ prevPage: prev, nextPage: next, goToPage }), [prev, next, goToPage]);
@@ -195,12 +203,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         return () => window.removeEventListener('keydown', onKey);
     }, [prev, next, keyboardEnabled]);
 
-    if (error) {
-        return (
-            <div className="absolute inset-0 flex items-center justify-center text-rose-400 text-sm">{error}</div>
-        );
-    }
-
     return (
         <div className="absolute inset-0 bg-zinc-950 overflow-auto">
             <div className="min-h-full flex items-start justify-center py-6 px-4 pb-20">
@@ -209,6 +211,15 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
                     : <canvas ref={canvasRef} className="shadow-2xl" />
                 }
             </div>
+
+            {/* Overlay, not an early return: unmounting the canvas here used to
+                strand the render effect on its `!canvasRef.current` guard, so a
+                single transient page failure blanked the deck permanently — no
+                page turn could recover it. The nav pill (z-30) stays above this
+                so the presenter can always page away from a broken slide. */}
+            {error && (
+                <div className="fixed inset-0 z-20 flex items-center justify-center bg-zinc-950 text-rose-400 text-sm">{error}</div>
+            )}
 
             {/* Floating page navigation pill (bottom-center) */}
             <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">

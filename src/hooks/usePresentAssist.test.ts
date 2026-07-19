@@ -33,4 +33,17 @@ describe('usePresentAssist helpers', () => {
         expect(prepared).toHaveLength(6000);
         expect(prepared).toBe('x'.repeat(6000));
     });
+
+    it('never emits a half surrogate pair when the 6000 cut lands mid-character', () => {
+        // 5999 units + one astral char (2 units) = 6001: the cut falls between
+        // the two halves of the emoji.
+        const prepared = prepareAssistRequestText('x'.repeat(5999) + '\u{1F4C8}');
+
+        // A trailing high surrogate (0xD800-0xDBFF) is an orphaned pair half.
+        const lastUnit = prepared.charCodeAt(prepared.length - 1);
+        expect(lastUnit >= 0xd800 && lastUnit <= 0xdbff).toBe(false);
+        expect(prepared).toHaveLength(5999);
+        // Still capped: the server rejects anything over 6000 UTF-16 units.
+        expect(prepareAssistRequestText('x'.repeat(6000) + '\u{1F4C8}')).toHaveLength(6000);
+    });
 });
