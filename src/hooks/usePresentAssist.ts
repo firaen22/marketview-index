@@ -3,7 +3,7 @@ import type { AssistResult } from '../../lib/presentAssist';
 import { ASSIST_MAX_TEXT_LEN, ASSIST_MIN_TEXT_LEN, normalizeAssistText } from '../../lib/presentAssist';
 import type { PresentSlide } from '../settings';
 import { getSettings } from '../settings';
-import { fetchAssist, fetchAssistImage, fetchProjectorState, type ProjectorState } from '../presentCommandApi';
+import { authHeaders, fetchAssist, fetchAssistImage, fetchProjectorState, type ProjectorState } from '../presentCommandApi';
 import { extractPdfPageText, loadPdf, renderPdfPageToJpeg } from '../pdfText';
 import { buildJargonWarmBody, isJargonEligible } from '../jargon';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -480,7 +480,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
 
             try {
                 const key = settings.geminiKey.trim();
-                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                const headers: Record<string, string> = { 'Content-Type': 'application/json', ...authHeaders() };
                 if (key) headers.Authorization = `Bearer ${key}`;
                 const response = await fetch('/api/explain-jargon', {
                     method: 'POST',

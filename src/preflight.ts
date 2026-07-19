@@ -234,6 +234,7 @@ export function runPreflight(opts: { lang: 'en' | 'zh-TW' }): { results: Promise
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                ...authHeaders(),
                 ...(key ? { Authorization: `Bearer ${key}` } : {}),
             },
             body: JSON.stringify({ text: PREFLIGHT_PROBE_TEXT, lang: opts.lang }),
