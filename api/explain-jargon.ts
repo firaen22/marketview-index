@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 import { getNimApiKeys, callNim, callNimHedged, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
 import { redis } from '../lib/redis.js';
+import { getClientIp } from '../lib/clientIp.js';
 import { applyGlossaryOverride } from '../lib/jargonGlossary.js';
 
 interface JargonTerm {
@@ -45,6 +46,13 @@ function sha(value: string): string {
     return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function authorize(providedKey: unknown, requiredKey: string): boolean {
+    const provided = typeof providedKey === 'string' ? providedKey : '';
+    const providedHash = crypto.createHash('sha256').update(provided).digest();
+    const requiredHash = crypto.createHash('sha256').update(requiredKey).digest();
+    return crypto.timingSafeEqual(providedHash, requiredHash);
+}
+
 // Prefer a stable, cross-machine slide identifier ("slideVersion#page") supplied
 // by the client. Every device viewing the same slide maps to the SAME key —
 // text path OR image path, regardless of presigned-URL rotation or rendered-JPEG
@@ -59,13 +67,15 @@ function jargonCacheKey(
     lang: 'en' | 'zh-TW',
     slideId: string,
 ): string {
-    if (slideId) return `jargon:slide:${lang}:${sha(slideId)}`;
+    if (slideId) return `jargon:v2:slide:${lang}:${sha(slideId)}`;
     const basis = 'text' in input ? `t:${input.text}` : `i:${input.imageBase64}`;
-    return `jargon:content:${lang}:${sha(basis)}`;
+    return `jargon:v2:content:${lang}:${sha(basis)}`;
 }
 
 // Slides rarely change and the key is content-addressed, so a long TTL is safe.
 const JARGON_CACHE_TTL_S = 60 * 60 * 24 * 30; // 30 days
+const JARGON_RATE_WINDOW_S = 60;
+const JARGON_RATE_MAX = 240;
 
 const IMAGE_BASE64_MIN_LEN = 100;
 const IMAGE_BASE64_MAX_LEN = 3_000_000;
@@ -169,6 +179,21 @@ function buildNimMessages(
         }];
 }
 
+async function rateLimit(req: any, mayWriteCache: boolean): Promise<boolean> {
+    if (!redis) return true;
+    try {
+        const key = `jargon_rl_${mayWriteCache ? 'k' : 'a'}_${getClientIp(req)}`;
+        const count = await redis.incr(key);
+        if (count === 1 || (await redis.ttl(key)) === -1) {
+            await redis.expire(key, JARGON_RATE_WINDOW_S);
+        }
+        return count <= JARGON_RATE_MAX;
+    } catch (error) {
+        console.error('Jargon rate limit error:', error);
+        return true;
+    }
+}
+
 // Primary backend. Tries each key against the model chain and returns the first
 // raw JSON string, or null if every key/model combination failed (so the handler
 // can fall through to NIM).
@@ -237,6 +262,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return res.status(405).json({ success: false, error: 'Method not allowed' });
         }
 
+        const requiredKey = process.env.PRESENT_API_KEY;
+        const mayWriteCache = !!requiredKey && authorize(req.headers['x-api-key'], requiredKey);
         const body = parseBody(req.body);
         const rawText = body?.text;
         const validText = typeof rawText === 'string' && rawText.trim().length > 0;
@@ -271,6 +298,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             } catch (err) {
                 console.warn('Jargon cache read failed:', err);
             }
+        }
+
+        if (!await rateLimit(req, mayWriteCache)) {
+            return res.status(429).json({ error: 'rate_limited' });
         }
 
         // Gemini is primary: prefer the user's own key (Bearer header), else the
@@ -325,7 +356,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // in a bad empty result for 30 days. Cache write failures are ignored.
         // The raw model terms are cached; the glossary override is applied on the
         // way out (below) so edits to vetted wording don't require a cache flush.
-        if (cacheKey && terms.length > 0) {
+        if (cacheKey && terms.length > 0 && mayWriteCache) {
             try {
                 await redis!.set(cacheKey, JSON.stringify(terms), { ex: JARGON_CACHE_TTL_S });
             } catch (err) {

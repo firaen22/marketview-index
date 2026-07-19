@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { CatalogItem, PresentCommand } from '../../lib/presentCommand';
+import { useCopilotCommand } from '../hooks/useCopilotCommand';
 
 // Only the network boundary is faked: sendPresentCommand / fetchProjectorState.
 // Everything else in CopilotBar (parsing, macros, settings) stays real.
@@ -35,11 +36,12 @@ let container: HTMLDivElement;
 // CopilotBar slots (one of which CSS hides at any given breakpoint).
 function TwoSlotHarness() {
     const [text, setText] = useState('');
+    const command = useCopilotCommand();
     return createElement(
         'div',
         null,
-        createElement(CopilotBar, { catalog: CATALOG, lang: 'en', text, onTextChange: setText }),
-        createElement(CopilotBar, { catalog: CATALOG, lang: 'en', text, onTextChange: setText }),
+        createElement(CopilotBar, { catalog: CATALOG, lang: 'en', text, onTextChange: setText, command }),
+        createElement(CopilotBar, { catalog: CATALOG, lang: 'en', text, onTextChange: setText, command }),
     );
 }
 

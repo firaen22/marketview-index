@@ -8,6 +8,7 @@ import {
     type JargonTerm,
 } from '../jargon';
 import { jargonDebug } from '../jargonDebug';
+import { authHeaders } from '../presentCommandApi';
 
 interface Options {
     enabled: boolean;
@@ -98,7 +99,7 @@ export function useJargon(opts: Options): {
             const requestKey = key;
             const requestPath = path;
             try {
-                const headers: HeadersInit = { 'Content-Type': 'application/json' };
+                const headers: HeadersInit = { 'Content-Type': 'application/json', ...authHeaders() };
                 const activeGeminiKey = geminiKeyRef.current.trim();
                 if (activeGeminiKey) headers.Authorization = `Bearer ${activeGeminiKey}`;
                 const version = slideVersionRef.current;

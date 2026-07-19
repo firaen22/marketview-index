@@ -35,6 +35,7 @@ import type { ProjectorState } from './hooks/usePresentCommand';
 import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentRange } from '../lib/presentCommand';
 import { buildGlossaryLookup, JARGON_GLOSSARY, lookupExplanation, normalizeTerm } from '../lib/jargonGlossary';
 import { parseJargonResponse, type JargonTerm } from './jargon';
+import { authHeaders } from './presentCommandApi';
 import { indexToQuoteItem } from './types/QuoteItem';
 import type { TimeRange } from './types';
 
@@ -68,7 +69,7 @@ export async function fetchExplainTerm(
     geminiKey: string,
     signal?: AbortSignal,
 ): Promise<JargonTerm | null> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...authHeaders() };
     if (geminiKey) headers.Authorization = `Bearer ${geminiKey}`;
     const response = await fetch('/api/explain-jargon', {
         method: 'POST',

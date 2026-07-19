@@ -19,6 +19,7 @@ import { AssistPanel, type PageCommandState } from './components/AssistPanel';
 import { usePresentAssist } from './hooks/usePresentAssist';
 import { sendPresentPageCommand } from './presentCommandApi';
 import { PreflightPanel } from './components/PreflightPanel';
+import { useCopilotCommand } from './hooks/useCopilotCommand';
 
 export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
@@ -40,6 +41,9 @@ export default function PresentationControl() {
     // mid-sentence showed the presenter an empty input while their typed command
     // sat in the hidden instance.
     const [copilotText, setCopilotText] = useState('');
+    // The Copilot command lifecycle is shared by both slots too: both stay
+    // mounted, so per-instance status/controllers desync across the breakpoint.
+    const copilotCommand = useCopilotCommand();
     // Synchronous in-flight guard: the disabled button only takes effect at the
     // next commit, so a same-frame double-tap (or a tap on the other slot's
     // instance) could otherwise queue a duplicate page turn.
@@ -141,7 +145,7 @@ export default function PresentationControl() {
             {/* Mobile: notes live above the grid so the Preview toggle cannot hide
                 them — a presenter reaching for notes still needs the deck. */}
             <div className="sm:hidden shrink-0">
-                <CopilotBar catalog={commandCatalog} lang={lang} text={copilotText} onTextChange={setCopilotText} />
+                <CopilotBar catalog={commandCatalog} lang={lang} text={copilotText} onTextChange={setCopilotText} command={copilotCommand} />
                 <AssistPanel slide={slide} assist={assist} pageCmd={pageCmd} onSendPage={direction => void sendPage(direction)} />
             </div>
 
@@ -150,7 +154,7 @@ export default function PresentationControl() {
                 {/* Editor — hidden on mobile when preview is shown */}
                 <div className={`border-r border-zinc-900 flex flex-col min-h-0 ${showPreview ? 'hidden sm:flex' : 'flex'}`}>
                     <div className="hidden sm:block">
-                        <CopilotBar catalog={commandCatalog} lang={lang} text={copilotText} onTextChange={setCopilotText} />
+                        <CopilotBar catalog={commandCatalog} lang={lang} text={copilotText} onTextChange={setCopilotText} command={copilotCommand} />
                     </div>
                     <div className="hidden sm:block">
                         <AssistPanel slide={slide} assist={assist} pageCmd={pageCmd} onSendPage={direction => void sendPage(direction)} />
