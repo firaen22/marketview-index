@@ -82,6 +82,20 @@ export async function fetchExplainTerm(
     return terms.find(item => normalizeTerm(item.term) === normalizeTerm(term)) ?? terms[0];
 }
 
+// A PDF page turn must drop the presenter's `explain` card: it captions the page
+// it was asked on, and while it is up it also suppresses that page's own auto
+// jargon card (it is the `?` branch of the render ternary below). PdfViewer
+// re-fires onPageChange whenever the callback identity churns, so an UNCHANGED
+// page must NOT clear a card the presenter just asked for. lastPage === 0 means
+// "no page rendered yet" — first render, and after the deck-swap reset.
+export function handlePdfPageChangeWithDeps(
+    page: number,
+    deps: { lastPage: number; clearRemoteJargon: () => void; onJargonPageChange: () => void },
+): void {
+    if (deps.lastPage > 0 && deps.lastPage !== page) deps.clearRemoteJargon();
+    deps.onJargonPageChange();
+}
+
 export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: PresentationCommandExecutorDeps): boolean {
     const {
         marketData,
@@ -230,6 +244,17 @@ export default function PresentationPage() {
     const kioskTimerRef = useRef<number | null>(null);
     const remoteJargonTimerRef = useRef<number | null>(null);
     const latestExplainIdRef = useRef<string | null>(null);
+    // Declared up here, not beside showExplainTerm: glossaryOnPdfPageChange below
+    // depends on it, and a useCallback dep list evaluates during render — so a
+    // later `const` would be a temporal-dead-zone ReferenceError on first paint.
+    const clearRemoteJargon = useCallback(() => {
+        if (remoteJargonTimerRef.current) {
+            window.clearTimeout(remoteJargonTimerRef.current);
+            remoteJargonTimerRef.current = null;
+        }
+        latestExplainIdRef.current = null;
+        setRemoteJargon(null);
+    }, []);
     const indexIframeRef = useRef<HTMLIFrameElement | null>(null);
     const indexIframeLoadedRef = useRef(false);
     // The DOM node indexIframeLoadedRef was last marked loaded for, so a ref
@@ -273,9 +298,13 @@ export default function PresentationPage() {
     // renders — well before the slower onPageText extraction — so track the ref
     // here too, or a session started in that window reports the previous page.
     const glossaryOnPdfPageChange = useCallback((page: number) => {
+        handlePdfPageChangeWithDeps(page, {
+            lastPage: lastPdfPageRef.current,
+            clearRemoteJargon,
+            onJargonPageChange: jargon.onPageChange,
+        });
         lastPdfPageRef.current = page;
-        jargon.onPageChange();
-    }, [jargon.onPageChange]);
+    }, [jargon.onPageChange, clearRemoteJargon]);
     // A deck swap must not let a session started before the new PDF renders
     // report the OLD deck's page number.
     const currentPdfUrl = slide.mode === 'pdf' ? slide.content : '';
@@ -364,15 +393,6 @@ export default function PresentationPage() {
             setRemoteJargon(null);
             remoteJargonTimerRef.current = null;
         }, 30_000);
-    }, []);
-
-    const clearRemoteJargon = useCallback(() => {
-        if (remoteJargonTimerRef.current) {
-            window.clearTimeout(remoteJargonTimerRef.current);
-            remoteJargonTimerRef.current = null;
-        }
-        latestExplainIdRef.current = null;
-        setRemoteJargon(null);
     }, []);
 
     const showExplainTerm = useCallback((term: string, commandId: string) => {

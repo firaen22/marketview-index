@@ -466,13 +466,20 @@ export function useGlossarySession() {
             const next = await configGlossarySession(current.joinCode, { mode });
             if (epoch !== epochRef.current) return;
             if (mountedRef.current) {
-                setSession(next);
+                // Field-scoped and functional: the config endpoint owns only
+                // `mode` and `keepAfter`, but applying its whole response over
+                // state discarded whatever a term push wrote during the await —
+                // wiping terms and joins off the presenter's panel.
+                setSession(prev => prev ? { ...prev, mode: next.mode, keepAfter: next.keepAfter ?? prev.keepAfter } : next);
                 setError(null);
             }
         } catch (caught) {
             if (epoch !== epochRef.current) return;
             if (mountedRef.current) {
-                setSession(current);
+                // Roll back only what was optimistically changed above. Restoring
+                // the whole pre-await snapshot could also resurrect status:'live'
+                // over an 'ended' the push's 409 handler had just set.
+                setSession(prev => prev ? { ...prev, mode: current.mode } : prev);
                 setError(caught instanceof Error ? caught.message : 'Failed to update glossary mode');
             }
         }

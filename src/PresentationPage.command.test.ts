@@ -5,7 +5,7 @@ vi.mock('./components/PdfViewer', () => ({
     PdfViewer: () => null,
 }));
 
-const { executePresentationCommandWithDeps, fetchExplainTerm } = await import('./PresentationPage');
+const { executePresentationCommandWithDeps, fetchExplainTerm, handlePdfPageChangeWithDeps } = await import('./PresentationPage');
 
 function baseDeps(overrides: Record<string, unknown> = {}) {
     return {
@@ -153,5 +153,44 @@ describe('fetchExplainTerm', () => {
         expect(JSON.parse(init.body as string)).toEqual({ text: 'duration', lang: 'en' });
         expect(init.body as string).not.toContain('slideId');
         vi.unstubAllGlobals();
+    });
+});
+
+describe('handlePdfPageChangeWithDeps', () => {
+    function jargonDeps(lastPage: number) {
+        return {
+            lastPage,
+            clearRemoteJargon: vi.fn(),
+            onJargonPageChange: vi.fn(),
+        };
+    }
+
+    it('clears the presenter explain card on a real page turn', () => {
+        const deps = jargonDeps(3);
+
+        handlePdfPageChangeWithDeps(4, deps);
+
+        expect(deps.clearRemoteJargon).toHaveBeenCalledTimes(1);
+        expect(deps.onJargonPageChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the explain card when PdfViewer re-fires the same page', () => {
+        // PdfViewer re-invokes onPageChange whenever the callback identity
+        // churns; an unchanged page must not wipe a card just requested.
+        const deps = jargonDeps(3);
+
+        handlePdfPageChangeWithDeps(3, deps);
+
+        expect(deps.clearRemoteJargon).not.toHaveBeenCalled();
+        expect(deps.onJargonPageChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not clear on the first render or after a deck-swap reset', () => {
+        const deps = jargonDeps(0);
+
+        handlePdfPageChangeWithDeps(1, deps);
+
+        expect(deps.clearRemoteJargon).not.toHaveBeenCalled();
+        expect(deps.onJargonPageChange).toHaveBeenCalledTimes(1);
     });
 });

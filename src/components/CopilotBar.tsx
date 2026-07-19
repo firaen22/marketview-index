@@ -22,6 +22,12 @@ export const QUICK_COMMANDS = [
 interface Props {
     catalog: CatalogItem[];
     lang: 'en' | 'zh-TW';
+    // Owned by PresentationControl, not here: the bar renders in two layout slots
+    // and CSS hides one, so a per-instance draft desyncs across the responsive
+    // breakpoint — rotating a phone mid-sentence blanked the typed command.
+    // Required (not optional) so tsc forces any future slot to opt in.
+    text: string;
+    onTextChange: React.Dispatch<React.SetStateAction<string>>;
 }
 
 function displayForSymbol(symbol: string, catalog: CatalogItem[]): string {
@@ -59,8 +65,7 @@ function errorMessage(error: unknown): string {
     return 'Timed out — try again';
 }
 
-export function CopilotBar({ catalog, lang }: Props) {
-    const [text, setText] = useState('');
+export function CopilotBar({ catalog, lang, text, onTextChange: setText }: Props) {
     const [status, setStatus] = useState<Status>({ type: 'idle' });
     const [customMacros, setCustomMacros] = useState<Macro[]>(() => getSetting('copilotMacros'));
     const [editing, setEditing] = useState(false);
@@ -176,7 +181,11 @@ export function CopilotBar({ catalog, lang }: Props) {
         const macro = overrideText === undefined ? findMacro(commandText, macros) : null;
         if (macro) {
             await handleRunMacro(macro);
-            setText('');
+            // Clear only if the draft is still the one we sent. The draft is now
+            // shared across both layout slots, so an unconditional clear after an
+            // await lets the hidden slot wipe a command the presenter typed into
+            // the visible one after crossing the breakpoint.
+            setText(current => current === commandText ? '' : current);
             return;
         }
         const controller = new AbortController();
@@ -193,7 +202,8 @@ export function CopilotBar({ catalog, lang }: Props) {
             // limit on the single most frequent command in a presentation.
             if (command.kind !== 'page') pollAck(command, message);
             navigator.vibrate?.(30);
-            if (overrideText === undefined) setText('');
+            // Conditional for the same reason as the macro branch above.
+            if (overrideText === undefined) setText(current => current === commandText ? '' : current);
         } catch (error) {
             if ((error as DOMException).name === 'AbortError') return;
             if (requestControllerRef.current !== controller) return;
