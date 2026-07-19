@@ -33,6 +33,11 @@ export function useSlideSync(): UseSlideSyncResult {
     const [, setTick] = useState(0);
     const saveTimerRef = useRef<number | null>(null);
     const statusTimerRef = useRef<number | null>(null);
+    // Bumped when an oversize edit takes over the status indicator, so a save
+    // dispatched before it cannot resolve later and overwrite 'error' with 'ok'
+    // — which also stamped lastSavedAt and decayed to idle, telling the
+    // presenter the deck had saved while the "Not synced to cloud" box was up.
+    const saveEpochRef = useRef(0);
     const slideRef = useRef(slide);
     slideRef.current = slide;
     const mountedRef = useRef(true);
@@ -86,6 +91,7 @@ export function useSlideSync(): UseSlideSyncResult {
                 clearTimeout(statusTimerRef.current);
                 statusTimerRef.current = null;
             }
+            saveEpochRef.current += 1;
             setSizeWarning(`Content is ${(byteSize / 1024).toFixed(0)} KB — max ${MAX_CONTENT_BYTES / 1024} KB. Not synced to cloud.`);
             setCloudStatus('error');
             return;
@@ -100,13 +106,17 @@ export function useSlideSync(): UseSlideSyncResult {
             statusTimerRef.current = null;
         }
         setCloudStatus('saving');
+        const epoch = saveEpochRef.current;
         saveRemoteSlide(target).then(() => {
-            if (!mountedRef.current) return;
+            if (!mountedRef.current || saveEpochRef.current !== epoch) return;
             setCloudStatus('ok');
             setLastSavedAt(Date.now());
             statusTimerRef.current = window.setTimeout(() => setCloudStatus('idle'), 2000);
         }).catch((e) => {
-            if (!mountedRef.current) return;
+            // Epoch-guarded too: without it a save that fails for an unrelated
+            // reason after an oversize edit sets its own 'error' + 3s decay to
+            // idle, destroying the oversize state by a different route.
+            if (!mountedRef.current || saveEpochRef.current !== epoch) return;
             // Superseded by a newer local save — that save drives UI state.
             // A server 409 has no follow-up save, so reset the indicator ourselves.
             if (e instanceof StaleSaveError) {
@@ -130,6 +140,7 @@ export function useSlideSync(): UseSlideSyncResult {
         const byteSize = new Blob([merged.content]).size;
         if (byteSize > MAX_CONTENT_BYTES) {
             if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+            saveEpochRef.current += 1;
             setSizeWarning(`Content is ${(byteSize / 1024).toFixed(0)} KB — max ${MAX_CONTENT_BYTES / 1024} KB. Not synced to cloud.`);
             setCloudStatus('error');
             return;
