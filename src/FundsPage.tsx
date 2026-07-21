@@ -71,6 +71,7 @@ export default function FundsPage() {
                     />
                     <button
                         onClick={() => fetchFunds(true)}
+                        aria-label={t.refresh}
                         className={cn(
                             "p-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all",
                             isLoading && "animate-spin"
@@ -108,7 +109,7 @@ export default function FundsPage() {
                         </button>
                     </div>
                 )}
-                {isLoading ? (
+                {isLoading && marketData.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-64 text-zinc-600">
                         <Loader2 className="w-10 h-10 animate-spin mb-4 opacity-50" />
                         <p className="font-medium animate-pulse">{t.fundsPage.loading}</p>
@@ -119,10 +120,10 @@ export default function FundsPage() {
                             <LayoutDashboard className="w-5 h-5 mr-2 text-indigo-400" />
                             {t.fundsPage.heatmapTitle}
                         </h3>
-                        <MarketHeatmap rawData={marketData} groupBy="subCategory" />
+                        <MarketHeatmap rawData={marketData} groupBy="subCategory" language={language} />
                     </div>
                 )}
-                {!isLoading && (
+                {marketData.length > 0 && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                         {marketData.map((fund) => (
                             <div key={fund.symbol} className="relative group">

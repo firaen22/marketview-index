@@ -9,6 +9,11 @@ export default {
     liveFeed: "Live Feed",
     settings: "System Settings",
     refresh: "Refresh Data",
+    marketPhase: {
+        open: "open",
+        lunch: "lunch",
+        closed: "closed"
+    },
     ytd: "YTD Change",
     yoyChange: "YoY Change",
     momChange: "MoM Change",

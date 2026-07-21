@@ -9,6 +9,11 @@ export default {
     liveFeed: "即時資訊推送",
     settings: "系統詳細設定",
     refresh: "手動更新數據",
+    marketPhase: {
+        open: "開市",
+        lunch: "午休",
+        closed: "休市"
+    },
     ytd: "年初至今漲跌",
     yoyChange: "年增率 (YoY)",
     momChange: "月增率 (MoM)",

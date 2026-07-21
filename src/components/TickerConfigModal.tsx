@@ -24,7 +24,10 @@ export function TickerConfigModal({ allSymbols, selected, language, t, onClose, 
     const toggle = (symbol: string) => {
         setShowAll(false);
         setDraft(prev => {
-            const next = new Set(prev);
+            // In show-all mode the draft is derived from the CURRENT symbol list:
+            // allSymbols may have arrived after mount, leaving the initial draft stale.
+            const base = showAll ? new Set(allSymbols.map(s => s.symbol)) : prev;
+            const next = new Set(base);
             if (next.has(symbol)) next.delete(symbol);
             else next.add(symbol);
             return next;
