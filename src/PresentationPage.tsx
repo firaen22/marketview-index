@@ -1081,7 +1081,7 @@ export default function PresentationPage() {
                     <span className="font-mono text-xs text-zinc-300">{clock}</span>
                     <div className="flex items-center gap-2 min-w-0">
                         {marketStatuses.map(status => (
-                            <MarketStatusChip key={status.key} status={status} now={statusNow} />
+                            <MarketStatusChip key={status.key} status={status} now={statusNow} phaseLabels={t.marketPhase} />
                         ))}
                     </div>
                 </div>

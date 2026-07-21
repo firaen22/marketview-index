@@ -32,7 +32,10 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
     const [isError, setIsError] = useState(false);
     const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-    const requestControllerRef = useRef<AbortController | null>(null);
+    // Foreground and background aborts are tracked separately: a background
+    // poll must never kill a user-initiated foreground fetch mid-flight.
+    const fgControllerRef = useRef<AbortController | null>(null);
+    const bgControllerRef = useRef<AbortController | null>(null);
     const requestSequenceRef = useRef(0);
 
     const { newsData, isNewsLoading, isAiTranslated, marketSummary, fetchNews, refreshNewsWithKey } =
@@ -96,9 +99,10 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
         forceRefresh: boolean,
         overrideLang: 'en' | 'zh-TW'
     ) => {
-        requestControllerRef.current?.abort();
+        const controllerRef = isBackground ? bgControllerRef : fgControllerRef;
+        controllerRef.current?.abort();
         const controller = new AbortController();
-        requestControllerRef.current = controller;
+        controllerRef.current = controller;
         const requestSequence = ++requestSequenceRef.current;
         const CACHE_KEY = marketCacheKey(rangeStr, overrideLang);
         if (!isBackground) {
@@ -117,6 +121,7 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
                 setIsError(false);
                 if (!result.success || result.source === 'server_stale_cache') {
                     const timestamp = new Date(result.timestamp || '');
+                    setLastUpdated(Number.isNaN(timestamp.getTime()) ? null : timestamp);
                     const timeStr = Number.isNaN(timestamp.getTime())
                         ? ''
                         : timestamp.toLocaleTimeString(overrideLang === 'zh-TW' ? 'zh-TW' : undefined);
@@ -155,7 +160,8 @@ export function useDashboardData({ timeRange, language, geminiKey, lastUpdatedLa
             fetchNews(language, undefined, true, false);
         }, POLL_MS);
         return () => {
-            requestControllerRef.current?.abort();
+            fgControllerRef.current?.abort();
+            bgControllerRef.current?.abort();
             clearInterval(id);
         };
     }, [timeRange, language, fetchMarketData, fetchNews]);

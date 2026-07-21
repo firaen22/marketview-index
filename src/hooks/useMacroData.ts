@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MacroData, MacroDataResponse } from '../types';
 
 interface Options {
@@ -15,8 +15,11 @@ interface Result {
 export function useMacroData({ lang, refreshMs }: Options): Result {
     const [data, setData] = useState<MacroData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    // Latest request wins: a slow earlier response must not overwrite newer data.
+    const requestSeqRef = useRef(0);
 
     const refresh = useCallback(async (force = false, signal?: AbortSignal) => {
+        const seq = ++requestSeqRef.current;
         setIsLoading(true);
         try {
             const params = new URLSearchParams();
@@ -28,14 +31,14 @@ export function useMacroData({ lang, refreshMs }: Options): Result {
             if (!response.ok) return;
             const result: MacroDataResponse = await response.json();
 
-            if (result.success) {
+            if (seq === requestSeqRef.current && result.success) {
                 setData(result.data);
             }
         } catch (err) {
             if ((err as Error)?.name === 'AbortError') return;
             console.error('Failed to fetch macro data:', err);
         } finally {
-            if (!signal?.aborted) setIsLoading(false);
+            if (seq === requestSeqRef.current && !signal?.aborted) setIsLoading(false);
         }
     }, [lang]);
 

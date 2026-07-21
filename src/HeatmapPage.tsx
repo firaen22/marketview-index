@@ -148,6 +148,7 @@ export default function HeatmapPage() {
 
                     <button
                         onClick={() => fetchData(true)}
+                        aria-label={t.refresh}
                         className={cn(
                             "p-2.5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all",
                             isLoading && "animate-spin"
@@ -191,7 +192,7 @@ export default function HeatmapPage() {
                             )} />
 
                             <div className={isEmbed ? "h-[calc(100vh-140px)] w-full" : "h-[650px] w-full"}>
-                                <MarketHeatmap rawData={filteredData} groupBy={viewMode} />
+                                <MarketHeatmap rawData={filteredData} groupBy={viewMode} language={language} />
                             </div>
 
                             <HeatmapLegend />

@@ -19,7 +19,8 @@ interface TreemapNode {
 
 export const transformToTreemap = (
     data: IndexData[],
-    groupBy: 'category' | 'subCategory' = 'category'
+    groupBy: 'category' | 'subCategory' = 'category',
+    language: 'en' | 'zh-TW' = 'zh-TW'
 ): TreemapNode[] => {
     const categories = data
         .filter(item => item.symbol !== '^VIX')
@@ -28,7 +29,7 @@ export const transformToTreemap = (
             if (!acc[cat]) acc[cat] = { name: cat, children: [] };
 
             acc[cat].children.push({
-                name: item.name,
+                name: language === 'en' ? (item.nameEn || item.name) : item.name,
                 symbol: item.symbol,
                 size: item.category === 'Crypto' && Number.isFinite(item.price) && item.price > 0 ? Math.log10(item.price) * 10 : 100,
                 change: item.changePercent,
@@ -45,9 +46,11 @@ interface HeatmapTooltipProps {
     payload?: Array<{ payload: TreemapLeaf }>;
 }
 
-const CustomTooltip = ({ active, payload }: HeatmapTooltipProps) => {
+export const CustomTooltip = ({ active, payload }: HeatmapTooltipProps) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
+        // Recharts also routes category parent nodes here; they have no change value.
+        if (typeof data.change !== 'number') return null;
         return (
             <div className="bg-zinc-800/95 border border-zinc-700/50 p-2.5 rounded-lg shadow-xl text-xs font-mono z-50">
                 <p className="text-zinc-400 mb-1">{data.symbol || data.name}</p>
@@ -110,8 +113,8 @@ const CustomizedContent = (props: TreemapContentProps) => {
     );
 };
 
-export const MarketHeatmap = ({ rawData, groupBy = 'category' }: { rawData: IndexData[], groupBy?: 'category' | 'subCategory' }) => {
-    const data = transformToTreemap(rawData, groupBy);
+export const MarketHeatmap = ({ rawData, groupBy = 'category', language = 'zh-TW' }: { rawData: IndexData[], groupBy?: 'category' | 'subCategory', language?: 'en' | 'zh-TW' }) => {
+    const data = transformToTreemap(rawData, groupBy, language);
 
     if (!rawData || rawData.length === 0) {
         return null;
