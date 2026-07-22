@@ -24,7 +24,7 @@ Compiled 2026-07-13.
 
 ## will-go-stale — re-verify before relying (all dated 2026-07-13 unless noted)
 
-- **Model IDs and orderings** (`gemini-3.1-flash-lite`/`2.5-flash-lite`; NIM text/vision
+- **Model IDs and orderings** (`gemini-3.5-flash-lite`/`2.5-flash-lite`; NIM text/vision
   lists) — Gemini retirements already killed chain legs twice (#7/#8). Safe default:
   live-probe every ID before editing a chain (ai-jargon-pipeline R3).
 - **Measured latencies** (vision 16–60s swings, healthy 5–9s, hedge 10s, timeout 50s)

@@ -73,7 +73,7 @@ All file:line refs verified 2026-07-13 at commit 6feeff2. Line numbers drift; an
 
 - **Tempting change:** "alphabetize the model arrays" / "use NIM everywhere for consistency" / "set reasoning_effort low globally".
 - **Invariant (as of 2026-07-13 — volatile, model IDs rot):**
-  - Jargon: Gemini primary (`gemini-3.1-flash-lite` → `gemini-2.5-flash-lite`,
+  - Jargon: Gemini primary (`gemini-3.5-flash-lite` → `gemini-2.5-flash-lite`,
     explain-jargon.ts:19), NIM only if Gemini yields nothing. User Bearer key, when
     present, is used exclusively (explain-jargon.ts:270).
   - NIM vision list order = hedge order: FIRST entry fires alone, backups join after

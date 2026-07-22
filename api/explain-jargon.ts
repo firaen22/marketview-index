@@ -17,8 +17,8 @@ interface JargonTerm {
 // Bearer header by the client) takes precedence over the server keys.
 const GEMINI_API_KEY_PATTERN = /^[A-Za-z0-9._-]{20,128}$/;
 // Fallback is a different model generation with its own quota pool, so a
-// 3.1-side quota or outage issue doesn't take out both legs.
-const GEMINI_MODEL_CHAIN = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
+// 3.5-side quota or outage issue doesn't take out both legs.
+const GEMINI_MODEL_CHAIN = ['gemini-3.5-flash-lite', 'gemini-2.5-flash-lite'];
 const GEMINI_TEXT_TIMEOUT_MS = 20_000;
 
 // Each env var may hold a single key or several comma-separated keys.
