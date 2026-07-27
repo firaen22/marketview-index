@@ -30,6 +30,7 @@ import { useJargon } from './hooks/useJargon';
 import type { PdfViewerHandle } from './components/PdfViewer';
 import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
+import { DataFreshness } from './components/DataFreshness';
 import { usePresentCommand } from './hooks/usePresentCommand';
 import type { ProjectorState } from './hooks/usePresentCommand';
 import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentRange } from '../lib/presentCommand';
@@ -275,7 +276,7 @@ export default function PresentationPage() {
 
     const t = React.useMemo(() => ({ ...getLocale(lang), language: lang, activeRange: dataRange }), [lang, dataRange]);
 
-    const { data: marketData, isLoading: marketLoading } = useMarketData({ range: dataRange, lang, refreshMs: 10 * 60 * 1000 });
+    const { data: marketData, isLoading: marketLoading, dataMode: marketDataMode, lastUpdatedAt: marketUpdatedAt } = useMarketData({ range: dataRange, lang, refreshMs: 10 * 60 * 1000 });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const qp = useQuotePanel({ marketData, macroData });
     const jargon = useJargon({ enabled: jargonEnabled && mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey, slideVersion: slide.mode === 'pdf' ? slide.updatedAt : undefined });
@@ -1084,6 +1085,7 @@ export default function PresentationPage() {
                             <MarketStatusChip key={status.key} status={status} now={statusNow} phaseLabels={t.marketPhase} />
                         ))}
                     </div>
+                    <DataFreshness mode={marketDataMode} lastUpdatedAt={marketUpdatedAt} now={statusNow} t={t} />
                 </div>
                 <div className="min-w-0 flex-1 overflow-hidden">
                     {stripMode === 'compact' && (

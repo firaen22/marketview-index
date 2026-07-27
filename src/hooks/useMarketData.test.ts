@@ -7,8 +7,13 @@ import { useMarketData } from './useMarketData';
 import { marketCacheKey } from '../settings';
 import type { IndexData } from '../types';
 
+/** Full-shape quote — seedFromCache runs the same usableQuotes gate as fetches. */
 function item(symbol: string, changePercent: number): IndexData {
-    return { symbol, name: symbol, price: 100, changePercent } as IndexData;
+    return {
+        symbol, name: symbol, price: 100, changePercent,
+        change: 1, ytdChange: 5, ytdChangePercent: 5,
+        open: 100, high: 100, low: 100, history: [], category: 'US',
+    } as IndexData;
 }
 
 // A fetch that never resolves — keeps the hook in its loading state so we can

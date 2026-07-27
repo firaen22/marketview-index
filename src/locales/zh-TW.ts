@@ -12,8 +12,14 @@ export default {
     marketPhase: {
         open: "開市",
         lunch: "午休",
-        closed: "休市"
+        closed: "休市",
+        holiday: "假期"
     },
+    dataFreshness: {
+        stale: "資料延遲",
+        unavailable: "無即時資料"
+    },
+    clipboardDenied: "無法存取剪貼簿，請以 Cmd+V 或長按貼上手動貼上。",
     ytd: "年初至今漲跌",
     yoyChange: "年增率 (YoY)",
     momChange: "月增率 (MoM)",

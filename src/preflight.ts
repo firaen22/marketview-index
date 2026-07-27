@@ -1,6 +1,7 @@
 import { fetchProjectorState, authHeaders } from './presentCommandApi';
 import { isValidPresentSlide } from './slideApi';
 import { getSettings, type PresentSlide } from './settings';
+import { calendarCoverageEnd } from './marketHolidays';
 
 export type PreflightStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
@@ -49,6 +50,44 @@ export function classifyDeck(slideMode: string, deckStatus: number | null, conte
         return { status: 'warn', detail: `unexpected content-type ${trimmedType}` };
     }
     return { status: 'pass', detail: trimmedType ? `HTTP ${deckStatus} ${trimmedType}` : `HTTP ${deckStatus}` };
+}
+
+/** Warn this far ahead of a holiday table running out. */
+const CALENDAR_WARN_MS = 60 * 24 * 60 * 60 * 1000;
+
+/**
+ * The holiday tables in marketHolidays.ts cover fixed years and then stop. Past
+ * that horizon getMarketStatus silently reverts to weekday-only, which is exactly
+ * the holiday-blind bug the tables exist to fix — so the decay has to be visible
+ * somewhere. This is that somewhere: a go-live check the advisor already runs.
+ */
+export function classifyHolidayCalendar(now: Date): Classification {
+    const nowMs = now.getTime();
+    if (!Number.isFinite(nowMs)) return { status: 'fail', detail: 'invalid date' };
+
+    const expired: string[] = [];
+    const expiring: string[] = [];
+    let earliest = Infinity;
+
+    for (const key of ['HK', 'JP', 'EU', 'US'] as const) {
+        const end = calendarCoverageEnd(key);
+        if (end === null) {
+            expired.push(key);
+            continue;
+        }
+        earliest = Math.min(earliest, end);
+        if (end < nowMs) expired.push(key);
+        else if (end - nowMs < CALENDAR_WARN_MS) expiring.push(key);
+    }
+
+    if (expired.length > 0) {
+        return { status: 'fail', detail: `holiday table expired: ${expired.join(', ')}` };
+    }
+    if (expiring.length > 0) {
+        const days = Math.floor((earliest - nowMs) / (24 * 60 * 60 * 1000));
+        return { status: 'warn', detail: `${expiring.join(', ')} expire in ${days}d` };
+    }
+    return { status: 'pass', detail: `covered to ${new Date(earliest).toISOString().slice(0, 10)}` };
 }
 
 export function classifyMarket(status: number, payload: unknown): Classification {
@@ -242,8 +281,11 @@ export function runPreflight(opts: { lang: 'en' | 'zh-TW' }): { results: Promise
         return result('jargon', fetched ? classifyJargon(fetched.status, fetched.payload) : { status: 'fail', detail: 'unreachable/timeout' });
     })().catch(() => result('jargon', { status: 'fail', detail: 'unreachable/timeout' }));
 
+    // Purely local — no network, so it resolves immediately.
+    const calendarResult = Promise.resolve(result('calendar', classifyHolidayCalendar(new Date())));
+
     return {
-        results: [slideResult, deckResult, marketResult, macroResult, projectorResult, authResult, jargonResult],
+        results: [slideResult, deckResult, marketResult, macroResult, projectorResult, authResult, jargonResult, calendarResult],
         abort: () => {
             for (const controller of controllers) {
                 if (!controller.signal.aborted) controller.abort(makeAbortError());

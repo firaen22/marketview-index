@@ -12,6 +12,7 @@ const CHECKS = [
     { id: 'projector', label: 'Projector' },
     { id: 'auth', label: 'Write auth' },
     { id: 'jargon', label: 'Jargon AI' },
+    { id: 'calendar', label: 'Holiday calendar' },
 ] as const;
 
 type RowState = {

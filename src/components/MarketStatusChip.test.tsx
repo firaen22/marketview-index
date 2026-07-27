@@ -25,7 +25,7 @@ describe('MarketStatusChip sweep-14 regression', () => {
         await act(async () => {
             root.render(
                 <MarketStatusChip
-                    status={{ key: 'HK', phase: 'lunch', nextChangeAt: 10_000 }}
+                    status={{ key: 'HK', phase: 'lunch', nextChangeAt: 10_000, calendarCoverage: 'covered' }}
                     now={0}
                     phaseLabels={{ open: '開市', lunch: '午休', closed: '休市' }}
                 />
@@ -38,7 +38,7 @@ describe('MarketStatusChip sweep-14 regression', () => {
     it('falls back to the raw phase when no labels are provided', async () => {
         await act(async () => {
             root.render(
-                <MarketStatusChip status={{ key: 'US', phase: 'open', nextChangeAt: 10_000 }} now={0} />
+                <MarketStatusChip status={{ key: 'US', phase: 'open', nextChangeAt: 10_000, calendarCoverage: 'covered' }} now={0} />
             );
         });
         expect(container.textContent).toContain('open');

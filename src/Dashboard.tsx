@@ -23,6 +23,7 @@ import { CATEGORIES_ORDER } from './constants';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useDashboardData } from './hooks/useDashboardData';
 import { useMacroData } from './hooks/useMacroData';
+import { computeNewSinceVisit, getLastVisitAt, recordVisitNow } from './newSinceVisit';
 import { getLocale } from './locales';
 
 export default function Dashboard() {
@@ -37,6 +38,12 @@ export default function Dashboard() {
   const [language, setLanguage] = useState<'en' | 'zh-TW'>(initialSettings.lang);
   const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
   const [highlightSymbol, setHighlightSymbol] = useState<string | null>(null);
+
+  // Snapshot the previous visit ONCE per mount, before this session's own view
+  // of the news list gets a chance to overwrite it — otherwise every render
+  // would "just visited" itself and nothing would ever show as new.
+  const [prevVisitAt] = useState<number>(() => getLastVisitAt());
+  useEffect(() => { recordVisitNow(Date.now()); }, []);
 
   // Cross-tab synchronization via consolidated settings key
   useSettingsSync(({ lang, chartMode, tickerSymbols }) => {
@@ -65,6 +72,13 @@ export default function Dashboard() {
   } = useDashboardData({ timeRange, language, geminiKey, lastUpdatedLabel: t.lastUpdated });
 
   const { data: macroData } = useMacroData({ lang: language, refreshMs: 60 * 60 * 1000 });
+
+  // Computed unconditionally at top level — NewsSection below is itself behind
+  // a conditional render, so a hook cannot live in its JSX props.
+  const newSinceVisitIds = React.useMemo(
+      () => computeNewSinceVisit(newsData, prevVisitAt).newIds,
+      [newsData, prevVisitAt]
+  );
 
   const saveGeminiKey = (key: string) => {
     setSetting('geminiKey', key);
@@ -165,6 +179,7 @@ export default function Dashboard() {
               marketSummary={marketSummary}
               marketData={marketData}
               newsData={newsData}
+              newIds={newSinceVisitIds}
               t={t}
             />
           )}
