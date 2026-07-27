@@ -9,7 +9,9 @@ const SENTIMENT_LABELS: Record<string, Record<string, string>> = {
     'zh-TW': { Bullish: '看漲', Bearish: '看跌', Neutral: '中立' },
 };
 
-export const NewsCard: React.FC<{ item: NewsItem; language: string; isFocusMode?: boolean }> = ({ item, language, isFocusMode }) => {
+const NEW_BADGE_LABEL: Record<string, string> = { en: 'NEW', 'zh-TW': '新' };
+
+export const NewsCard: React.FC<{ item: NewsItem; language: string; isFocusMode?: boolean; isNew?: boolean }> = ({ item, language, isFocusMode, isNew }) => {
     const sentimentVariant = item.sentiment.toLowerCase() as 'bullish' | 'bearish' | 'neutral';
     const label = SENTIMENT_LABELS[language]?.[item.sentiment] || item.sentiment;
 
@@ -18,6 +20,11 @@ export const NewsCard: React.FC<{ item: NewsItem; language: string; isFocusMode?
             <Card className="p-4 hover:bg-zinc-900 transition-colors cursor-pointer group border-zinc-800/60 h-full">
                 <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center space-x-2 text-xs text-zinc-500">
+                        {isNew && (
+                            <Badge variant="bullish" className="px-1.5 py-0 text-[9px] tracking-wider">
+                                {NEW_BADGE_LABEL[language] || 'NEW'}
+                            </Badge>
+                        )}
                         <span className="font-medium text-zinc-400">{item.source}</span>
                         <span>•</span>
                         <span className="flex items-center"><Clock className="w-3 h-3 mr-1" />{item.time}</span>

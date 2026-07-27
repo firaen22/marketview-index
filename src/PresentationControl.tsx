@@ -20,9 +20,11 @@ import { usePresentAssist } from './hooks/usePresentAssist';
 import { sendPresentPageCommand } from './presentCommandApi';
 import { PreflightPanel } from './components/PreflightPanel';
 import { useCopilotCommand } from './hooks/useCopilotCommand';
+import { Toast, useToast } from './components/Toast';
 
 export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
+    const { message: toastMessage, showToast } = useToast();
     const lang = getSettings().lang;
     const { data: marketData } = useMarketData({ range: 'YTD', lang });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
@@ -90,7 +92,8 @@ export default function PresentationControl() {
             const text = await navigator.clipboard.readText();
             if (text) updateContent(text);
         } catch {
-            alert('Clipboard access denied. Paste manually with Cmd+V / long-press Paste.');
+            // A modal alert() would freeze the presenter's phone mid-presentation.
+            showToast(getLocale(lang).clipboardDenied);
         }
     };
 
@@ -98,6 +101,7 @@ export default function PresentationControl() {
 
     return (
         <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
+            <Toast message={toastMessage} />
             {/* Header */}
             <header className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-zinc-900 shrink-0">
                 <div className="flex items-center gap-3">

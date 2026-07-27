@@ -12,8 +12,14 @@ export default {
     marketPhase: {
         open: "open",
         lunch: "lunch",
-        closed: "closed"
+        closed: "closed",
+        holiday: "holiday"
     },
+    dataFreshness: {
+        stale: "Delayed",
+        unavailable: "No live data"
+    },
+    clipboardDenied: "Clipboard access denied. Paste manually with Cmd+V / long-press Paste.",
     ytd: "YTD Change",
     yoyChange: "YoY Change",
     momChange: "MoM Change",

@@ -15,6 +15,8 @@ interface Props {
     marketSummary: string;
     marketData: IndexData[];
     newsData: NewsItem[];
+    /** Item ids newer than the viewer's last visit. Optional: omit to show no badges. */
+    newIds?: Set<string>;
     t: TDict;
 }
 
@@ -26,6 +28,7 @@ export function NewsSection({
     marketSummary,
     marketData,
     newsData,
+    newIds,
     t,
 }: Props) {
     return (
@@ -75,7 +78,7 @@ export function NewsSection({
                             )}>
                                 {newsData.length > 0 ? (
                                     newsData.map((news) => (
-                                        <NewsCard key={news.id} item={news} language={language} isFocusMode={isNewsOnly} />
+                                        <NewsCard key={news.id} item={news} language={language} isFocusMode={isNewsOnly} isNew={newIds?.has(news.id) ?? false} />
                                     ))
                                 ) : (
                                     <div className="flex flex-col items-center justify-center h-48 text-zinc-500 border border-dashed border-zinc-800 rounded-xl lg:col-span-full">

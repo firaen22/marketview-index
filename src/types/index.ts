@@ -35,11 +35,28 @@ export interface NewsItem {
     url: string;
 }
 
+/**
+ * Values api/market-data.ts actually emits. The union previously listed 'live',
+ * which is never sent, and omitted the three fresh-fetch sources — so a consumer
+ * switching on it could be exhaustive against the type and still miss reality.
+ *   server_cache       — served from the warm Redis cache (api/market-data.ts:110)
+ *   cron_updated_cache — refreshed by the scheduled cron run (:132)
+ *   live_api_cached    — fetched upstream and written to Redis (:132)
+ *   live_api_no_redis  — fetched upstream with no Redis configured (:132)
+ *   server_stale_cache — upstream failed; frozen snapshot, sent with success:false (:165)
+ */
+export type MarketDataSource =
+    | 'server_cache'
+    | 'cron_updated_cache'
+    | 'live_api_cached'
+    | 'live_api_no_redis'
+    | 'server_stale_cache';
+
 export interface MarketDataResponse {
     success: boolean;
     data: IndexData[];
     timestamp?: string;
-    source?: 'server_cache' | 'server_stale_cache' | 'live';
+    source?: MarketDataSource;
     error?: string;
 }
 
