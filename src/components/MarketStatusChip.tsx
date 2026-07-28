@@ -25,9 +25,14 @@ const PHASE_STYLES: Record<MarketStatus['phase'], { dot: string; label: string }
   holiday: { dot: 'bg-sky-400', label: 'text-sky-400' },
 };
 
+// Every bucket floors, so the countdown steps through one whole minute at a time.
+// `Math.ceil` here made the "1m" bucket exactly one millisecond wide: the chip is
+// re-rendered off a 10s clock, so 60_000ms was never sampled and the projector
+// countdown jumped 2m -> <1m. Flooring also keeps the h/m and d/h branches below
+// honest, since they already floor.
 function formatRemaining(remainingMs: number): string {
   if (remainingMs < 60_000) return '<1m';
-  const totalMin = Math.ceil(remainingMs / 60_000);
+  const totalMin = Math.floor(remainingMs / 60_000);
   if (totalMin < 60) return `${totalMin}m`;
   const totalHours = Math.floor(totalMin / 60);
   // Holiday closures span days; "72h 0m" is unreadable across a room.
