@@ -180,6 +180,48 @@ describe('useMarketData freshness (dataMode)', () => {
         expect(latest.data.map(d => d.symbol)).toEqual(['SAFE']);
     });
 
+    it('an unrecognised success source is reported as cached, not live', async () => {
+        // The envelope is untrusted JSON, so `source` can be any string. Claiming
+        // "live" for a source we do not recognise is the one direction that lies
+        // to the room: it suppresses the freshness warning on unknown data.
+        // 'cached' and error=false are also this hook's INITIAL state, so this
+        // assertion alone would pass even if the fetch never adopted a response —
+        // pin the adoption itself via lastUpdatedAt/data, which only a completed
+        // fetch sets.
+        const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({
+            success: true, source: 'some_future_source', timestamp: '2026-07-20T00:00:00.000Z',
+            data: [item('AAPL')],
+        })));
+        vi.stubGlobal('fetch', fetchMock);
+        await act(async () => { root.render(createElement(Probe, { range: 'YTD' })); });
+        expect(fetchMock).toHaveBeenCalled();
+        expect(latest.lastUpdatedAt).toBe(Date.parse('2026-07-20T00:00:00.000Z'));
+        expect(latest.data.map(d => d.symbol)).toEqual(['AAPL']);
+        expect(latest.dataMode).toBe('cached');
+        expect(latest.error).toBe(false);
+    });
+
+    it('a range switch clears the previous range\'s error alongside dataMode', async () => {
+        // The range-reset effect deliberately drops dataMode and lastUpdatedAt
+        // because they describe the OLD range's response. `error` is the same
+        // kind of state and must not outlive the data it described: FundsPage
+        // and HeatmapPage render their error row from it.
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse({
+            success: false, data: [],
+        }))));
+        await act(async () => { root.render(createElement(Probe, { range: 'YTD' })); });
+        expect(latest.error).toBe(true);
+        expect(latest.dataMode).toBe('unavailable');
+
+        // Switch range; the new range's fetch never resolves, so what we observe
+        // is purely the reset, not a later success clearing the flag.
+        vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+        await act(async () => { root.render(createElement(Probe, { range: '1M' })); });
+        expect(latest.dataMode).toBe('cached');
+        expect(latest.lastUpdatedAt).toBe(null);
+        expect(latest.error).toBe(false);
+    });
+
     it('a malformed (non-object) array element does not throw, and is dropped', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse({
             success: true, source: 'live_api_cached', timestamp: '2026-07-20T00:00:00.000Z',

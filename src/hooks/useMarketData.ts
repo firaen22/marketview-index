@@ -64,6 +64,13 @@ function usableQuotes(raw: unknown): IndexData[] {
     });
 }
 
+/** Success sources that mean the server actually reached the upstream provider. */
+const FRESH_SOURCES: ReadonlySet<string> = new Set([
+    'cron_updated_cache',
+    'live_api_cached',
+    'live_api_no_redis',
+]);
+
 function parseTimestamp(raw: unknown): number | null {
     if (typeof raw !== 'string') return null;
     const ms = Date.parse(raw);
@@ -118,6 +125,10 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
         // in flight. Reset to the same convention as the initial seed.
         setDataMode('cached');
         setLastUpdatedAt(null);
+        // `error` describes the OLD range's response too. FundsPage/HeatmapPage
+        // render their error row from it, so leaving it set flashes the previous
+        // range's failure over the newly seeded data until the refetch lands.
+        setError(false);
     }, [range]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const refresh = useCallback(async (force = false, signal?: AbortSignal) => {
@@ -161,10 +172,12 @@ export function useMarketData({ range, filter, lang, refreshMs }: Options): Resu
                     return;
                 }
                 setError(false);
-                // 'server_cache' is the warm-cache path; every other success source
-                // in api/market-data.ts means a fresh upstream fetch. An absent or
-                // unrecognised source is reported as cached rather than overclaiming.
-                setDataMode(result.source === 'server_cache' || !result.source ? 'cached' : 'live');
+                // Whitelist, not blacklist: only these three success sources in
+                // api/market-data.ts mean a fresh upstream fetch. 'server_cache' is
+                // the warm-cache path, and an absent or unrecognised source is
+                // reported as cached rather than overclaiming freshness — `source`
+                // is untrusted JSON, so "not server_cache" does not imply live.
+                setDataMode(FRESH_SOURCES.has(result.source as string) ? 'live' : 'cached');
                 setData(visible);
                 setLastUpdatedAt(timestamp);
                 return;
