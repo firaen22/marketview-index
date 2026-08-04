@@ -18,6 +18,7 @@ import {
     buildPresentCommand,
     type CatalogItem,
     isExecutablePresentCommand,
+    PAGE_COMMAND_FRESH_MS,
     parseCommandDeterministic,
     type PresentCommand,
     validatePresentIntent,
@@ -157,10 +158,19 @@ async function readPageCommands(): Promise<PresentCommand[]> {
         if (!items) return [];
         const list = Array.isArray(items) ? items : [items];
         const commands: PresentCommand[] = [];
+        const staleCutoff = Date.now() - PAGE_COMMAND_FRESH_MS;
         for (const item of list) {
             try {
                 const parsed = parseStoredJson(item);
-                if (isExecutablePresentCommand(parsed) && parsed.kind === 'page') commands.push(parsed);
+                if (!isExecutablePresentCommand(parsed) || parsed.kind !== 'page') continue;
+                // The client filters stale commands before executing, so they are
+                // never acked — prune them here or they pin the lrange window and
+                // starve fresh commands behind position MAX_DRAIN.
+                if (parsed.issuedAt < staleCutoff) {
+                    await redis!.lrem(PAGE_COMMANDS_KEY, 1, item);
+                    continue;
+                }
+                commands.push(parsed);
             } catch {
                 // A malformed entry must not drop the rest of the queue.
             }

@@ -111,7 +111,9 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
             const pollController = controller;
             const timeoutId = window.setTimeout(() => pollController.abort(), POLL_TIMEOUT_MS);
             const state = getStateRef.current?.() ?? null;
-            const ackIds = [...pendingPageAckIds];
+            // A null-state poll uses the bare URL, which cannot carry acks — send
+            // none so pending ids survive until a projector-state poll transmits them.
+            const ackIds = state ? [...pendingPageAckIds] : [];
             const result = await fetchPresentCommand(pollController.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state, ackIds);
             window.clearTimeout(timeoutId);
             if (stopped) return;
