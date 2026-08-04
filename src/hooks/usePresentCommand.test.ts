@@ -23,6 +23,8 @@ describe('usePresentCommand helpers', () => {
         expect(presentCommandPollUrl({ mode: 'pdf', page: 2, v: 0 })).toBe('/api/present-command?st=1&mode=pdf&page=2&v=0');
         expect(presentCommandPollUrl({ mode: 'heatmap', page: 1, v: 123 })).toBe('/api/present-command?st=1&mode=heatmap&page=1&v=123');
         expect(presentCommandPollUrl({ mode: 'pdf', page: 2, v: 0, lid: 'cmd-1' })).toBe('/api/present-command?st=1&mode=pdf&page=2&v=0&lid=cmd-1');
+        expect(presentCommandPollUrl({ mode: 'pdf', page: 2, v: 0 }, ['page-1', 'page-2']))
+            .toBe('/api/present-command?st=1&mode=pdf&page=2&v=0&ack=page-1&ack=page-2');
     });
 
     it('keeps the bare poll URL when getState returns null', () => {

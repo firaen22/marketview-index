@@ -181,6 +181,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const allFetched = [...settled, gdp, gdpNow];
         const results = allFetched.filter((r): r is NonNullable<typeof r> => r !== null);
 
+        if (results.length === 0) {
+            if (parsedCache) {
+                return res.status(200).json({ ...parsedCache, source: 'server_stale_cache', stale: true });
+            }
+            return res.status(503).json({
+                success: false,
+                error: 'No valid macro data available',
+            });
+        }
+
         const payload = {
             success: true,
             timestamp: new Date().toISOString(),

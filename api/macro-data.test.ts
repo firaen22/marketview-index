@@ -62,10 +62,8 @@ describe('macro-data zero-baseline guards', () => {
             GDPC1: fredObservations(['100', '0', '99', '98', '97', '96']),
         });
 
-        expect(res.statusCode).toBe(200);
-        // A zero baseline is dropped like a missing (".") observation —
-        // never emitted as Infinity (which JSON-serializes to null).
-        expect(res.body.data.some((row: any) => row.symbol === 'GDPC1')).toBe(false);
+        expect(res.statusCode).toBe(503);
+        expect(res.body).toMatchObject({ success: false });
     });
 
     it('drops GDP when the prev-year baseline is zero', async () => {
@@ -73,8 +71,8 @@ describe('macro-data zero-baseline guards', () => {
             GDPC1: fredObservations(['100', '99', '98', '97', '0', '96']),
         });
 
-        expect(res.statusCode).toBe(200);
-        expect(res.body.data.some((row: any) => row.symbol === 'GDPC1')).toBe(false);
+        expect(res.statusCode).toBe(503);
+        expect(res.body).toMatchObject({ success: false });
     });
 
     it('omits momChangePercent when the previous month is zero but keeps the series', async () => {

@@ -7,7 +7,8 @@ const redisState = vi.hoisted(() => ({
         incr: vi.fn(),
         ttl: vi.fn(),
         expire: vi.fn(),
-        lpop: vi.fn(),
+        lrange: vi.fn(),
+        lrem: vi.fn(),
     } as any,
 }));
 
@@ -76,7 +77,8 @@ describe('present-command API projector lid reports', () => {
             incr: vi.fn().mockResolvedValue(1),
             ttl: vi.fn().mockResolvedValue(60),
             expire: vi.fn().mockResolvedValue(1),
-            lpop: vi.fn().mockResolvedValue(null),
+            lrange: vi.fn().mockResolvedValue([]),
+            lrem: vi.fn().mockResolvedValue(1),
         };
     });
 

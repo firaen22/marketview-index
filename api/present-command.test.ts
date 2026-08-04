@@ -9,7 +9,8 @@ const redisState = vi.hoisted(() => ({
         ttl: vi.fn(),
         expire: vi.fn(),
         rpush: vi.fn(),
-        lpop: vi.fn(),
+        lrange: vi.fn(),
+        lrem: vi.fn(),
         ltrim: vi.fn(),
     } as any,
 }));
@@ -115,7 +116,8 @@ describe('present-command API handler', () => {
             ttl: vi.fn().mockResolvedValue(60),
             expire: vi.fn().mockResolvedValue(1),
             rpush: vi.fn().mockResolvedValue(1),
-            lpop: vi.fn().mockResolvedValue(null),
+            lrange: vi.fn().mockResolvedValue([]),
+            lrem: vi.fn().mockResolvedValue(1),
             ltrim: vi.fn().mockResolvedValue('OK'),
         };
         nimState.callNim.mockReset();
@@ -363,10 +365,10 @@ describe('present-command API handler', () => {
         expect(JSON.parse(redisState.current.rpush.mock.calls.at(-1)[1])).toMatchObject({ kind: 'page', direction: 'prev' });
     });
 
-    it('drains queued page commands only on the projector poll and skips malformed entries', async () => {
+    it('reads queued page commands only on the projector poll and skips malformed entries', async () => {
         redisState.current.get.mockResolvedValue(null);
         const pageCmd = (id: string) => JSON.stringify({ v: 1, id, kind: 'page', symbols: [], direction: 'next', issuedAt: 5000 });
-        redisState.current.lpop.mockResolvedValue([
+        redisState.current.lrange.mockResolvedValue([
             pageCmd('p1'),
             '{bad json',
             JSON.stringify({ v: 1, id: 'not-page', kind: 'clear', symbols: [], issuedAt: 5000 }),
@@ -376,8 +378,23 @@ describe('present-command API handler', () => {
         const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '2', v: '0' }));
 
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.lpop).toHaveBeenCalledWith('present:pagecmd:v1', 20);
+        expect(redisState.current.lrange).toHaveBeenCalledWith('present:pagecmd:v1', 0, 19);
         expect(res.body.pageCommands.map((c: any) => c.id)).toEqual(['p1', 'p2']);
+    });
+
+    it('acknowledges only the page command IDs supplied by the projector', async () => {
+        const p1 = JSON.stringify({ v: 1, id: 'p1', kind: 'page', symbols: [], direction: 'next', issuedAt: 5000 });
+        const p2 = JSON.stringify({ v: 1, id: 'p2', kind: 'page', symbols: [], direction: 'prev', issuedAt: 5000 });
+        redisState.current.get.mockResolvedValue(null);
+        redisState.current.lrange
+            .mockResolvedValueOnce([p1, p2])
+            .mockResolvedValueOnce([p2]);
+
+        const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '2', v: '0', ack: 'p1' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.lrem).toHaveBeenCalledWith('present:pagecmd:v1', 1, p1);
+        expect(res.body.pageCommands.map((c: any) => c.id)).toEqual(['p2']);
     });
 
     it('does not drain the page queue for non-projector polls', async () => {
@@ -386,7 +403,7 @@ describe('present-command API handler', () => {
         const res = await call(makeReq({ method: 'GET' }));
 
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.lpop).not.toHaveBeenCalled();
+        expect(redisState.current.lrange).not.toHaveBeenCalled();
         expect(res.body.pageCommands).toEqual([]);
     });
 
@@ -400,7 +417,7 @@ describe('present-command API handler', () => {
             expect(res.statusCode).toBe(200);
             expect(res.body.pageCommands).toEqual([]);
         }
-        expect(redisState.current.lpop).not.toHaveBeenCalled();
+        expect(redisState.current.lrange).not.toHaveBeenCalled();
     });
 
     it('treats an unkeyed st=1 probe as a plain poll: no drain, no state write', async () => {
@@ -408,7 +425,7 @@ describe('present-command API handler', () => {
             if (key === 'present:pstate:v1') return JSON.stringify({ mode: 'slide', page: 1, v: 3, at: 4000 });
             return null;
         });
-        redisState.current.lpop.mockResolvedValue([JSON.stringify({ v: 1, id: 'p1', kind: 'page', symbols: [], direction: 'next', issuedAt: 5000 })]);
+        redisState.current.lrange.mockResolvedValue([JSON.stringify({ v: 1, id: 'p1', kind: 'page', symbols: [], direction: 'next', issuedAt: 5000 })]);
 
         // Valid report shape, but no (or wrong) x-api-key: must degrade to a
         // plain read poll instead of consuming page turns / forging state.
@@ -419,7 +436,7 @@ describe('present-command API handler', () => {
             // Stored state is served, not the forged report.
             expect(res.body.projector).toMatchObject({ mode: 'slide', page: 1, v: 3 });
         }
-        expect(redisState.current.lpop).not.toHaveBeenCalled();
+        expect(redisState.current.lrange).not.toHaveBeenCalled();
         expect(redisState.current.set).not.toHaveBeenCalledWith('present:pstate:v1', expect.anything(), expect.anything());
     });
 
@@ -455,9 +472,9 @@ describe('present-command API handler', () => {
         expect(redisState.current.set).not.toHaveBeenCalledWith('present:cmd:v1', expect.anything(), expect.anything());
     });
 
-    it('returns pageCommands [] when the drain itself fails', async () => {
+    it('returns pageCommands [] when the queue read itself fails', async () => {
         redisState.current.get.mockResolvedValue(null);
-        redisState.current.lpop.mockRejectedValue(new Error('redis down'));
+        redisState.current.lrange.mockRejectedValue(new Error('redis down'));
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
         const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '1', v: '0' }));
