@@ -115,11 +115,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (redis && forceRefresh && !isCron) {
       const throttleKey = `refresh_throttle_${RANGE_CACHE_KEY}`;
-      const throttled = await redis.get(throttleKey);
-      if (throttled && parsedCache) {
+      const lock = await redis.set(throttleKey, '1', { ex: 60, nx: true });
+      if (!lock && parsedCache) {
         return returnCachedPayload(parsedCache);
       }
-      await redis.set(throttleKey, '1', { ex: 60 });
+      if (!lock) {
+        return res.status(503).json({ success: false, error: 'Refresh already in progress' });
+      }
     }
 
     // 2. 如果是 Cron 時段 (早上 9 點)、強制更新、或 Redis 內完全沒資料，就拉取新資料並寫入 Redis
@@ -134,7 +136,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         data: freshData,
       };
 
-      if (redis) {
+      const hasEstimatedData = freshData.some((item: any) => item.estimated === true);
+      if (redis && !hasEstimatedData) {
         // Cache expires in 1 hour
         await redis.set(RANGE_CACHE_KEY, JSON.stringify(payload), { ex: 3600 });
       }

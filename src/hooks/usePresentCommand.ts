@@ -32,7 +32,7 @@ export function filterFreshPageCommands(value: unknown, serverTime: number): Pre
         .filter(item => item.issuedAt >= serverTime - PAGE_COMMAND_FRESH_MS);
 }
 
-export function presentCommandPollUrl(state: ProjectorState | null): string {
+export function presentCommandPollUrl(state: ProjectorState | null, ackIds: string[] = []): string {
     if (!state) return '/api/present-command';
     const params = new URLSearchParams();
     params.set('st', '1');
@@ -40,14 +40,15 @@ export function presentCommandPollUrl(state: ProjectorState | null): string {
     params.set('page', String(state.page));
     params.set('v', String(state.v));
     if (state.lid) params.set('lid', state.lid);
+    for (const id of ackIds) params.append('ack', id);
     return `/api/present-command?${params.toString()}`;
 }
 
-async function fetchPresentCommand(signal: AbortSignal, state: ProjectorState | null): Promise<{ ok: true; command: PresentCommand | null; pageCommands: PresentCommand[]; serverTime: number } | { ok: false }> {
+async function fetchPresentCommand(signal: AbortSignal, state: ProjectorState | null, ackIds: string[]): Promise<{ ok: true; command: PresentCommand | null; pageCommands: PresentCommand[]; serverTime: number } | { ok: false }> {
     try {
         // The key rides along so the server honors the st=1 projector report
         // (state write + page-queue drain are gated on it).
-        const response = await fetch(presentCommandPollUrl(state), { signal, headers: authHeaders() });
+        const response = await fetch(presentCommandPollUrl(state, ackIds), { signal, headers: authHeaders() });
         if (!response.ok) return { ok: false };
         const payload = await response.json() as { command?: unknown; pageCommands?: unknown; serverTime?: unknown };
         // Staleness is judged in server time (issuedAt is server-stamped); a
@@ -94,28 +95,41 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
         let stopped = false;
         let failureCount = 0;
         let controller: AbortController | null = null;
+        const pendingPageAckIds: string[] = [];
+
+        const invokeCommand = (command: PresentCommand): boolean => {
+            try {
+                return onCommandRef.current(command) !== false;
+            } catch (error) {
+                console.error('Present command callback failed:', error);
+                return false;
+            }
+        };
 
         const run = async () => {
             controller = new AbortController();
             const pollController = controller;
             const timeoutId = window.setTimeout(() => pollController.abort(), POLL_TIMEOUT_MS);
             const state = getStateRef.current?.() ?? null;
-            const result = await fetchPresentCommand(pollController.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state);
+            const ackIds = [...pendingPageAckIds];
+            const result = await fetchPresentCommand(pollController.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state, ackIds);
             window.clearTimeout(timeoutId);
             if (stopped) return;
 
             if (result.ok) {
+                for (const id of ackIds) {
+                    const index = pendingPageAckIds.indexOf(id);
+                    if (index !== -1) pendingPageAckIds.splice(index, 1);
+                }
                 failureCount = 0;
-                // Drained page commands execute in tap order, fire-and-forget:
-                // the queue was consumed by this delivery, so a false return
-                // (wrong view, viewer not mounted) drops the turn — a page flip
-                // only makes sense near the moment it was tapped.
+                // Page commands execute in tap order and are acknowledged on the
+                // next successful projector poll only after the callback succeeds.
                 for (const pageCommand of result.pageCommands) {
-                    onCommandRef.current(pageCommand);
+                    if (invokeCommand(pageCommand)) pendingPageAckIds.push(pageCommand.id);
                 }
                 const command = result.command;
                 if (command && shouldExecute(command, lastExecutedIdRef.current, result.serverTime)) {
-                    if (onCommandRef.current(command) !== false) {
+                    if (invokeCommand(command)) {
                         lastExecutedIdRef.current = command.id;
                     }
                 }

@@ -101,8 +101,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         let allNews: any[] = [];
         let allRejected = true;
         settledResults.forEach(result => {
-            if (result.status === 'fulfilled' && result.value.news) {
-                allNews = [...allNews, ...result.value.news];
+            if (result.status === 'fulfilled') {
+                allNews = [...allNews, ...(Array.isArray(result.value.news) ? result.value.news : [])];
                 allRejected = false;
             }
         });
@@ -122,6 +122,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (!aIsPremium && bIsPremium) return 1;
             return 0;
         }).slice(0, 8);
+
+        if (newsItems.length === 0) {
+            if (parsedCache) {
+                return res.status(200).json({ ...parsedCache, source: 'server_stale_cache', stale: true });
+            }
+            return res.status(503).json({
+                success: false,
+                error: 'No market news available',
+            });
+        }
 
         const isChinese = lang === 'zh-TW';
 

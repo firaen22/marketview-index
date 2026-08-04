@@ -25,9 +25,10 @@ export async function loadPdf(url: string, timeoutMs = PDF_LOAD_TIMEOUT_MS): Pro
 }
 
 export async function extractPdfPageText(doc: PDFDocumentProxy, page: number): Promise<string> {
+    let pdfPage: Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null = null;
     try {
         const pageNum = Math.max(1, Math.min(doc.numPages, Math.trunc(page)));
-        const pdfPage = await doc.getPage(pageNum);
+        pdfPage = await doc.getPage(pageNum);
         const content = await pdfPage.getTextContent();
         return content.items
             .map((item: any) => typeof item.str === 'string' ? item.str : '')
@@ -35,6 +36,8 @@ export async function extractPdfPageText(doc: PDFDocumentProxy, page: number): P
             .trim();
     } catch {
         return '';
+    } finally {
+        pdfPage?.cleanup();
     }
 }
 

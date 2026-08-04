@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
 import { redis } from '../lib/redis.js';
-import { getClientIp } from '../lib/clientIp.js';
+import { incrementRateLimit } from '../lib/rateLimit.js';
 import { callNim, callNimHedged, getNimApiKeys, NIM_TEXT_MODELS, NIM_VISION_MODELS } from '../lib/nim.js';
 import {
     ASSIST_MAX_TEXT_LEN,
@@ -87,11 +87,7 @@ function json(res: any, status: number, body: any) {
 async function rateLimit(req: any): Promise<boolean> {
     if (!redis) return true;
     try {
-        const key = `presentcmd_rl_${getClientIp(req)}`;
-        const count = await redis.incr(key);
-        if (count === 1 || (await redis.ttl(key)) === -1) {
-            await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS);
-        }
+        const count = await incrementRateLimit(redis, req, 'presentcmd_rl', RATE_LIMIT_WINDOW_SECONDS);
         return count <= RATE_LIMIT_MAX;
     } catch (error) {
         console.error('Present command rate limit error:', error);
@@ -139,12 +135,26 @@ async function enqueuePageCommand(command: PresentCommand) {
     await redis!.expire(PAGE_COMMANDS_KEY, COMMAND_TTL_SECONDS);
 }
 
-// Drained only by the projector's own poll (st=1): delivery consumes the
-// queue, so taps are never coalesced away and never replayed after a reload.
-async function drainPageCommands(): Promise<PresentCommand[]> {
+// Read only by the projector's own poll (st=1). The client acknowledges a
+// command after its callback succeeds, so failed delivery remains retryable.
+async function acknowledgePageCommands(ids: string[]): Promise<void> {
+    const items = await redis!.lrange<unknown>(PAGE_COMMANDS_KEY, 0, -1);
+    for (const item of Array.isArray(items) ? items : []) {
+        try {
+            const parsed = parseStoredJson(item) as any;
+            if (parsed && ids.includes(parsed.id)) {
+                await redis!.lrem(PAGE_COMMANDS_KEY, 1, item);
+            }
+        } catch {
+            // Ignore malformed entries; normal polling handles them safely.
+        }
+    }
+}
+
+async function readPageCommands(): Promise<PresentCommand[]> {
     try {
-        const items = await redis!.lpop<unknown>(PAGE_COMMANDS_KEY, PAGE_COMMANDS_MAX_DRAIN);
-        if (items === null || items === undefined) return [];
+        const items = await redis!.lrange<unknown>(PAGE_COMMANDS_KEY, 0, PAGE_COMMANDS_MAX_DRAIN - 1);
+        if (!items) return [];
         const list = Array.isArray(items) ? items : [items];
         const commands: PresentCommand[] = [];
         for (const item of list) {
@@ -157,7 +167,7 @@ async function drainPageCommands(): Promise<PresentCommand[]> {
         }
         return commands;
     } catch (error) {
-        console.error('Present page command drain error:', error);
+        console.error('Present page command read error:', error);
         return [];
     }
 }
@@ -290,13 +300,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'GET') {
         if (!await rateLimit(req)) return json(res, 429, { error: 'rate_limited' });
         const serverTime = Date.now();
-        // A projector report MUTATES server state (state write + queue drain),
+        // A projector report MUTATES server state (state write + acknowledgements),
         // so it must carry the same soft-gate key as POST. Plain command polls
         // stay unauthenticated; an unkeyed st=1 probe degrades to a plain poll
         // instead of being able to consume page turns or forge visible state.
         const getKey = process.env.PRESENT_API_KEY;
         const projectorAuthed = !!getKey && authorize(req.headers?.['x-api-key'], getKey);
         const nextProjector = projectorAuthed ? projectorStateFromQuery(req.query as Record<string, unknown>, serverTime) : null;
+        const ackValues = req.query?.ack;
+        const ackIds = (Array.isArray(ackValues) ? ackValues : [ackValues])
+            .filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(id));
+        if (nextProjector && ackIds.length > 0) {
+            try {
+                await acknowledgePageCommands(ackIds);
+            } catch (error) {
+                console.error('Present page command acknowledgement error:', error);
+                return json(res, 503, { error: 'page_command_ack_failed' });
+            }
+        }
         if (oneQuery((req.query as Record<string, unknown>).st) === '1' && nextProjector) {
             try {
                 await redis.set(PROJECTOR_STATE_KEY, JSON.stringify(nextProjector), { ex: PROJECTOR_STATE_TTL_SECONDS });
@@ -308,10 +329,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const [command, projector, pageCommands] = await Promise.all([
             readCommand(),
             hasProjectorReport ? Promise.resolve(nextProjector) : readProjectorState(),
-            // Drain only for a VALID projector report: this GET is unauth by
+            // Read only for a VALID projector report: this GET is unauth by
             // design, so a bare st=1 probe (or a malformed poll) must not be
-            // able to consume queued page turns meant for the projector.
-            nextProjector ? drainPageCommands() : Promise.resolve([]),
+            // able to consume or acknowledge queued page turns.
+            nextProjector ? readPageCommands() : Promise.resolve([]),
         ]);
         // serverTime lets the projector judge staleness in SERVER time —
         // issuedAt is server-stamped, so a skewed projector clock must not

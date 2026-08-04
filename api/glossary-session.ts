@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
 import { redis } from '../lib/redis.js';
-import { getClientIp } from '../lib/clientIp.js';
+import { incrementRateLimit } from '../lib/rateLimit.js';
 import {
     type GlossaryLang,
     type GlossarySession,
@@ -84,11 +84,7 @@ function json(res: any, status: number, body: any, cacheable = false) {
 async function rateLimit(req: any): Promise<boolean> {
     if (!redis) return true;
     try {
-        const key = `glossary_rl_${getClientIp(req)}`;
-        const count = await redis.incr(key);
-        if (count === 1 || (await redis.ttl(key)) === -1) {
-            await redis.expire(key, RATE_LIMIT_WINDOW_SECONDS);
-        }
+        const count = await incrementRateLimit(redis, req, 'glossary_rl', RATE_LIMIT_WINDOW_SECONDS);
         return count <= RATE_LIMIT_MAX;
     } catch (error) {
         console.error('Glossary session rate limit error:', error);

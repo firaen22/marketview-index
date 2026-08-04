@@ -21,6 +21,9 @@ export default async function handler(req: any, res: any) {
   for (const range of RANGES) {
     try {
       const data = await fetchAllIndices(range);
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error('No valid market data returned');
+      }
       const payload = {
         success: true,
         source: 'cron_updated_cache',
