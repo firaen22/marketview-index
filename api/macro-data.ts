@@ -38,11 +38,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const parsedCache = parseCache(cached);
         if (redis && forceRefresh) {
             const throttleKey = `refresh_throttle_${CACHE_KEY}`;
-            const throttled = await redis.get(throttleKey);
-            if (throttled && parsedCache) {
+            // NX makes the check-and-arm atomic: two concurrent refreshes must
+            // not both observe "no throttle" and double-fetch FRED (same
+            // pattern as api/market-data.ts).
+            const lock = await redis.set(throttleKey, '1', { ex: 60, nx: true });
+            if (!lock && parsedCache) {
                 return returnCachedPayload(parsedCache);
             }
-            await redis.set(throttleKey, '1', { ex: 60 });
+            if (!lock) {
+                return res.status(503).json({ success: false, error: 'Refresh already in progress' });
+            }
         }
 
         if (redis && !forceRefresh) {
@@ -198,7 +203,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             source: 'live'
         };
 
-        if (redis) {
+        // A partial fetch (some FRED series failed) must not sit in the 24h
+        // cache as if complete — a single flaky series would hide its tile for
+        // a day. Cache only a full set; a partial response still serves live.
+        if (redis && results.length === allFetched.length) {
             await redis.set(CACHE_KEY, JSON.stringify(payload), { ex: CACHE_TTL });
             console.log('Macro data cached in Redis.');
         }
@@ -212,7 +220,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 const stale = await redis.get(CACHE_KEY);
                 const parsed = parseCache(stale);
                 if (parsed) {
-                    return res.status(200).json({ ...parsed, source: 'server_stale_cache', success: false });
+                    // Same shape as the results-empty stale path above: the data
+                    // is valid (just stale), and useMacroData discards any
+                    // payload with success: false — stamping failure here threw
+                    // away the rescue on the client.
+                    return res.status(200).json({ ...parsed, source: 'server_stale_cache', stale: true });
                 }
             } catch (_) {
                 // ignore fallback errors

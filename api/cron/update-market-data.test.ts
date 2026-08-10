@@ -76,6 +76,25 @@ describe('update-market-data cron', () => {
         expect(redisState.set).not.toHaveBeenCalled();
     });
 
+    it('does not cache ranges containing estimated (synthesized) entries', async () => {
+        marketState.fetchAllIndices.mockImplementation(async (range: string) => {
+            if (range === '1M') return [{ symbol: 'A' }, { symbol: 'B', estimated: true }];
+            return [{ symbol: range }];
+        });
+
+        const res = await call('Bearer cron-secret');
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.success).toBe(false);
+        expect(res.body.results['1M']).toMatchObject({ success: false });
+        expect(redisState.set).toHaveBeenCalledTimes(3);
+        expect(redisState.set).not.toHaveBeenCalledWith(
+            'global_market_cache_yfinance_v1_1M',
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+
     it('reports partial success and caches only successful ranges', async () => {
         marketState.fetchAllIndices.mockImplementation(async (range: string) => {
             if (range === '3M') throw new Error('upstream failed');

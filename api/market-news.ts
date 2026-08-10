@@ -74,11 +74,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const parsedCache = parseCache(cachedNews);
         if (redis && forceRefresh) {
             const throttleKey = `refresh_throttle_${CURRENT_CACHE_KEY}`;
-            const throttled = await redis.get(throttleKey);
-            if (throttled && parsedCache) {
+            // NX makes the check-and-arm atomic: two concurrent refreshes must
+            // not both observe "no throttle" and double-fetch Yahoo + NIM
+            // (same pattern as api/market-data.ts).
+            const lock = await redis.set(throttleKey, '1', { ex: 60, nx: true });
+            if (!lock && parsedCache) {
                 return returnCachedPayload(parsedCache);
             }
-            await redis.set(throttleKey, '1', { ex: 60 });
+            if (!lock) {
+                return res.status(503).json({ success: false, error: 'Refresh already in progress' });
+            }
         }
 
         if (redis && !forceRefresh) {
@@ -240,10 +245,12 @@ OUTPUT FORMAT (Valid JSON only):
                         parsed = null;
                     }
                     if (!parsed) throw new Error('Invalid fallback cache payload');
+                    // Keep the cached payload's success flag: the data is
+                    // valid, just stale (matches api/macro-data.ts's fallback).
                     return res.status(200).json({
                         ...parsed,
                         source: 'server_stale_cache',
-                        success: false,
+                        stale: true,
                     });
                 }
             } catch (e) {
