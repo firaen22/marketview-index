@@ -24,6 +24,12 @@ export default async function handler(req: any, res: any) {
       if (!Array.isArray(data) || data.length === 0) {
         throw new Error('No valid market data returned');
       }
+      // Same contract as api/market-data.ts: synthesized (estimated) entries
+      // must never be cached — skipping the write keeps whatever clean data
+      // is already in Redis instead of overwriting it for an hour.
+      if (data.some((item: any) => item.estimated === true)) {
+        throw new Error('Market data contains estimated entries; not caching');
+      }
       const payload = {
         success: true,
         source: 'cron_updated_cache',

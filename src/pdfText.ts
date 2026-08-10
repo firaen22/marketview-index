@@ -51,9 +51,10 @@ function encodeJpegBase64(canvas: HTMLCanvasElement, quality: number): string | 
 
 export async function renderPdfPageToJpeg(doc: PDFDocumentProxy, page: number): Promise<string | null> {
     if (!(doc.numPages > 0)) return null;
+    let pdfPage: Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null = null;
     try {
         const pageNum = Math.max(1, Math.min(doc.numPages, Math.trunc(page)));
-        const pdfPage = await doc.getPage(pageNum);
+        pdfPage = await doc.getPage(pageNum);
         const sourceViewport = pdfPage.getViewport({ scale: 1 });
         const target = jargonImageDims(sourceViewport.width, sourceViewport.height);
         const scale = sourceViewport.width > 0 ? target.width / sourceViewport.width : 1;
@@ -67,5 +68,7 @@ export async function renderPdfPageToJpeg(doc: PDFDocumentProxy, page: number): 
         return encodeJpegBase64(canvas, 0.7) ?? encodeJpegBase64(canvas, 0.5);
     } catch {
         return null;
+    } finally {
+        pdfPage?.cleanup();
     }
 }

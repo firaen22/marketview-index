@@ -15,6 +15,7 @@ function pdfDoc(numPages: number, page: any = {}) {
         getPage: vi.fn(async () => ({
             getViewport: vi.fn(({ scale }) => ({ width: 2560 * scale, height: 1440 * scale })),
             render: vi.fn(() => ({ promise: Promise.resolve() })),
+            cleanup: vi.fn(),
             ...page,
         })),
     } as any;
@@ -56,6 +57,20 @@ describe('renderPdfPageToJpeg', () => {
         expect(canvas.width).toBe(1280);
         expect(canvas.height).toBe(720);
         expect(toDataURL).toHaveBeenCalledWith('image/jpeg', 0.7);
+    });
+
+    it('cleans up the pdf page on success and on render failure', async () => {
+        mockCanvas(vi.fn(() => `data:image/jpeg;base64,${'A'.repeat(100)}`));
+        const successCleanup = vi.fn();
+        await expect(renderPdfPageToJpeg(pdfDoc(1, { cleanup: successCleanup }), 1)).resolves.toBe('A'.repeat(100));
+        expect(successCleanup).toHaveBeenCalledTimes(1);
+
+        const failureCleanup = vi.fn();
+        await expect(renderPdfPageToJpeg(pdfDoc(1, {
+            cleanup: failureCleanup,
+            render: vi.fn(() => ({ promise: Promise.reject(new Error('render failed')) })),
+        }), 1)).resolves.toBeNull();
+        expect(failureCleanup).toHaveBeenCalledTimes(1);
     });
 
     it('retries at lower quality when the first jpeg does not validate', async () => {
