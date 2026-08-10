@@ -42,13 +42,13 @@ export function QuotePickerModal({ items, lang, pinnedIds, onToggle, onClearAll,
             onKeyDown={onKeyDown}
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-[460px] max-w-[calc(100vw-2rem)] p-4 max-h-[80vh] flex flex-col">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-[28.75rem] max-w-[calc(100vw-2rem)] p-4 max-h-[80vh] flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-baseline gap-2">
                         <span className="text-xs font-mono tracking-widest text-zinc-400">QUICK QUOTES</span>
                         {pinnedCount > 0 && (
-                            <span className="text-[10px] text-zinc-600">{pinnedCount} pinned</span>
+                            <span className="text-[0.625rem] text-zinc-600">{pinnedCount} pinned</span>
                         )}
                     </div>
                     <button onClick={onClose} className="p-1 rounded hover:bg-zinc-800 text-zinc-500">
@@ -80,7 +80,7 @@ export function QuotePickerModal({ items, lang, pinnedIds, onToggle, onClearAll,
                         <>
                             {macroItems.length > 0 && (
                                 <div className="col-span-2 pb-1">
-                                    <span className="text-[10px] font-mono tracking-widest text-zinc-600 uppercase">Indices</span>
+                                    <span className="text-[0.625rem] font-mono tracking-widest text-zinc-600 uppercase">Indices</span>
                                 </div>
                             )}
                             {marketItems.map(d => (
@@ -93,7 +93,7 @@ export function QuotePickerModal({ items, lang, pinnedIds, onToggle, onClearAll,
                     {macroItems.length > 0 && (
                         <>
                             <div className="col-span-2 pt-2 pb-1 border-t border-zinc-800 mt-1">
-                                <span className="text-[10px] font-mono tracking-widest text-zinc-600 uppercase">Macro</span>
+                                <span className="text-[0.625rem] font-mono tracking-widest text-zinc-600 uppercase">Macro</span>
                             </div>
                             {macroItems.map(d => (
                                 <ItemButton key={d.id} item={d} lang={lang} isPinned={pinnedIds.has(d.id)} onClick={() => onToggle(d)} />
@@ -135,8 +135,8 @@ function ItemButton({ item, lang, isPinned, onClick }: { item: QuoteItem; lang: 
             }`}
         >
             <div className="min-w-0">
-                <div className="text-xs font-semibold text-zinc-200 truncate max-w-[120px]">{displayName(item, lang)}</div>
-                <div className="text-[10px] text-zinc-500 font-mono">{item.id}</div>
+                <div className="text-xs font-semibold text-zinc-200 truncate max-w-[7.5rem]">{displayName(item, lang)}</div>
+                <div className="text-[0.625rem] text-zinc-500 font-mono">{item.id}</div>
             </div>
             <div className={`text-xs font-mono font-bold shrink-0 ml-2 ${up ? 'text-emerald-400' : 'text-red-400'}`}>
                 {formatSigned(item.changePct)}%{item.changeLabel ? ` ${item.changeLabel}` : ''}

@@ -46,7 +46,7 @@ export function DashboardHeader({
                                 {t.title}
                             </span>
                         </h1>
-                        <div className="flex items-center text-[10px] text-zinc-500 mt-0.5">
+                        <div className="flex items-center text-[0.625rem] text-zinc-500 mt-0.5">
                             {lastUpdated ? (
                                 <>
                                     <span className="opacity-70 mr-1">{t.lastUpdated}:</span>
@@ -60,7 +60,7 @@ export function DashboardHeader({
                 </div>
 
                 <div className="flex items-center space-x-3">
-                    <div className="flex items-center font-mono text-zinc-300 text-[11px] px-3 py-1 bg-zinc-900/50 rounded-full border border-zinc-800">
+                    <div className="flex items-center font-mono text-zinc-300 text-[0.6875rem] px-3 py-1 bg-zinc-900/50 rounded-full border border-zinc-800">
                         <Clock className="w-3 h-3 mr-1.5 text-blue-500" />
                         {currentTime.toLocaleTimeString(language === 'zh-TW' ? 'zh-TW' : undefined)}
                     </div>
@@ -68,7 +68,7 @@ export function DashboardHeader({
                         <button
                             onClick={onToggleNews}
                             className={cn(
-                                "p-1 px-2.5 rounded-full transition-all text-[10px] font-bold flex items-center gap-1.5",
+                                "p-1 px-2.5 rounded-full transition-all text-[0.625rem] font-bold flex items-center gap-1.5",
                                 isNewsOnly ? "bg-blue-600 text-white shadow-lg shadow-blue-900/40" : "hover:bg-zinc-800 text-zinc-400 hover:text-white"
                             )}
                             title={isNewsOnly ? t.allIndices : t.newsOnly}
@@ -80,7 +80,7 @@ export function DashboardHeader({
                         <LangToggle
                             language={language}
                             onChange={onLangChange}
-                            className="p-1 px-2.5 hover:bg-zinc-800 rounded-full transition-all text-[10px] font-bold text-zinc-300 hover:text-white"
+                            className="p-1 px-2.5 hover:bg-zinc-800 rounded-full transition-all text-[0.625rem] font-bold text-zinc-300 hover:text-white"
                         />
                         <div className="h-3 w-px bg-zinc-800"></div>
                         <button
@@ -94,7 +94,7 @@ export function DashboardHeader({
                         <div className="h-3 w-px bg-zinc-800"></div>
                         <button
                             onClick={onToggleChartMode}
-                            className="p-1 px-2.5 hover:bg-zinc-800 rounded-full transition-all text-[10px] font-bold text-zinc-300 hover:text-white flex items-center gap-1.5"
+                            className="p-1 px-2.5 hover:bg-zinc-800 rounded-full transition-all text-[0.625rem] font-bold text-zinc-300 hover:text-white flex items-center gap-1.5"
                             title={t.chartModeLabel}
                         >
                             {chartMode === 'nominal' ? (

@@ -28,7 +28,7 @@ export const SlideEditorPanel: React.FC<Props> = ({
     return (
         <div
             className={`
-                fixed top-0 right-0 h-full w-[460px] bg-zinc-950 border-l border-zinc-800
+                fixed top-0 right-0 h-full w-[28.75rem] bg-zinc-950 border-l border-zinc-800
                 shadow-2xl z-40 transform transition-transform duration-300
                 ${open ? 'translate-x-0' : 'translate-x-full'}
             `}
@@ -46,7 +46,7 @@ export const SlideEditorPanel: React.FC<Props> = ({
                 </div>
             </div>
 
-            <div className="p-4 flex flex-col gap-3 h-[calc(100%-49px)]">
+            <div className="p-4 flex flex-col gap-3 h-[calc(100%-3.0625rem)]">
                 {/* Mode tabs */}
                 <div className="flex gap-1">
                     {(['markdown', 'html', 'url', 'pdf'] as PresentSlideMode[]).map(m => (
@@ -110,7 +110,7 @@ export const SlideEditorPanel: React.FC<Props> = ({
                             onPdfInserted?.();
                         }} />
                         {slide.content && (
-                            <p className="text-[10px] font-mono text-emerald-400 truncate">{slide.content}</p>
+                            <p className="text-[0.625rem] font-mono text-emerald-400 truncate">{slide.content}</p>
                         )}
                     </div>
                 ) : (
@@ -131,11 +131,11 @@ export const SlideEditorPanel: React.FC<Props> = ({
 
                 {/* Footer */}
                 {sizeWarning && (
-                    <div className="text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-1">
+                    <div className="text-[0.6875rem] text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-1">
                         {sizeWarning}
                     </div>
                 )}
-                <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                <div className="flex items-center justify-between text-[0.6875rem] text-zinc-500">
                     <span>
                         {slide.content.length} chars
                         {lastSavedAt ? ` · saved ${formatRelativeTime(lastSavedAt)}` : ' · not yet saved'}

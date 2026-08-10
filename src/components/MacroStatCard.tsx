@@ -33,13 +33,13 @@ export const MacroStatCard: React.FC<{
                     <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">
                         {displayName}
                     </h4>
-                    <span className="text-[10px] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
+                    <span className="text-[0.625rem] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
                 </div>
                 <div className="text-right flex flex-col items-end">
                     <div className="text-xl font-mono font-bold leading-none text-zinc-100">
                         {item.value.toFixed(2)}
                     </div>
-                    <div className="text-[10px] text-zinc-500 font-mono mt-1">
+                    <div className="text-[0.625rem] text-zinc-500 font-mono mt-1">
                         {formattedDate}
                     </div>
                 </div>
@@ -47,7 +47,7 @@ export const MacroStatCard: React.FC<{
 
             <div className="flex-1"></div>
 
-            <div className="flex justify-between items-end text-[10px] border-t border-zinc-800/80 pt-3 relative z-10 mt-4">
+            <div className="flex justify-between items-end text-[0.625rem] border-t border-zinc-800/80 pt-3 relative z-10 mt-4">
                 <div className="flex flex-col">
                     <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">
                         {item.changeLabel ?? (t.yoyChange || 'YoY Change')}

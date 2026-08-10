@@ -4,6 +4,7 @@ import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, Ca
 import type { IndexData, MarketDataResponse, TimeRange } from '../types';
 import { displayName, formatPrice, formatSigned, formatWhole } from '../utils';
 import { TimeRangeSelector } from './TimeRangeSelector';
+import { useRootScale } from '../hooks/useViewportScale';
 
 interface Props {
     item: IndexData;
@@ -116,6 +117,11 @@ function useRangeOverride(range: TimeRange, pageRange: TimeRange, lang: 'en' | '
 
 export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCompareSymbols = [], pageRange = 'YTD', pageLoading = false }: Props) {
     const L = LABELS[lang];
+    // Recharts sizes axis text, strokes and dots in SVG user units, which ignore
+    // the root font — without this the chart's furniture would stay at its 1080p
+    // pixel size while the rest of the modal scaled up around it.
+    const scale = useRootScale();
+    const px = (n: number) => n * scale;
     const [range, setRange] = useState<TimeRange>(pageRange);
     const override = useRangeOverride(range, pageRange, lang);
 
@@ -260,11 +266,11 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
             aria-label={`Chart for ${item.name}`}
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
-            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-[760px] max-w-[95vw] max-h-[90vh] flex flex-col">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl w-[47.5rem] max-w-[95vw] max-h-[90vh] flex flex-col">
                 {/* Header */}
                 <div className="flex items-start justify-between p-5 border-b border-zinc-900">
                     <div>
-                        <div className="text-[10px] font-mono tracking-widest text-zinc-500">{item.symbol}</div>
+                        <div className="text-[0.625rem] font-mono tracking-widest text-zinc-500">{item.symbol}</div>
                         <div className="text-lg font-bold text-zinc-100 mt-0.5">
                             {displayName(item, lang)}
                         </div>
@@ -288,7 +294,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
 
                 {/* Period */}
                 <div className="flex items-center gap-3 px-5 pt-4">
-                    <span className="text-[10px] font-mono tracking-widest text-zinc-500 uppercase">
+                    <span className="text-[0.625rem] font-mono tracking-widest text-zinc-500 uppercase">
                         {L.period}:
                     </span>
                     <TimeRangeSelector
@@ -301,46 +307,46 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                 {/* Chart */}
                 <div className="p-5 flex-1 min-h-0 flex flex-col">
                     {periodPending ? (
-                        <div className="h-[340px] flex items-center justify-center text-sm text-zinc-500">
+                        <div className="h-[21.25rem] flex items-center justify-center text-sm text-zinc-500">
                             {L.loading}
                         </div>
                     ) : override.failed ? (
-                        <div className="h-[340px] flex items-center justify-center text-sm text-amber-500 px-6 text-center">
+                        <div className="h-[21.25rem] flex items-center justify-center text-sm text-amber-500 px-6 text-center">
                             {L.rangeFailed(range)}
                         </div>
                     ) : !primaryHasHistory ? (
-                        <div className="h-[340px] flex items-center justify-center text-sm text-zinc-500">
+                        <div className="h-[21.25rem] flex items-center justify-center text-sm text-zinc-500">
                             {L.noHistory}
                         </div>
                     ) : (
-                        <div className="h-[340px]">
+                        <div className="h-[21.25rem]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                                     <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
                                     <XAxis
                                         dataKey="date"
                                         stroke="#52525b"
-                                        fontSize={10}
+                                        fontSize={px(10)}
                                         tickFormatter={(v) => formatDate(v, AXIS_DATE_OPTS[range] ?? AXIS_DATE_OPTS.default)}
-                                        minTickGap={40}
+                                        minTickGap={px(40)}
                                     />
                                     <YAxis
                                         stroke="#52525b"
-                                        fontSize={10}
+                                        fontSize={px(10)}
                                         tickFormatter={(v: number) =>
                                             effectiveMode === 'percent'
                                                 ? `${v > 0 ? '+' : ''}${v.toFixed(1)}%`
                                                 : formatWhole(v)
                                         }
                                         domain={['auto', 'auto']}
-                                        width={60}
+                                        width={px(60)}
                                     />
                                     <Tooltip
                                         contentStyle={{
                                             background: 'rgba(24,24,27,0.95)',
                                             border: '1px solid #3f3f46',
                                             borderRadius: 8,
-                                            fontSize: 12,
+                                            fontSize: px(12),
                                         }}
                                         labelStyle={{ color: '#a1a1aa' }}
                                         formatter={(val: number, name: string) => [
@@ -351,7 +357,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                         ]}
                                         labelFormatter={(v) => formatDate(v, { year: 'numeric', month: 'short', day: 'numeric' })}
                                     />
-                                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                                    <Legend wrapperStyle={{ fontSize: px(11) }} />
                                     {series.map(s => (
                                         <Line
                                             key={s.item.symbol}
@@ -359,9 +365,9 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                             dataKey={s.item.symbol}
                                             name={displayName(s.item, lang)}
                                             stroke={s.color}
-                                            strokeWidth={s.item.symbol === item.symbol ? 2.5 : 1.8}
+                                            strokeWidth={px(s.item.symbol === item.symbol ? 2.5 : 1.8)}
                                             dot={false}
-                                            activeDot={{ r: 4, stroke: '#18181b', strokeWidth: 2, fill: s.color }}
+                                            activeDot={{ r: px(4), stroke: "#18181b", strokeWidth: px(2), fill: s.color }}
                                             connectNulls
                                             isAnimationActive={false}
                                         />
@@ -373,7 +379,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
 
                     {/* Controls */}
                     <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-mono tracking-widest text-zinc-500 uppercase">
+                        <span className="text-[0.625rem] font-mono tracking-widest text-zinc-500 uppercase">
                             {L.compare}:
                         </span>
 
@@ -407,17 +413,17 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                 {L.addIndex}
                             </button>
                         ) : (
-                            <span className="text-[10px] text-zinc-600">{L.limit}</span>
+                            <span className="text-[0.625rem] text-zinc-600">{L.limit}</span>
                         )}
 
                         <div className="ml-auto flex items-center gap-1">
-                            <span className="text-[10px] font-mono tracking-widest text-zinc-500 uppercase mr-1">
+                            <span className="text-[0.625rem] font-mono tracking-widest text-zinc-500 uppercase mr-1">
                                 {L.mode}:
                             </span>
                             <button
                                 onClick={() => setChartMode('nominal')}
                                 disabled={hasCompare}
-                                className={`px-2 py-1 rounded text-[10px] font-mono transition ${
+                                className={`px-2 py-1 rounded text-[0.625rem] font-mono transition ${
                                     effectiveMode === 'nominal'
                                         ? 'bg-zinc-800 text-zinc-100'
                                         : 'text-zinc-500 hover:text-zinc-300'
@@ -428,7 +434,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                             </button>
                             <button
                                 onClick={() => setChartMode('percent')}
-                                className={`px-2 py-1 rounded text-[10px] font-mono transition ${
+                                className={`px-2 py-1 rounded text-[0.625rem] font-mono transition ${
                                     effectiveMode === 'percent'
                                         ? 'bg-zinc-800 text-zinc-100'
                                         : 'text-zinc-500 hover:text-zinc-300'
@@ -452,7 +458,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                     className="flex-1 bg-transparent outline-none text-sm text-zinc-200 placeholder:text-zinc-600"
                                 />
                             </div>
-                            <div className="grid grid-cols-2 gap-1.5 max-h-[200px] overflow-y-auto pr-1">
+                            <div className="grid grid-cols-2 gap-1.5 max-h-[12.5rem] overflow-y-auto pr-1">
                                 {available.map(d => {
                                     const up = d.changePercent >= 0;
                                     return (
@@ -465,9 +471,9 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                                 <div className="text-xs font-semibold text-zinc-200 truncate">
                                                     {displayName(d, lang)}
                                                 </div>
-                                                <div className="text-[10px] text-zinc-500 font-mono">{d.symbol}</div>
+                                                <div className="text-[0.625rem] text-zinc-500 font-mono">{d.symbol}</div>
                                             </div>
-                                            <div className={`text-[10px] font-mono font-bold shrink-0 ml-2 ${up ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            <div className={`text-[0.625rem] font-mono font-bold shrink-0 ml-2 ${up ? 'text-emerald-400' : 'text-red-400'}`}>
                                                 {formatSigned(d.changePercent)}%
                                             </div>
                                         </button>

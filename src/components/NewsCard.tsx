@@ -21,7 +21,7 @@ export const NewsCard: React.FC<{ item: NewsItem; language: string; isFocusMode?
                 <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center space-x-2 text-xs text-zinc-500">
                         {isNew && (
-                            <Badge variant="bullish" className="px-1.5 py-0 text-[9px] tracking-wider">
+                            <Badge variant="bullish" className="px-1.5 py-0 text-[0.5625rem] tracking-wider">
                                 {NEW_BADGE_LABEL[language] || 'NEW'}
                             </Badge>
                         )}

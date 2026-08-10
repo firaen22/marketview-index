@@ -21,6 +21,7 @@ import { cn, ytdComparator } from './utils';
 import { getSettings, setSetting } from './settings';
 import { CATEGORIES_ORDER } from './constants';
 import { useSettingsSync } from './hooks/useSettingsSync';
+import { useViewportScale } from './hooks/useViewportScale';
 import { useDashboardData } from './hooks/useDashboardData';
 import { useMacroData } from './hooks/useMacroData';
 import { computeNewSinceVisit, getLastVisitAt, recordVisitNow } from './newSinceVisit';
@@ -28,6 +29,10 @@ import { getLocale } from './locales';
 
 export default function Dashboard() {
   const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
+  // Scales typography and layout with display resolution. When this page runs
+  // as the `/?embed=1` iframe inside /present, `vmin` resolves against the
+  // iframe's own box, so it scales to the area it actually occupies.
+  useViewportScale();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [isNewsOnly, setIsNewsOnly] = useState(false);
@@ -133,7 +138,12 @@ export default function Dashboard() {
   return (
     <div
       className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-blue-500/30 font-sans"
-      style={{ ['--dash-offset' as any]: isEmbed ? '48px' : '180px' }}
+      style={{
+        // rem, not px: this offset subtracts the header's height, and the
+        // header scales with the root font — a fixed px offset would leave the
+        // column short by half a header at 4K. 3rem/11.25rem == 48px/180px.
+        ['--dash-offset' as any]: isEmbed ? '3rem' : '11.25rem',
+      }}
     >
       {/* Header */}
       {!isEmbed && (
@@ -187,7 +197,7 @@ export default function Dashboard() {
           {/* Right/Left Column Swapped: Index Performance (Now Primary Left Column) */}
           {!isNewsOnly && (
             <div className={cn(
-              "flex flex-col h-[calc(100vh-var(--dash-offset,180px))] transition-all duration-500 ease-in-out lg:order-first",
+              "flex flex-col h-[calc(100vh-var(--dash-offset,11.25rem))] transition-all duration-500 ease-in-out lg:order-first",
               (isPresentationMode || isEmbed) ? "col-span-1 lg:col-span-12" : "lg:col-span-7 xl:col-span-8"
             )}>
               <div className="flex items-center justify-between mb-4">
@@ -244,7 +254,7 @@ export default function Dashboard() {
                     ) : (
                       <TrendingDown className="w-3 h-3 text-rose-400 mr-1.5" />
                     )}
-                    <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-bold">
+                    <span className="text-[0.625rem] text-zinc-400 uppercase tracking-wider font-bold">
                       {sortOrder === 'desc' ? t.sort.highToLow : t.sort.lowToHigh}
                     </span>
                   </button>

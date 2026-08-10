@@ -139,7 +139,7 @@ export function SettingsModal({
                         label={<><Wallet className="w-4 h-4 mr-2 text-indigo-400" />{t.showFunds}</>}
                     />
                 </div>
-                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                <p className="text-[0.6875rem] text-zinc-500 leading-relaxed">
                     {t.apiKeyNote}
                 </p>
             </div>
