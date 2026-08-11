@@ -131,9 +131,14 @@ export const MarketHeatmap = ({ rawData, groupBy = 'category', language = 'zh-TW
         return null;
     }
 
+    // Flex column, not a bare block: ResponsiveContainer's height:100% resolves against the
+    // parent's *specified* height, which is `auto` wherever this is dropped into a call site
+    // without a fixed height (NewsSection, FundsPage) — min-h alone leaves it 0-high. As a flex
+    // item it sizes off the root's used height instead, so both the min-h fallback and an
+    // explicit parent height (HeatmapPage's h-[650px]) work.
     return (
-        <div className="h-full min-h-[25rem] w-full bg-zinc-900/30 rounded-xl border border-zinc-800 p-2 overflow-hidden">
-            <ResponsiveContainer width="100%" height="100%">
+        <div className="flex flex-col h-full min-h-[25rem] w-full bg-zinc-900/30 rounded-xl border border-zinc-800 p-2 overflow-hidden">
+            <ResponsiveContainer className="flex-1 min-h-0" width="100%" height="100%">
                 <Treemap
                     data={data}
                     dataKey="size"
