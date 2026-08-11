@@ -34,7 +34,7 @@ export function NewsSection({
     return (
         <div className={cn(
             "flex flex-col animate-in fade-in duration-500",
-            isNewsOnly ? "lg:col-span-12" : "lg:col-span-5 xl:col-span-4 lg:order-last h-[calc(100vh-var(--dash-offset,180px))]"
+            isNewsOnly ? "lg:col-span-12" : "lg:col-span-5 xl:col-span-4 lg:order-last h-[calc(100vh-var(--dash-offset,11.25rem))]"
         )}>
             <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold flex items-center text-balance">
@@ -42,13 +42,13 @@ export function NewsSection({
                     {t.news}
                 </h2>
                 {!isAiTranslated && language === 'zh-TW' && (
-                    <div className="flex items-center text-[10px] bg-amber-500/10 text-amber-500 px-2 py-1 rounded border border-amber-500/20 max-w-[150px] leading-tight">
+                    <div className="flex items-center text-[0.625rem] bg-amber-500/10 text-amber-500 px-2 py-1 rounded border border-amber-500/20 max-w-[9.375rem] leading-tight">
                         <ShieldAlert className="w-3 h-3 mr-1 flex-shrink-0" />
                         {t.noAiWarning}
                     </div>
                 )}
                 <div className="flex items-center space-x-2">
-                    <span className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">{t.poweredBy}</span>
+                    <span className="text-[0.625rem] text-zinc-500 font-mono tracking-widest uppercase">{t.poweredBy}</span>
                     <Badge variant="default" className="bg-zinc-800 text-zinc-300 hover:bg-zinc-700">{t.liveFeed}</Badge>
                 </div>
             </div>

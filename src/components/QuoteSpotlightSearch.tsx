@@ -125,7 +125,7 @@ export function QuoteSpotlightSearch({ items, lang, pinnedIds, onCommit, onClose
                     )}
                 </ul>
                 <div className="flex items-center justify-between px-5 py-2 border-t border-zinc-900">
-                    <div className="flex items-center gap-4 text-[10px] font-mono text-zinc-600">
+                    <div className="flex items-center gap-4 text-[0.625rem] font-mono text-zinc-600">
                         <span><kbd className="text-emerald-500">↑↓</kbd> select</span>
                         <span><kbd className="text-emerald-500">↵</kbd> toggle pin</span>
                         <span><kbd className="text-emerald-500">Esc</kbd> done</span>

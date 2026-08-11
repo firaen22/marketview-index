@@ -117,7 +117,7 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
         <>
             <div
                 className={cn(
-                    'fixed right-0 top-0 z-40 h-full w-[460px] max-w-[100vw] transform border-l border-zinc-800 bg-zinc-950 shadow-2xl transition-transform duration-300',
+                    'fixed right-0 top-0 z-40 h-full w-[28.75rem] max-w-[100vw] transform border-l border-zinc-800 bg-zinc-950 shadow-2xl transition-transform duration-300',
                     open ? 'translate-x-0' : 'translate-x-full',
                 )}
             >
@@ -136,7 +136,7 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                     </button>
                 </div>
 
-                <div className="flex h-[calc(100%-61px)] flex-col gap-4 overflow-y-auto p-4">
+                <div className="flex h-[calc(100%-3.8125rem)] flex-col gap-4 overflow-y-auto p-4">
                     {glossary.error && (
                         <div className="rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
                             {isAuthOrStorageError(glossary.error) ? t.authMissing : glossary.error}
@@ -146,7 +146,7 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                     {!session ? (
                         <div className="space-y-4">
                             <div>
-                                <div className="mb-2 text-[10px] font-mono uppercase tracking-widest text-zinc-500">
+                                <div className="mb-2 text-[0.625rem] font-mono uppercase tracking-widest text-zinc-500">
                                     {t.mode}
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
@@ -226,7 +226,7 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                             </button>
 
                             <div className="rounded border border-zinc-800 bg-zinc-900/60 p-3 text-center">
-                                <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">{t.joinCode}</div>
+                                <div className="text-[0.625rem] font-mono uppercase tracking-widest text-zinc-500">{t.joinCode}</div>
                                 <div className="mt-1 font-mono text-4xl font-bold tracking-[0.18em] text-zinc-100">{session.joinCode}</div>
                                 <div className="mt-2 break-all font-mono text-xs text-zinc-500">{joinUrl}</div>
                                 <textarea ref={copyTextRef} value={joinUrl} readOnly className="sr-only" />
@@ -258,7 +258,7 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                             </div>
 
                             <div>
-                                <div className="mb-2 text-[10px] font-mono uppercase tracking-widest text-zinc-500">{t.mode}</div>
+                                <div className="mb-2 text-[0.625rem] font-mono uppercase tracking-widest text-zinc-500">{t.mode}</div>
                                 <div className="grid grid-cols-2 gap-2">
                                     {(['all', 'gradual'] as const).map(option => (
                                         <button
@@ -322,7 +322,7 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                     </button>
                     <div className="rounded bg-white p-5">
                         {qrUrl ? (
-                            <img src={qrUrl} alt={t.qrAlt} className="h-[min(72vmin,720px)] w-[min(72vmin,720px)] min-h-[60vmin] min-w-[60vmin]" />
+                            <img src={qrUrl} alt={t.qrAlt} className="h-[min(72vmin,45rem)] w-[min(72vmin,45rem)] min-h-[60vmin] min-w-[60vmin]" />
                         ) : (
                             <div className="flex h-[60vmin] w-[60vmin] items-center justify-center p-4 font-mono text-lg text-zinc-950">
                                 {joinUrl}
@@ -344,7 +344,7 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
 function Metric({ label, value }: { label: string; value: string }) {
     return (
         <div className="rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">{label}</div>
+            <div className="text-[0.625rem] font-mono uppercase tracking-widest text-zinc-500">{label}</div>
             <div className="mt-1 font-mono text-2xl font-bold text-zinc-100">{value}</div>
         </div>
     );

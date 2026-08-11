@@ -79,7 +79,7 @@ export const PdfUploader: React.FC<Props> = ({ onUploaded }) => {
                     <span className="text-xs text-zinc-400">
                         {status === 'error' ? errorMsg : 'Drop PDF here or click to upload'}
                     </span>
-                    <span className="text-[10px] text-zinc-600">Stored in cloud — accessible from any device</span>
+                    <span className="text-[0.625rem] text-zinc-600">Stored in cloud — accessible from any device</span>
                 </>
             )}
         </div>

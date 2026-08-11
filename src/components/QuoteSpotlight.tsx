@@ -47,7 +47,7 @@ export function QuoteSpotlight({ item, lang, rangeLabel, onDismiss, index, total
             role="dialog"
             aria-label={`Quote spotlight: ${displayName(item, lang)}`}
         >
-            <div className="flex items-center gap-8 px-10 py-5 min-h-[100px]">
+            <div className="flex items-center gap-8 px-10 py-5 min-h-[6.25rem]">
                 {hasNav && (
                     <button
                         onClick={onPrev}
@@ -72,7 +72,7 @@ export function QuoteSpotlight({ item, lang, rangeLabel, onDismiss, index, total
                 </div>
 
                 <div className="flex flex-col items-end">
-                    <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">{primaryLabel}</div>
+                    <div className="text-[0.625rem] font-mono text-zinc-500 uppercase tracking-widest">{primaryLabel}</div>
                     <div className={`text-3xl font-mono font-bold tabular-nums ${pctColor(item.changePct)}`}>
                         {formatPct(item.changePct)}
                     </div>
@@ -80,7 +80,7 @@ export function QuoteSpotlight({ item, lang, rangeLabel, onDismiss, index, total
 
                 {secondaryPct !== undefined && (
                     <div className="flex flex-col items-end">
-                        <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">{secondaryLabel}</div>
+                        <div className="text-[0.625rem] font-mono text-zinc-500 uppercase tracking-widest">{secondaryLabel}</div>
                         <div className={`text-2xl font-mono font-semibold tabular-nums ${pctColor(secondaryPct)}`}>
                             {formatPct(secondaryPct)}
                         </div>
@@ -97,7 +97,7 @@ export function QuoteSpotlight({ item, lang, rangeLabel, onDismiss, index, total
                         >
                             <ChevronRight className="w-6 h-6" />
                         </button>
-                        <div className="text-[10px] font-mono text-zinc-500 tabular-nums">
+                        <div className="text-[0.625rem] font-mono text-zinc-500 tabular-nums">
                             {(index! + 1)}/{total}
                         </div>
                     </>

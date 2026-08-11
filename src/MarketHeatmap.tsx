@@ -1,6 +1,7 @@
 import React from 'react';
 import { Treemap, ResponsiveContainer, Tooltip } from 'recharts';
 import type { IndexData } from './types';
+import { useRootScale } from './hooks/useViewportScale';
 
 interface TreemapLeaf {
     name: string;
@@ -71,10 +72,18 @@ interface TreemapContentProps {
     height?: number;
     name?: string;
     change?: number;
+    /** Root font scale (1 at 1080p and below, 2 at 4K). Supplied by the parent
+     *  rather than read from a hook here: Recharts clones this element for every
+     *  cell, and cloned content must stay a plain render function. */
+    scale?: number;
 }
 
 const CustomizedContent = (props: TreemapContentProps) => {
-    const { x = 0, y = 0, width = 0, height = 0, name = '', change = 0 } = props;
+    const { x = 0, y = 0, width = 0, height = 0, name = '', change = 0, scale = 1 } = props;
+    // Cell geometry arrives in real rendered pixels, which already grow with the
+    // container at 4K — so the legibility thresholds have to grow with it too,
+    // otherwise every cell would qualify for the large label at high resolution.
+    const px = (n: number) => n * scale;
 
     const getBgColor = (val: number) => {
         if (val >= 3) return '#059669';      // Deep Green
@@ -96,15 +105,15 @@ const CustomizedContent = (props: TreemapContentProps) => {
                 style={{
                     fill: getBgColor(change),
                     stroke: '#09090b',
-                    strokeWidth: width > 100 ? 3 : 1,
+                    strokeWidth: width > px(100) ? px(3) : px(1),
                 }}
             />
-            {width > 60 && height > 40 && (
+            {width > px(60) && height > px(40) && (
                 <text x={x + width / 2} y={y + height / 2} textAnchor="middle" fill="white" className="select-none">
-                    <tspan x={x + width / 2} dy="-0.2em" fontSize={width > 120 ? 16 : 12} fontWeight="900">
+                    <tspan x={x + width / 2} dy="-0.2em" fontSize={width > px(120) ? px(16) : px(12)} fontWeight="900">
                         {name.split(' ')[0]}
                     </tspan>
-                    <tspan x={x + width / 2} dy="1.4em" fontSize={10} fontWeight="600" fillOpacity={0.9}>
+                    <tspan x={x + width / 2} dy="1.4em" fontSize={px(10)} fontWeight="600" fillOpacity={0.9}>
                         {change > 0 ? '+' : ''}{change?.toFixed(2)}%
                     </tspan>
                 </text>
@@ -114,6 +123,8 @@ const CustomizedContent = (props: TreemapContentProps) => {
 };
 
 export const MarketHeatmap = ({ rawData, groupBy = 'category', language = 'zh-TW' }: { rawData: IndexData[], groupBy?: 'category' | 'subCategory', language?: 'en' | 'zh-TW' }) => {
+    // Ahead of the empty-data early return: hooks cannot sit behind a branch.
+    const scale = useRootScale();
     const data = transformToTreemap(rawData, groupBy, language);
 
     if (!rawData || rawData.length === 0) {
@@ -121,14 +132,14 @@ export const MarketHeatmap = ({ rawData, groupBy = 'category', language = 'zh-TW
     }
 
     return (
-        <div className="h-full min-h-[400px] w-full bg-zinc-900/30 rounded-xl border border-zinc-800 p-2 overflow-hidden">
+        <div className="h-full min-h-[25rem] w-full bg-zinc-900/30 rounded-xl border border-zinc-800 p-2 overflow-hidden">
             <ResponsiveContainer width="100%" height="100%">
                 <Treemap
                     data={data}
                     dataKey="size"
                     stroke="#fff"
                     fill="#8884d8"
-                    content={<CustomizedContent />}
+                    content={<CustomizedContent scale={scale} />}
                     isAnimationActive={false}
                 >
                     <Tooltip content={<CustomTooltip />} />

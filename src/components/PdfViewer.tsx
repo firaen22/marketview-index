@@ -9,6 +9,7 @@ import {
 } from '../jargon';
 import { jargonDebug } from '../jargonDebug';
 import { getLocale } from '../locales';
+import { useRootScale } from '../hooks/useViewportScale';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl as string;
 
@@ -32,6 +33,7 @@ export interface PdfViewerHandle {
 
 export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText, onPageChange, lang = 'en' }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const uiScale = useRootScale();
     const L = getLocale(lang).present;
     const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
     const [pageNum, setPageNum] = useState(1);
@@ -70,7 +72,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         pdf.getPage(pageNum).then(page => {
             if (cancelled || !canvasRef.current) return;
             const dpr = window.devicePixelRatio || 1;
-            const viewport = page.getViewport({ scale: (zoom / 100) * dpr });
+            // `uiScale` keeps the deck the same apparent size across resolutions.
+            // The page is laid out in PDF points, so at 100% zoom a 960pt slide
+            // occupied 960 CSS px — a quarter of a 4K projector's width, against
+            // half of a 1080p one. Folding the root scale in means "100%" keeps
+            // meaning "as large as it looked at 1080p", and the presenter's
+            // 25%-step zoom control still reads relative to that.
+            const viewport = page.getViewport({ scale: (zoom / 100) * uiScale * dpr });
             const canvas = canvasRef.current;
             canvas.width = viewport.width;
             canvas.height = viewport.height;
@@ -98,7 +106,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
             cancelled = true;
             if (renderTaskRef.current) { renderTaskRef.current.cancel(); renderTaskRef.current = null; }
         };
-    }, [pdf, pageNum, zoom, L.pdfPageError, L.pdfRenderError]);
+    }, [pdf, pageNum, zoom, uiScale, L.pdfPageError, L.pdfRenderError]);
 
     useEffect(() => {
         if (!pdf || !onPageChange) return;

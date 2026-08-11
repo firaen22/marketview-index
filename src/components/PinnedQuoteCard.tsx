@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 import type { QuoteItem } from '../types/QuoteItem';
 import { displayName, formatSigned } from '../utils';
+import { useRootScale } from '../hooks/useViewportScale';
 
 interface Props {
     item: QuoteItem;
@@ -12,6 +13,9 @@ interface Props {
 }
 
 export function PinnedQuoteCard({ item, lang, showDivider, onRemove, onClick }: Props) {
+    // SVG user units ignore the root font, so the sparkline needs the scale
+    // explicitly or it thins out to a hairline on a 4K projector.
+    const scale = useRootScale();
     const isPositive = item.changePct >= 0;
     const color = isPositive ? '#34d399' : '#fb7185';
     const hasHistory = item.history && item.history.length > 1;
@@ -31,7 +35,7 @@ export function PinnedQuoteCard({ item, lang, showDivider, onRemove, onClick }: 
             className={`flex flex-col gap-1 px-3 py-3 ${showDivider ? 'border-t border-zinc-900' : ''} ${onClick ? 'cursor-pointer hover:bg-zinc-900 transition' : ''}`}
         >
             <div className="flex items-start justify-between gap-1">
-                <div className="text-[10px] text-zinc-500 font-mono leading-none">{item.id}</div>
+                <div className="text-[0.625rem] text-zinc-500 font-mono leading-none">{item.id}</div>
                 <button
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
                     className="p-0.5 rounded hover:bg-zinc-800 text-zinc-700 hover:text-zinc-400 shrink-0"
@@ -40,7 +44,7 @@ export function PinnedQuoteCard({ item, lang, showDivider, onRemove, onClick }: 
                     <X className="w-2.5 h-2.5" />
                 </button>
             </div>
-            <div className="text-[11px] text-zinc-400 leading-tight">{displayName(item, lang)}</div>
+            <div className="text-[0.6875rem] text-zinc-400 leading-tight">{displayName(item, lang)}</div>
             <div className="text-xl font-bold font-mono text-white leading-none mt-1">
                 {item.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </div>
@@ -48,7 +52,7 @@ export function PinnedQuoteCard({ item, lang, showDivider, onRemove, onClick }: 
                 {isPositive ? '▲' : '▼'} {Number.isFinite(item.changePct) ? `${Math.abs(item.changePct).toFixed(2)}%` : '—'}{item.changeLabel ? ` ${item.changeLabel}` : ''}
             </div>
             {Number.isFinite(item.secondaryPct) && (
-                <div className={`text-[10px] font-mono ${isSecondaryPositive ? 'text-emerald-500/70' : 'text-red-400/70'}`}>
+                <div className={`text-[0.625rem] font-mono ${isSecondaryPositive ? 'text-emerald-500/70' : 'text-red-400/70'}`}>
                     {formatSigned(item.secondaryPct as number)}%{item.secondaryLabel ? ` ${item.secondaryLabel}` : ''}
                 </div>
             )}
@@ -60,7 +64,7 @@ export function PinnedQuoteCard({ item, lang, showDivider, onRemove, onClick }: 
                                 type="monotone"
                                 dataKey="value"
                                 stroke={color}
-                                strokeWidth={1.5}
+                                strokeWidth={1.5 * scale}
                                 dot={false}
                                 isAnimationActive={false}
                             />

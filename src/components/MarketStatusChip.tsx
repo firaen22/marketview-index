@@ -57,7 +57,7 @@ export function MarketStatusChip({ status, now, phaseLabels }: MarketStatusChipP
     // interrupt a screen reader repeatedly to report no new state. What is left
     // in the tree ("HK closed") changes only on a real phase transition.
     <span
-      className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-[10px] leading-none"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-[0.625rem] leading-none"
       role="status"
     >
       <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} aria-hidden="true" />

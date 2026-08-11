@@ -4,6 +4,7 @@ import { cn, displayName, formatPrice } from '../utils';
 import { Card } from './ui';
 import type { IndexData, HistoryPoint } from '../types';
 import type { TDict } from '../locales';
+import { useRootScale } from '../hooks/useViewportScale';
 
 interface StatTooltipProps {
     active?: boolean;
@@ -33,6 +34,10 @@ export const MarketStatCard: React.FC<{
 }> = ({ item, chartHeight = "h-16", t, chartMode = 'nominal', highlighted = false }) => {
     const isPositive = item.change >= 0;
     const isYtdPositive = item.ytdChange >= 0;
+    // Sparkline strokes are SVG user units — they ignore the root font, so a 2px
+    // line would read as a hairline on a 4K projector without this.
+    const scale = useRootScale();
+    const px = (n: number) => n * scale;
     const cardRef = React.useRef<HTMLDivElement>(null);
 
     React.useEffect(() => {
@@ -68,13 +73,13 @@ export const MarketStatCard: React.FC<{
                     <h4 className="font-bold text-zinc-100 text-sm leading-tight mb-1 line-clamp-2">
                         {t?.indexNames?.[item.name] || displayName(item, t.language)}
                     </h4>
-                    <span className="text-[10px] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
+                    <span className="text-[0.625rem] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
                 </div>
                 <div className="text-right flex flex-col items-end">
                     <div className={cn("text-base font-mono font-bold leading-none", isPositive ? "text-emerald-400" : "text-rose-400")}>
                         {formatPrice(item.price)}
                     </div>
-                    <div className={cn("text-[10px] font-mono flex items-center justify-end mt-1 px-1.5 py-0.5 rounded bg-zinc-950/50", isPositive ? "text-emerald-400" : "text-rose-400")}>
+                    <div className={cn("text-[0.625rem] font-mono flex items-center justify-end mt-1 px-1.5 py-0.5 rounded bg-zinc-950/50", isPositive ? "text-emerald-400" : "text-rose-400")}>
                         {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
                     </div>
                 </div>
@@ -87,14 +92,14 @@ export const MarketStatCard: React.FC<{
                             type="monotone"
                             dataKey="value"
                             stroke={isPositive ? "#34d399" : "#fb7185"}
-                            strokeWidth={2}
+                            strokeWidth={px(2)}
                             dot={false}
-                            activeDot={{ r: 4, fill: isPositive ? "#34d399" : "#fb7185", stroke: "#18181b", strokeWidth: 2 }}
+                            activeDot={{ r: px(4), fill: isPositive ? "#34d399" : "#fb7185", stroke: "#18181b", strokeWidth: px(2) }}
                         />
                         <XAxis dataKey="date" hide />
                         <Tooltip
                             content={<CustomTooltip />}
-                            cursor={{ stroke: '#3f3f46', strokeWidth: 1, strokeDasharray: '4 4' }}
+                            cursor={{ stroke: '#3f3f46', strokeWidth: px(1), strokeDasharray: '4 4' }}
                             formatter={(val: number) => [
                                 chartMode === 'percent' ? `${val > 0 ? '+' : ''}${val.toFixed(2)}%` : val.toLocaleString(undefined, { minimumFractionDigits: 2 }),
                                 "Value"
@@ -111,7 +116,7 @@ export const MarketStatCard: React.FC<{
                 </ResponsiveContainer>
             </div>
 
-            <div className="flex justify-between items-end text-[10px] border-t border-zinc-800/80 pt-3">
+            <div className="flex justify-between items-end text-[0.625rem] border-t border-zinc-800/80 pt-3">
                 <div className="flex flex-col">
                     <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">
                         {t.rangeLabels?.[t.activeRange] || t.ytd}
@@ -122,7 +127,7 @@ export const MarketStatCard: React.FC<{
                 </div>
                 <div className="text-right flex flex-col">
                     <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">{t.range}</span>
-                    <span className="font-mono text-zinc-100 text-[11px] leading-tight">
+                    <span className="font-mono text-zinc-100 text-[0.6875rem] leading-tight">
                         {item.low.toLocaleString(undefined, { maximumFractionDigits: 0 })}<br />
                         <span className="text-zinc-500 opacity-50">—</span><br />
                         {item.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}

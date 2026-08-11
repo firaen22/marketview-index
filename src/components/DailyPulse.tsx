@@ -32,7 +32,7 @@ export const DailyPulse = ({ summary, t, isFocusMode }: { summary: string; t: TD
             <div className="flex items-center gap-2 mb-3">
                 <div className="p-1 px-2 rounded-md bg-blue-500/20 text-blue-400 flex items-center gap-2">
                     <Cpu className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">{t.dailyPulse}</span>
+                    <span className="text-[0.625rem] font-bold uppercase tracking-widest">{t.dailyPulse}</span>
                 </div>
                 {isFocusMode && <div className="h-px flex-1 bg-blue-500/20"></div>}
             </div>

@@ -7,6 +7,7 @@ import { getSettings, normalizePresentCycle, setSetting, type PresentCycle, type
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
+import { useViewportScale } from './hooks/useViewportScale';
 import { getLocale } from './locales';
 import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp, Sunrise, Grid3x3, Play, Pause, QrCode } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
@@ -219,6 +220,9 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
 }
 
 export default function PresentationPage() {
+    // Projector surface: scale typography and layout with display resolution so
+    // a 4K projector shows the deck at the same apparent size as a 1080p one.
+    useViewportScale();
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
     const initialSettings = React.useMemo(() => getSettings(), []);
     const geminiKey = initialSettings.geminiKey;
@@ -776,7 +780,7 @@ export default function PresentationPage() {
                         </button>
                         <button
                             onClick={cycleDwellPreset}
-                            className="px-2 py-1 rounded hover:bg-zinc-800 transition text-[11px] leading-none font-mono text-zinc-400"
+                            className="px-2 py-1 rounded hover:bg-zinc-800 transition text-[0.6875rem] leading-none font-mono text-zinc-400"
                             title="Cycle playlist dwell time"
                         >
                             {normalizedPresentCycle.dwellSec}s
@@ -909,7 +913,7 @@ export default function PresentationPage() {
                     {/* View hint — shown on PDF slide to surface the toggle */}
                     {mainView === 'slide' && slide.mode === 'pdf' && slide.content && (
                         <div className="absolute top-3 left-3 z-20 pointer-events-none">
-                            <span className="text-[10px] font-mono text-zinc-600 bg-black/60 px-2 py-0.5 rounded">
+                            <span className="text-[0.625rem] font-mono text-zinc-600 bg-black/60 px-2 py-0.5 rounded">
                                 {t.present.viewHintBefore} <kbd className="text-emerald-500">I</kbd> {t.present.viewHintAfter}
                             </span>
                         </div>
@@ -953,7 +957,7 @@ export default function PresentationPage() {
                             <div className="w-px h-3 bg-zinc-700 mx-1" />
                             <button
                                 onClick={() => setPdfZoom(100)}
-                                className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300"
+                                className="text-[0.625rem] font-mono text-zinc-500 hover:text-zinc-300"
                             >reset</button>
                         </div>
                     )}
@@ -1078,7 +1082,7 @@ export default function PresentationPage() {
                         style={{ animationDuration: `${dwellSec}s` }}
                     />
                 )}
-                <div className="shrink-0 max-w-[520px] overflow-hidden flex items-center gap-3 px-4">
+                <div className="shrink-0 max-w-[32.5rem] overflow-hidden flex items-center gap-3 px-4">
                     <span className="font-mono text-xs text-zinc-300">{clock}</span>
                     <div className="flex items-center gap-2 min-w-0">
                         {marketStatuses.map(status => (

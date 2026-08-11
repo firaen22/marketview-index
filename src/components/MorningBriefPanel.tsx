@@ -66,7 +66,7 @@ export function MorningBriefPanel({ items, brief, onChange, onClose }: Props) {
                     <div className="flex items-center gap-2">
                         <Sunrise className="w-4 h-4 text-amber-400" />
                         <span className="text-sm font-semibold text-zinc-100">Morning Brief</span>
-                        <span className="text-[10px] font-mono text-zinc-500">{brief.length} pre-selected</span>
+                        <span className="text-[0.625rem] font-mono text-zinc-500">{brief.length} pre-selected</span>
                     </div>
                     <button
                         onClick={onClose}
@@ -80,7 +80,7 @@ export function MorningBriefPanel({ items, brief, onChange, onClose }: Props) {
                 <div className="p-5 space-y-4">
                     {/* Current list */}
                     <div>
-                        <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2">
+                        <div className="text-[0.625rem] font-mono text-zinc-500 uppercase tracking-widest mb-2">
                             Order (← / → cycles during spotlight)
                         </div>
                         {briefItems.length === 0 ? (
@@ -128,7 +128,7 @@ export function MorningBriefPanel({ items, brief, onChange, onClose }: Props) {
 
                     {/* Add via search */}
                     <div>
-                        <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2">
+                        <div className="text-[0.625rem] font-mono text-zinc-500 uppercase tracking-widest mb-2">
                             Add item
                         </div>
                         <input

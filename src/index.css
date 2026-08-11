@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+/* Viewport-scaled root font — the projector surfaces (`/` and `/present`) opt in
+   by way of `useViewportScale`, which puts this class on <html>.
+ *
+ * Everything sized in rem/em (all of Tailwind's default scale, and the px
+ * literals converted alongside this rule) then tracks display resolution
+ * instead of staying pinned to a physical pixel count. Without it a 4K
+ * projector renders every label at half its 1080p apparent size.
+ *
+ * `vmin` rather than `vw`: it keys the scale to the shorter side, so a 16:9
+ * projector and the `/?embed=1` dashboard iframe each scale to their own box,
+ * and an ultrawide panel does not blow the type up to fill its width.
+ *
+ * The design baseline is 1080p at a 16px root, and 1080/16 = 67.5 — so
+ * `100vmin / 67.5` is exactly 16px on a 1080p shorter side and exactly 32px on
+ * 4K's 2160, with no rounding drift (a decimal 1.4815vmin lands 0.008px off).
+ * The 16px floor keeps every display at or below 1080p pixel-identical to
+ * before this rule existed; the 32px ceiling caps growth at 2x and holds it
+ * there for 5K/8K. */
+html.mv-viewport-scale {
+  font-size: clamp(16px, calc(100vmin / 67.5), 32px);
+}
+
 @keyframes ticker {
   0% {
     transform: translateX(0);
