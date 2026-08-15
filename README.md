@@ -1,52 +1,104 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# MarketView Index
 
-# Run and deploy your AI Studio app / React 專案設定與部署指南
+A bilingual (繁體中文 / English) market dashboard built for **live client briefings** — it runs on a projector, not just a desktop. Alongside the usual quotes and charts, it drives a presenter-controlled projector view, explains financial jargon on screen with AI, and hands the audience a QR-code glossary they can follow on their phones.
 
-This contains everything you need to run your app locally.
+**Live:** [marketindex.pmd-hk.com](https://marketindex.pmd-hk.com)
 
-## 🚀 專案啟動 (Project Setup)
+---
 
-已經在 `package.json` 中配置好對應的 scripts 與相關套件。請依照以下步驟在本地端啟動開發伺服器：
+## What it does
 
-**環境要求:** Node.js
+Most of this repo exists to serve one scenario: someone standing in front of a room, presenting markets to clients who don't share their vocabulary.
 
-1. 安裝相依套件：
-   ```bash
-   npm install
-   ```
-2. 設定環境變數：將 `.env.example` 複製為 `.env.local` 並填入對應的 API Key。
-   - `KV_REST_API_URL` & `KV_REST_API_TOKEN`: 來自 Vercel Project -> Storage -> KV
-3. 啟動開發伺服器：
-   ```bash
-   npm run dev
-   # 或使用
-   npm start
-   ```
+- **Dashboard** — indices, FX, commodities, crypto and funds, with sparklines, a treemap heatmap, and AI-summarised market news.
+- **Projector mode** — a separate presenter-controlled view (`/present`) driven from a phone or second screen (`/present-control`). Slide navigation, chart focus, highlighting, and range switching are all remote commands.
+- **Jargon explainer** — press a key and the on-screen term gets a plain-language card. Backed by a model chain with vision, so it works on decks that are pure images.
+- **Audience glossary** — a QR code puts a live, per-session glossary on the audience's own phones (`/session/:code`); terms appear as the presenter covers them.
+- **PDF decks** — upload a deck and present it inside the same view, so slides and live market data share one screen.
+- **4K aware** — `/` and `/present` scale typography with display resolution, so the same build reads correctly on a 1080p laptop and a 4K projector.
 
-## 📊 數據獲取 (Yahoo Finance & Redis 快取)
+## Routes
 
-專案透過 `yahoo-finance2` 獲取行情，並使用 **Upstash Redis (Vercel KV)** 進行快取（每組 range 快取 1 小時），以減少對 Yahoo Finance 的呼叫次數並防止 IP Ban。
+| Route | Purpose |
+|---|---|
+| `/` | Main dashboard — quotes, macro cards, heatmap, AI news |
+| `/funds` | Fund performance, grouped by sub-category |
+| `/heatmap` | Full-screen treemap (`?embed=1` for iframe embedding) |
+| `/present` | Projector view — the screen the audience sees |
+| `/present-control` | Presenter remote — slides, commands, macros |
+| `/session/:code` | Audience-facing session glossary (QR target) |
 
-- **Cron 執行時間 (HKT)**: 每日 9:30 AM（`/api/cron/update-market-data`，預先寫入 1M / 3M / YTD / 1Y 四組快取；需設定 `CRON_SECRET` 環境變數）。
-- **On-demand 更新**: 快取過期或前端帶 `refresh=true` 時即時向 Yahoo Finance 拉取新資料並回寫 Redis（60 秒 throttle）。
-- **優雅降級 (Fallback)**: 若直接呼叫 API 失敗（例如超過 25 次限制），或是伺服器錯誤，前端將會自動讀取並凍結在 **最後一次成功寫入 Redis** 的大盤數據，不再顯示錯誤的 Mock Data。
+## Stack
 
-## 📂 版本控制與安全 (.gitignore)
+React 19 · Vite 6 · Tailwind 4 · React Router 7 · Recharts 3 · pdfjs-dist · Vercel serverless functions · Upstash Redis (Vercel KV) · Cloudflare R2 · Google Gemini (`@google/genai`)
 
-專案已設定完善的 `.gitignore` 檔案，以確保安全與環境整潔：
-- **環境變數檔 (.env*)**: 避免將包含敏感資訊 (API Keys, Secrets) 的檔案上傳，只保留 `.env.example` 作為範本。
-- **依賴與建置資料夾**: 略過 `node_modules/`, `dist/`, `build/` 以減少版控體積。
-- **日誌與系統檔**: 隱藏各類 `*.log` 與 `.DS_Store`，防止開發過程產生的暫存檔污染遠端程式庫。
+## Getting started
 
-## ☁️ 自動化部署 (Vercel)
+**Requires:** Node.js 20+
 
-專案已內建 GitHub Actions Workflow (`.github/workflows/deploy.yml`)，用於全方位控制 Vercel 的部署：
+```bash
+npm install
+```
 
-1. 只要將程式碼推送到 `main` 分支，預設會觸發 Action 進行 Vercel Production 部署。
-2. **前置設定（在 GitHub Repo 的 Secrets 中設置）**：
-   - `VERCEL_TOKEN`: 取得自 Vercel 帳號設定 (Settings -> Tokens)。
-   - `VERCEL_ORG_ID`: 取得自本地端先執行 `npx vercel link` 之後產生的 `.vercel/project.json` 裡的 `orgId`。
-   - `VERCEL_PROJECT_ID`: 取得自本地端先執行 `npx vercel link` 之後產生的 `.vercel/project.json` 裡的 `projectId`。
-3. 如果您選擇直接在 Vercel 後台匯入 GitHub 儲存庫，Vercel 將能實現全自動部署，這個 Action 也可以幫助您進行更為彈性的自訂化 CI/CD pipeline（如跑測試、產生額外靜態檔案才部署等）。
+Copy `.env.example` to `.env.local` and fill in the keys you need — see [Environment](#environment) below. At minimum you need the Redis (KV) pair for caching and a `GEMINI_API_KEY` for anything AI-driven.
+
+```bash
+npm run dev
+```
+
+> **Note:** `vite dev` serves the frontend only — it does **not** execute the `/api` routes, so the dashboard will have no market data. To develop against real data, either run the Vercel CLI, or temporarily proxy `/api` to a deployed instance by adding to `vite.config.ts`:
+>
+> ```ts
+> server: {
+>   proxy: { '/api': { target: 'https://marketindex.pmd-hk.com', changeOrigin: true } },
+> }
+> ```
+
+## Environment
+
+| Variable | Needed for |
+|---|---|
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis cache (Vercel → Storage → KV). Most things degrade badly without this. |
+| `GEMINI_API_KEY` | Jargon explanations, news summaries, presenter copilot |
+| `FRED_API_KEY` | Macro cards (CPI, Core CPI, PPI, Core PPI) — [get one here](https://fredaccount.stlouisfed.org/apikey) |
+| `CRON_SECRET` | Authenticates the daily cache pre-warm endpoint |
+| `PRESENT_API_KEY` + `VITE_PRESENT_API_KEY` | Write access to the presenter endpoints. Both must be the same value; the `VITE_` one is baked in at build time. Unset = unauthenticated writes (dev only). |
+| `CLOUDFLARE_R2_*` | PDF deck storage |
+
+`.env*` is gitignored; only `.env.example` is tracked.
+
+## Data and caching
+
+Quotes come from Yahoo Finance (`yahoo-finance2`); macro series come from FRED. Everything is cached in Redis to keep request volume down and avoid getting IP-banned.
+
+- **Cache:** one key per range (`1W`, `1M`, `3M`, `6M`, `YTD`, `1Y`, `5Y`), 1 hour TTL.
+- **Pre-warm cron:** daily at 09:30 HKT (`30 1 * * *` UTC) via `/api/cron/update-market-data`.
+- **On demand:** a cache miss, or `?refresh=true`, triggers a live fetch and write-back, behind a 60-second throttle lock.
+- **Degradation:** if the upstream fetch fails, the frontend falls back to the last good cached payload and flags it as stale — it never invents mock data.
+
+## Deployment
+
+**Deploys happen through the Vercel Git integration: pushing to `main` deploys to production.** There is no staging environment and no test gate in front of it — run `npm test` and `npm run lint` yourself before merging.
+
+> ⚠️ The `Deploy to Vercel` GitHub Action in `.github/workflows/deploy.yml` is **not the deploy path** and currently fails on every run (it has no `VERCEL_TOKEN` secret). A red ✗ from that workflow does not mean your deploy failed — check the Vercel dashboard instead.
+
+Because the app is code-split, verifying that a change reached production by grepping `index.html` won't work — lazily-loaded routes live in their own chunks. Load the page and check the DOM.
+
+## Tests
+
+```bash
+npm test        # vitest — 623 tests across 70 files
+npm run lint    # tsc --noEmit
+```
+
+## Repo layout
+
+```
+api/            Vercel serverless functions (market data, AI, presenter endpoints)
+src/            React app — routes at the top level, shared parts in components/ and hooks/
+lib/            Code shared between api/ and src/
+.claude/skills/ In-repo skill library: architecture invariants, debugging playbooks,
+                caching rules, and a record of approaches already tried and abandoned
+```
+
+If you're picking this codebase up cold, start at `.claude/skills/START-HERE/`. It documents the invariants that are easy to break and the dead ends that are not worth rediscovering.
