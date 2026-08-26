@@ -494,7 +494,10 @@ export function useGlossarySession() {
 
     const reportTerms = useCallback((terms: JargonTerm[], lang: GlossaryLang) => {
         const current = sessionRef.current;
-        const page = currentPageRef.current;
+        // Copilot explains can fire while the projector is on index/heatmap,
+        // where no page has ever been reported; attribute those to page 1
+        // instead of silently dropping the push.
+        const page = currentPageRef.current || 1;
         langRef.current = lang;
         if (!current || current.status !== 'live' || !Number.isInteger(page) || page < 1) return;
         schedulePush({ code: current.joinCode, page, lang, terms });

@@ -196,3 +196,65 @@ describe('useGlossarySession setMode does not clobber a term push that lands mid
         expect((latest!.session as { joins: number }).joins).toBe(4);
     });
 });
+
+describe('useGlossarySession reportTerms before any reported page', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        localStorage.clear();
+        for (const key of Object.keys(waiting)) delete waiting[key];
+        latest = null;
+        vi.stubGlobal('fetch', vi.fn((_url: string, init?: { body?: string }) => {
+            let action = 'get';
+            if (init?.body) {
+                try {
+                    action = String(JSON.parse(init.body).action ?? 'get');
+                } catch {
+                    action = 'unparseable';
+                }
+            }
+            return new Promise<FakeResponse>(resolve => {
+                (waiting[action] ||= []).push(resolve);
+            });
+        }));
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+    });
+
+    afterEach(async () => {
+        await act(async () => {
+            root.unmount();
+        });
+        container.remove();
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('attributes a copilot explain to page 1 instead of dropping it when currentPage is 0', async () => {
+        await act(async () => {
+            root.render(createElement(Harness));
+        });
+        await act(async () => {
+            void latest!.start('gradual', true);
+        });
+        settle('start', ok({ session: session({ currentPage: 0 }) }));
+        await flush();
+        expect(latest!.session?.currentPage).toBe(0);
+
+        act(() => {
+            latest!.reportTerms([TERM], 'en');
+        });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(GLOSSARY_PUSH_DEBOUNCE_MS + 1);
+        });
+        expect(waiting.push?.length).toBe(1);
+
+        const pushCall = vi.mocked(fetch).mock.calls
+            .map(([, init]) => (init as { body?: string } | undefined)?.body)
+            .filter((body): body is string => typeof body === 'string')
+            .map(body => JSON.parse(body) as { action?: string; page?: number; terms?: unknown[] })
+            .find(body => body.action === 'push');
+        expect(pushCall?.page).toBe(1);
+        expect(pushCall?.terms).toHaveLength(1);
+    });
+});
