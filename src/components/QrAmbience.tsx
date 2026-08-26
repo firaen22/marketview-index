@@ -45,7 +45,7 @@ export default function QrAmbience() {
             {particles.map((p, i) => (
                 <span
                     key={i}
-                    className="qr-ambience-mote absolute rounded-full bg-emerald-300"
+                    className="qr-ambience-mote absolute rounded-full bg-sky-300"
                     style={{
                         left: `${p.left}%`,
                         width: `${p.size}px`,

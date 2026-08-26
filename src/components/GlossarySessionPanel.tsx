@@ -319,11 +319,11 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                         <X className="h-6 w-6" />
                     </button>
                     <QrAmbience />
-                    <div className="relative rounded-2xl bg-white p-5 shadow-[0_0_5rem_rgb(16_185_129_/_0.25)]">
+                    <div className="relative rounded-2xl bg-white p-5 shadow-[0_0_5rem_rgb(59_130_246_/_0.25)]">
                         {joinUrl && <FullscreenQr value={joinUrl} alt={t.qrAlt} />}
                     </div>
                     <div className="relative font-mono text-6xl font-bold tracking-[0.18em] text-zinc-100">{session.joinCode}</div>
-                    <div className="relative max-w-4xl break-all font-mono text-2xl text-emerald-300">{joinUrl}</div>
+                    <div className="relative max-w-4xl break-all font-mono text-2xl text-sky-300">{joinUrl}</div>
                     <div className="relative flex items-center gap-2 text-sm text-zinc-500">
                         <Maximize2 className="h-4 w-4" />
                         {t.closeQrHint}

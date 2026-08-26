@@ -9,7 +9,7 @@ interface BrandedQrProps {
     size?: number;
     className?: string;
     /**
-     * 'print' is flat black for posters; 'screen' adds the emerald gradient used
+     * 'print' is flat black for posters; 'screen' adds the navy gradient used
      * on the projector. Both stay dark-on-white — see buildQr.
      */
     variant?: QrVariant;
@@ -22,11 +22,12 @@ interface BrandedQrProps {
 // errorCorrectionLevel stays 'H': rounded modules eat into legibility, and H
 // keeps the code scannable from the back of a room.
 //
-// The 'screen' gradient runs #047857 -> #09090b. Both ends are deliberately
-// dark (contrast vs the white background stays >7:1 across the whole ramp), so
-// the emerald reads as styling to a human while a scanner still sees an
-// unambiguous dark module. Anything lighter starts costing scans at projector
-// distance, which is the one thing this QR cannot afford.
+// The 'screen' gradient runs #1e3a8a (navy) -> #09090b. Both ends are
+// deliberately dark — the light end measures 10.4:1 against the white
+// background — so the navy reads as styling to a human while a scanner still
+// sees an unambiguous dark module. Do not lighten it: blue-700 (#1d4ed8) is
+// already down to 6.7:1, and scan margin at projector distance is the one
+// thing this QR cannot afford.
 function buildQr(value: string, size: number, variant: QrVariant): QRCodeStyling {
     const dark = '#09090b';
     const gradient = variant === 'screen'
@@ -34,7 +35,7 @@ function buildQr(value: string, size: number, variant: QrVariant): QRCodeStyling
             type: 'linear' as const,
             rotation: Math.PI / 4,
             colorStops: [
-                { offset: 0, color: '#047857' },
+                { offset: 0, color: '#1e3a8a' },
                 { offset: 1, color: dark },
             ],
         }
