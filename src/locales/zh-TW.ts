@@ -174,6 +174,11 @@ export default {
         emptySavedBody: "按下任何關鍵詞旁的書籤，就可儲存在這部手機。",
         emptySearchTitle: "沒有符合的關鍵詞",
         emptySearchBody: "請試用其他字眼，或清除搜尋內容。",
+        joinWait: {
+            title: "等待場次開始",
+            body: "目前沒有進行中的關鍵詞場次。請保持此頁開啟——主持人一開始場次，系統會自動帶你進入。",
+            redirecting: "正在進入直播場次…",
+        },
         presenter: {
             title: "關鍵詞場次",
             subtitle: "觀眾 QR code 及詞彙同步",
@@ -204,6 +209,10 @@ export default {
             end: "結束場次",
             reopen: "重新開啟",
             authMissing: "關鍵詞儲存或主持人權限尚未設定。請檢查 PRESENT_API_KEY 及 Redis 設定。",
+            permanentQr: "永久 QR code",
+            permanentQrHint: "只需印一次——它永遠指向你當前的直播場次；沒有場次時會顯示等候頁。",
+            downloadPng: "PNG",
+            downloadSvg: "SVG",
         },
     },
 };

@@ -16,6 +16,12 @@ type MutationStatus = 'not_found' | 'conflict' | 'session_ended';
 type SessionEndedMutation = { error: 'session_ended' };
 
 const SESSION_PREFIX = 'glossary:sess:';
+// Pointer the permanent /j QR resolves through (see api/join.ts). Best-effort:
+// a failure here must never fail the presenter action that triggered it, and
+// /api/join independently checks session.status === 'live' before honoring a
+// pointer, so a stale/lost pointer self-heals on the next scan rather than
+// silently misdirecting the audience.
+const CURRENT_SESSION_KEY = 'glossary:current';
 const LIVE_TTL_SECONDS = 12 * 60 * 60;
 const ENDED_TTL_SECONDS = 7 * 24 * 60 * 60;
 const ENDED_NOKEEP_TTL_SECONDS = 60;
@@ -50,6 +56,39 @@ return 1
 
 function sessionKey(code: string): string {
     return `${SESSION_PREFIX}${code}`;
+}
+
+// Compare-and-delete: only clears the pointer if it still names `code`, so
+// ending/superseding an OLD session can never steal the pointer away from a
+// session that has since become current. The liveness re-check makes the
+// delete atomic against a concurrent reopen of the SAME code: a reopen that
+// landed after our stale read keeps its freshly re-advertised pointer.
+// Sessions are written with JSON.stringify (no spaces), so the plain-text
+// status marker is a reliable probe inside the script.
+const POINTER_CAD_SCRIPT = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    local sess = redis.call('GET', KEYS[2])
+    if not sess or not string.find(sess, '"status":"live"', 1, true) then
+        return redis.call('DEL', KEYS[1])
+    end
+end
+return 0
+`;
+
+async function setCurrentPointer(code: string): Promise<void> {
+    try {
+        await redis!.set(CURRENT_SESSION_KEY, code, { ex: LIVE_TTL_SECONDS });
+    } catch (error) {
+        console.error('Glossary current-pointer write error:', error);
+    }
+}
+
+async function clearCurrentPointerIfMatches(code: string): Promise<void> {
+    try {
+        await redis!.eval(POINTER_CAD_SCRIPT, [CURRENT_SESSION_KEY, sessionKey(code)], [code]);
+    } catch (error) {
+        console.error('Glossary current-pointer clear error:', error);
+    }
 }
 
 function authorize(providedKey: unknown, requiredKey: string): boolean {
@@ -237,6 +276,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                     return json(res, 500, { error: 'Could not allocate join code' });
                 }
             }
+            await setCurrentPointer(code);
 
             return json(res, 200, { success: true, session });
         }
@@ -342,6 +382,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
                 return json(res, 409, { error: 'conflict' });
             }
+            await clearCurrentPointerIfMatches(code);
             return json(res, 200, { success: true });
         }
 
@@ -360,6 +401,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 if (result.status === 'not_found') return json(res, 404, { error: 'not_found' });
                 return json(res, 409, { error: 'conflict' });
             }
+            await setCurrentPointer(code);
             return json(res, 200, { success: true, session: result.session });
         }
 
