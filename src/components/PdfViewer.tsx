@@ -13,6 +13,15 @@ import { useRootScale } from '../hooks/useViewportScale';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl as string;
 
+// A stall cap, deliberately NOT a total-elapsed cap. A real deck is tens of
+// megabytes of full-page images fetched through the R2 proxy a chunk at a
+// time, and a measured production load took 21s on a fast office link — a
+// flat 30s ceiling (the one src/pdfText.ts uses for its single-shot text
+// extraction) would abort a healthy load on venue wifi. What is never healthy
+// is SILENCE: pdfjs reports progress on every chunk, so going this long with
+// no byte of progress means the transfer is wedged, not merely slow.
+export const PDF_STALL_TIMEOUT_MS = 45_000;
+
 interface Props {
     url: string;
     zoom?: number;
@@ -40,6 +49,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     const [numPages, setNumPages] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    // -1 = the server sent no length, so a percentage would be a lie.
+    const [progress, setProgress] = useState(-1);
+    const [retryNonce, setRetryNonce] = useState(0);
     const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -51,18 +63,52 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         setPageNum(1);
         setNumPages(0);
         setPdf(null);
+        setProgress(-1);
         const task = pdfjsLib.getDocument(url);
+
+        // Re-armed on every progress callback: the timer measures time since the
+        // last byte arrived, not time since the load began. Without it a wedged
+        // transfer left `loading` true forever — a spinner with no error, no
+        // percentage and no way back, in front of a live audience.
+        let stallTimer: number | null = null;
+        const clearStall = () => {
+            if (stallTimer !== null) { window.clearTimeout(stallTimer); stallTimer = null; }
+        };
+        const armStall = () => {
+            clearStall();
+            stallTimer = window.setTimeout(() => {
+                if (cancelled) return;
+                // destroy() rejects task.promise, so the catch below would also
+                // fire with a pdfjs "worker destroyed" message. Settle the UI
+                // here first and let the epoch-style `cancelled` flag keep that
+                // rejection from overwriting this clearer message.
+                cancelled = true;
+                task.destroy();
+                setError(L.pdfStalled);
+                setLoading(false);
+            }, PDF_STALL_TIMEOUT_MS);
+        };
+        armStall();
+
+        task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => {
+            if (cancelled) return;
+            armStall();
+            setProgress(total > 0 ? Math.min(1, loaded / total) : -1);
+        };
+
         task.promise
             .then(doc => {
+                clearStall();
                 if (cancelled) { doc.destroy(); return; }
                 setPdf(doc); setNumPages(doc.numPages); setLoading(false);
             })
             .catch(err => {
+                clearStall();
                 if (cancelled) return;
                 setError(err?.message || L.pdfLoadError); setLoading(false);
             });
-        return () => { cancelled = true; task.destroy(); };
-    }, [url, L.pdfLoadError]);
+        return () => { cancelled = true; clearStall(); task.destroy(); };
+    }, [url, retryNonce, L.pdfLoadError, L.pdfStalled]);
 
     useEffect(() => {
         if (!pdf || !canvasRef.current) return;
@@ -215,7 +261,11 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         <div className="absolute inset-0 bg-zinc-950 overflow-auto">
             <div className="min-h-full flex items-start justify-center py-6 px-4 pb-20">
                 {loading
-                    ? <div className="text-zinc-500 text-sm">{L.pdfLoading}</div>
+                    ? <div className="text-zinc-500 text-sm">
+                        {progress >= 0
+                            ? `${L.pdfLoading} ${Math.round(progress * 100)}%`
+                            : L.pdfLoading}
+                    </div>
                     : <canvas ref={canvasRef} className="shadow-2xl" />
                 }
             </div>
@@ -226,7 +276,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
                 page turn could recover it. The nav pill (z-30) stays above this
                 so the presenter can always page away from a broken slide. */}
             {error && (
-                <div className="fixed inset-0 z-20 flex items-center justify-center bg-zinc-950 text-rose-400 text-sm">{error}</div>
+                <div className="fixed inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-zinc-950 text-rose-400 text-sm">
+                    <span>{error}</span>
+                    <button
+                        onClick={() => setRetryNonce(n => n + 1)}
+                        className="px-4 py-2 rounded-full border border-zinc-700 text-zinc-200 hover:text-white hover:border-zinc-500"
+                    >{L.pdfRetry}</button>
+                </div>
             )}
 
             {/* Floating page navigation pill (bottom-center) */}

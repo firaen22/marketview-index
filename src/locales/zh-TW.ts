@@ -140,6 +140,8 @@ export default {
         scClose: "關閉",
         pdfLoading: "PDF 載入中…",
         pdfLoadError: "PDF 載入失敗",
+        pdfStalled: "PDF 載入中斷 — 檔案可能過大或連線中斷",
+        pdfRetry: "重試",
         pdfPageError: "PDF 頁面載入失敗",
         pdfRenderError: "PDF 頁面渲染失敗",
     },
