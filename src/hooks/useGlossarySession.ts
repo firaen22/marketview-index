@@ -128,6 +128,12 @@ export function useGlossarySession() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const currentPageRef = useRef(0);
+    // Whether the DECK has contributed to this session. A copilot explain can
+    // push terms under a fallback page 1 with no deck loaded, which lands in
+    // session.terms/currentPage and would otherwise read as old-deck content —
+    // retiring the session for it makes the whole audience rescan the QR for
+    // nothing. Only reportPage, the deck-driven producer, sets this.
+    const deckReportedRef = useRef(false);
     const langRef = useRef<GlossaryLang>('zh-TW');
     const pendingRef = useRef<GlossaryPushPayload | null>(null);
     const lastSentRef = useRef<GlossaryPushPayload | null>(null);
@@ -185,6 +191,7 @@ export function useGlossarySession() {
                 sessionRef.current = loaded;
                 setSession(loaded);
                 currentPageRef.current = loaded?.currentPage ?? 0;
+                deckReportedRef.current = (loaded?.currentPage ?? 0) > 0;
             } catch (caught) {
                 if (cancelled || epoch !== epochRef.current || sessionRef.current || startInFlightRef.current || renewingRef.current) return;
                 if (caught instanceof GlossaryApiError && (caught.status === 404 || caught.status === 400)) {
@@ -295,6 +302,7 @@ export function useGlossarySession() {
             if (!mountedRef.current) return;
             setSession(next);
             currentPageRef.current = next.currentPage ?? 0;
+            deckReportedRef.current = (next.currentPage ?? 0) > 0;
         } catch (caught) {
             if (epoch !== epochRef.current) return;
             if (mountedRef.current) {
@@ -402,6 +410,10 @@ export function useGlossarySession() {
             setSession(null);
             return;
         }
+        // Terms and a currentPage can now come from a copilot explain alone, so
+        // they no longer prove the OLD DECK contributed anything. Without a
+        // reported deck page there is nothing stranded to retire.
+        if (!deckReportedRef.current) return;
         if (!shouldRenewForNewDeck(current, pendingRef.current, currentPageRef.current)) return;
 
         // Retire the outgoing session BEFORE the first await, or the two
@@ -424,6 +436,7 @@ export function useGlossarySession() {
         pendingRef.current = null;
         lastSentRef.current = null;
         currentPageRef.current = 0;
+        deckReportedRef.current = false;
         sessionRef.current = null;
         setSession(null);
         clearStoredJoinCode();
@@ -489,6 +502,7 @@ export function useGlossarySession() {
         const current = sessionRef.current;
         if (!current || current.status !== 'live' || !Number.isInteger(page) || page < 1) return;
         currentPageRef.current = page;
+        deckReportedRef.current = true;
         schedulePush({ code: current.joinCode, page, lang: langRef.current, terms: [] });
     }, [schedulePush]);
 
