@@ -169,6 +169,23 @@ describe('PdfViewer never leaves the projector with no way out', () => {
         expect(text()).not.toContain('PDF not found');
     });
 
+    it('hides retry on a page-render error so an already-loaded deck cannot be discarded', async () => {
+        await render();
+        await flush();
+        const doc = fakeDoc();
+        // A page-render failure re-uses the same `error` state as a load
+        // failure, but the deck is already resident: a Retry click would
+        // re-download and reset to slide 1 mid-presentation, so this path
+        // must not offer one.
+        doc.getPage = vi.fn(async () => { throw new Error('page render failed'); });
+        await act(async () => { pdfjs.state.task!.resolve(doc); });
+        await flush();
+
+        expect(text()).toContain('page render failed');
+        expect(retryButton()).toBeNull();
+        expect(pdfjs.getDocument).toHaveBeenCalledTimes(1);
+    });
+
     it('a task abandoned by a url change cannot settle into the new load', async () => {
         await render('/api/pdf-proxy?key=1700000000000-abcdef123456-first.pdf');
         await flush();
