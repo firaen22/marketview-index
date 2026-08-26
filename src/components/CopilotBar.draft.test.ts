@@ -249,6 +249,29 @@ describe('CopilotBar shared draft across both responsive slots', () => {
         expect(resendButton() !== null).toBe(hasResend);
     });
 
+    // The server hands every string the deterministic parser CANNOT classify to
+    // the LLM, which resolves page phrasings to a relative turn and enqueues it
+    // before answering. A lost response on such a command means the wall has
+    // already advanced, so resending would turn a second page in front of the
+    // audience. 'next page' parses locally and was already blocked; these do not.
+    it.each([
+        ['unparseable page phrasing (en)', 'next one'],
+        ['unparseable page phrasing (zh)', '\u7ffb\u9801'],
+        ['unparseable page phrasing (page next)', 'page next'],
+    ])('never offers resend for %s after an ambiguous failure', async (_label, textValue) => {
+        api.sendPresentCommand.mockRejectedValue(new Error('network blip'));
+
+        await act(async () => {
+            root.render(createElement(SingleSlotHarness));
+        });
+        await flush();
+        await typeInto(drafts()[0], textValue);
+        await click(sendButton(0));
+        await flush();
+
+        expect(resendButton()).toBeNull();
+    });
+
     it('resends using the stored command text and does not poll page commands', async () => {
         api.sendPresentCommand.mockResolvedValue(PAGE_COMMAND);
 

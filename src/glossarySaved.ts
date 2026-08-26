@@ -81,6 +81,21 @@ export function isTermSaved(code: string, termId: string, storage?: Storage | nu
     return getSavedTerms(code, storage).some(term => term.id === termId);
 }
 
+// Object.keys lists integer-like keys (an all-digit join code such as
+// "23456789") FIRST in ascending numeric order, ahead of every string key,
+// regardless of insertion order. The delete-then-re-add "touch" below cannot
+// move such a code to the back, so a plain shift() would evict it first — the
+// code being written right now included, silently losing the save while the
+// caller still reports success. Never evict the code we just wrote.
+function evictOldestCodes(store: SavedStore, keep: string): void {
+    const evictable = Object.keys(store.sessions).filter(code => code !== keep);
+    while (Object.keys(store.sessions).length > MAX_SAVED_CODES) {
+        const oldest = evictable.shift();
+        if (!oldest) break;
+        delete store.sessions[oldest];
+    }
+}
+
 export function setTermSaved(
     code: string,
     term: GlossaryTermSnapshot,
@@ -99,11 +114,7 @@ export function setTermSaved(
         store.sessions[code] = nextTerms;
     }
 
-    const codes = Object.keys(store.sessions);
-    while (codes.length > MAX_SAVED_CODES) {
-        const oldest = codes.shift();
-        if (oldest) delete store.sessions[oldest];
-    }
+    evictOldestCodes(store, code);
 
     const enabled = writeSavedStore(store, storage);
     return {
@@ -135,11 +146,7 @@ export function saveAllTerms(
     delete store.sessions[code];
     if (nextTerms.length > 0) store.sessions[code] = nextTerms;
 
-    const codes = Object.keys(store.sessions);
-    while (codes.length > MAX_SAVED_CODES) {
-        const oldest = codes.shift();
-        if (oldest) delete store.sessions[oldest];
-    }
+    evictOldestCodes(store, code);
 
     const enabled = writeSavedStore(store, storage);
     return { terms: enabled ? nextTerms : current, enabled };
