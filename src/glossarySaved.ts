@@ -112,3 +112,35 @@ export function setTermSaved(
         enabled,
     };
 }
+
+export function saveAllTerms(
+    code: string,
+    terms: GlossaryTermSnapshot[],
+    storage?: Storage | null,
+): { terms: GlossaryTermSnapshot[]; enabled: boolean } {
+    const store = readSavedStore(storage);
+    const current = store.sessions[code] ?? [];
+    if (terms.length === 0) return { terms: current, enabled: true };
+
+    const existingIds = new Set(current.map(term => term.id));
+    const newTerms: GlossaryTermSnapshot[] = [];
+    const addedIds = new Set<string>();
+    for (const term of terms) {
+        if (existingIds.has(term.id) || addedIds.has(term.id)) continue;
+        addedIds.add(term.id);
+        newTerms.push(term);
+    }
+    const nextTerms = [...newTerms, ...current].slice(0, MAX_SAVED_TERMS_PER_CODE);
+
+    delete store.sessions[code];
+    if (nextTerms.length > 0) store.sessions[code] = nextTerms;
+
+    const codes = Object.keys(store.sessions);
+    while (codes.length > MAX_SAVED_CODES) {
+        const oldest = codes.shift();
+        if (oldest) delete store.sessions[oldest];
+    }
+
+    const enabled = writeSavedStore(store, storage);
+    return { terms: enabled ? nextTerms : current, enabled };
+}

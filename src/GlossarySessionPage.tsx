@@ -4,7 +4,7 @@ import { AlertCircle, Bookmark, Languages, Radio, Search, SlidersHorizontal, Wif
 import type { GlossaryLang, GlossaryTermSnapshot } from '../lib/glossarySession';
 import { getLocale } from './locales';
 import { useGlossaryPoll } from './hooks/useGlossaryPoll';
-import { getSavedTerms, isTermSaved, setTermSaved } from './glossarySaved';
+import { getSavedTerms, isTermSaved, saveAllTerms, setTermSaved } from './glossarySaved';
 import { EmptyState } from './components/glossary/EmptyState';
 import { Tabs, type GlossaryTab } from './components/glossary/Tabs';
 import { TermCard } from './components/glossary/TermCard';
@@ -49,7 +49,13 @@ export default function GlossarySessionPage() {
     const [pageMode, setPageMode] = useState<'all' | 'live' | number>('all');
     const [savedTerms, setSavedTerms] = useState<GlossaryTermSnapshot[]>([]);
     const [savingEnabled, setSavingEnabled] = useState(true);
+    const [recapNotice, setRecapNotice] = useState<'copied' | 'saved' | null>(null);
+    const recapNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const t = getLocale(lang).glossary;
+
+    useEffect(() => () => {
+        if (recapNoticeTimeoutRef.current) clearTimeout(recapNoticeTimeoutRef.current);
+    }, []);
 
     useEffect(() => {
         if (!poll.code) return;
@@ -96,7 +102,49 @@ export default function GlossarySessionPage() {
         setSavedTerms(result.terms);
     };
 
+    const ended = poll.session?.status === 'ended';
+    const recapTerms = useMemo(() => sortAll(liveTerms, 'page'), [liveTerms]);
+    const recapText = poll.code
+        ? [`${t.title} (${poll.code})`, ...recapTerms.map(term => `${term.term} — ${termText(term, lang)}`)].join('\n')
+        : '';
+    const canShareRecap = typeof navigator !== 'undefined'
+        && (typeof navigator.share === 'function' || typeof navigator.clipboard?.writeText === 'function');
     const savedIds = useMemo(() => new Set(savedTerms.map(term => term.id)), [savedTerms]);
+    const allTermsSaved = liveTerms.length > 0 && liveTerms.every(term => savedIds.has(term.id));
+
+    const showRecapNotice = (notice: 'copied' | 'saved') => {
+        if (recapNoticeTimeoutRef.current) clearTimeout(recapNoticeTimeoutRef.current);
+        setRecapNotice(notice);
+        recapNoticeTimeoutRef.current = setTimeout(() => setRecapNotice(null), 2000);
+    };
+
+    const shareRecap = async () => {
+        if (!recapText || typeof navigator === 'undefined') return;
+        if (navigator.share) {
+            try {
+                await navigator.share({ text: recapText });
+            } catch {
+                // Sharing can be cancelled by the user.
+            }
+            return;
+        }
+        if (!navigator.clipboard?.writeText) return;
+        try {
+            await navigator.clipboard.writeText(recapText);
+            showRecapNotice('copied');
+        } catch {
+            // Clipboard access can be unavailable in the current browser context.
+        }
+    };
+
+    const saveAll = () => {
+        if (!poll.code || !savingEnabled || liveTerms.length === 0 || allTermsSaved) return;
+        const result = saveAllTerms(poll.code, liveTerms);
+        setSavedTerms(result.terms);
+        setSavingEnabled(result.enabled);
+        if (result.enabled) showRecapNotice('saved');
+    };
+
     const counts = {
         latest: latestTerms.length,
         all: allTerms.length,
@@ -154,9 +202,36 @@ export default function GlossarySessionPage() {
                             {t.reconnecting}
                         </div>
                     )}
-                    {poll.session?.status === 'ended' && (
+                    {ended && (
                         <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300">
-                            {t.endedBanner}
+                            <p>{t.endedBanner}</p>
+                            {liveTerms.length > 0 && (
+                                <>
+                                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                                        <button
+                                            type="button"
+                                            onClick={shareRecap}
+                                            disabled={!canShareRecap}
+                                            className="min-h-11 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm font-semibold text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {t.recapShare}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={saveAll}
+                                            disabled={!savingEnabled || allTermsSaved}
+                                            className="min-h-11 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm font-semibold text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {t.recapSaveAll}
+                                        </button>
+                                    </div>
+                                    {recapNotice && (
+                                        <p className="mt-2 text-xs text-emerald-400">
+                                            {recapNotice === 'copied' ? t.recapCopied : `${t.recapSavedAll} (${savedTerms.length})`}
+                                        </p>
+                                    )}
+                                </>
+                            )}
                         </div>
                     )}
                     {poll.status === 'not_found' && (savedTerms.length > 0 || !!poll.session) && (
