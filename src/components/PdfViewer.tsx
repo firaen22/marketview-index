@@ -13,6 +13,22 @@ import { useRootScale } from '../hooks/useViewportScale';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl as string;
 
+// How long a load may run before the projector says so. This does NOT abort
+// anything — it only surfaces a hint and keeps the manual reload in reach.
+//
+// An automatic abort was tried and removed. It cannot be built on pdfjs's
+// progress callback: when the server advertises BOTH streaming and byte ranges
+// — which the R2 proxy does — pdfjs detaches it (`pdf.mjs:15856`
+// `if (isStreamingSupported && isRangeSupported) this.#fullReader.onProgress = null`),
+// and every range reader is constructed with `onProgress: null`
+// (`pdf.mjs:13477`). So on the real production path the callback can go silent
+// for the whole load while the transfer is perfectly healthy, and any timer
+// re-armed by it degenerates into a fixed guillotine. Measured loads of the
+// live deck ranged from 21s to 153s, so a guillotine short enough to be useful
+// would fire on healthy loads — in front of an audience. A slow deck must
+// never be killed; it must be legible, and the presenter must have a way out.
+export const PDF_SLOW_LOAD_HINT_MS = 30_000;
+
 interface Props {
     url: string;
     zoom?: number;
@@ -40,6 +56,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     const [numPages, setNumPages] = useState(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    // -1 = the server sent no length, so a percentage would be a lie.
+    const [progress, setProgress] = useState(-1);
+    const [retryNonce, setRetryNonce] = useState(0);
+    const [slow, setSlow] = useState(false);
     const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -51,18 +71,37 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         setPageNum(1);
         setNumPages(0);
         setPdf(null);
+        setProgress(-1);
+        setSlow(false);
         const task = pdfjsLib.getDocument(url);
+
+        // Purely cosmetic: flips the "this is taking a while" hint on. Nothing
+        // is cancelled when it fires — see PDF_SLOW_LOAD_HINT_MS.
+        const hintTimer = window.setTimeout(() => {
+            if (!cancelled) setSlow(true);
+        }, PDF_SLOW_LOAD_HINT_MS);
+
+        // Kept for the percentage when pdfjs does supply it (a server without
+        // range support still reports). It is never load-bearing: on the
+        // production path it may never fire at all.
+        task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => {
+            if (cancelled) return;
+            setProgress(total > 0 ? Math.min(1, loaded / total) : -1);
+        };
+
         task.promise
             .then(doc => {
+                window.clearTimeout(hintTimer);
                 if (cancelled) { doc.destroy(); return; }
                 setPdf(doc); setNumPages(doc.numPages); setLoading(false);
             })
             .catch(err => {
+                window.clearTimeout(hintTimer);
                 if (cancelled) return;
                 setError(err?.message || L.pdfLoadError); setLoading(false);
             });
-        return () => { cancelled = true; task.destroy(); };
-    }, [url, L.pdfLoadError]);
+        return () => { cancelled = true; window.clearTimeout(hintTimer); task.destroy(); };
+    }, [url, retryNonce, L.pdfLoadError]);
 
     useEffect(() => {
         if (!pdf || !canvasRef.current) return;
@@ -215,7 +254,25 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         <div className="absolute inset-0 bg-zinc-950 overflow-auto">
             <div className="min-h-full flex items-start justify-center py-6 px-4 pb-20">
                 {loading
-                    ? <div className="text-zinc-500 text-sm">{L.pdfLoading}</div>
+                    ? <div className="flex flex-col items-center gap-3 text-sm">
+                        <span className="text-zinc-500">
+                            {progress >= 0
+                                ? `${L.pdfLoading} ${Math.round(progress * 100)}%`
+                                : L.pdfLoading}
+                        </span>
+                        {/* A big deck legitimately takes a while, so the way out
+                            is offered rather than taken: the presenter decides,
+                            no timer ever discards a load that is still healthy. */}
+                        {slow && (
+                            <>
+                                <span className="text-zinc-600">{L.pdfSlow}</span>
+                                <button
+                                    onClick={() => setRetryNonce(n => n + 1)}
+                                    className="px-4 py-2 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500"
+                                >{L.pdfRetry}</button>
+                            </>
+                        )}
+                    </div>
                     : <canvas ref={canvasRef} className="shadow-2xl" />
                 }
             </div>
@@ -226,7 +283,15 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
                 page turn could recover it. The nav pill (z-30) stays above this
                 so the presenter can always page away from a broken slide. */}
             {error && (
-                <div className="fixed inset-0 z-20 flex items-center justify-center bg-zinc-950 text-rose-400 text-sm">{error}</div>
+                <div className="fixed inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-zinc-950 text-rose-400 text-sm">
+                    <span>{error}</span>
+                    {!pdf && (
+                        <button
+                            onClick={() => setRetryNonce(n => n + 1)}
+                            className="px-4 py-2 rounded-full border border-zinc-700 text-zinc-200 hover:text-white hover:border-zinc-500"
+                        >{L.pdfRetry}</button>
+                    )}
+                </div>
             )}
 
             {/* Floating page navigation pill (bottom-center) */}
