@@ -11,6 +11,14 @@
             "destination": "/api/$1"
         },
         {
+            "source": "/j",
+            "destination": "/api/join"
+        },
+        {
+            "source": "/j/",
+            "destination": "/api/join"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }

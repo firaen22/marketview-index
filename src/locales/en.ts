@@ -174,6 +174,11 @@ export default {
         emptySavedBody: "Tap the bookmark on any term to keep it on this phone.",
         emptySearchTitle: "No matching terms",
         emptySearchBody: "Try a different keyword or clear the search box.",
+        joinWait: {
+            title: "Waiting for the session to start",
+            body: "No live glossary session right now. Keep this page open — you will be taken to the session automatically as soon as the presenter starts one.",
+            redirecting: "Joining the live session…",
+        },
         presenter: {
             title: "GLOSSARY SESSION",
             subtitle: "Audience QR and term sync",
@@ -204,6 +209,10 @@ export default {
             end: "End session",
             reopen: "Reopen session",
             authMissing: "Glossary storage or presenter auth is not configured. Check PRESENT_API_KEY and Redis settings.",
+            permanentQr: "Permanent QR",
+            permanentQrHint: "Print this once — it always points to your current live session, or to a waiting page when none is running.",
+            downloadPng: "PNG",
+            downloadSvg: "SVG",
         },
     },
 };

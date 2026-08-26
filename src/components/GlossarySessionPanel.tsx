@@ -6,6 +6,7 @@ import { getLocale, type Lang } from '../locales';
 import { cn } from '../utils';
 import { Toggle } from './Toggle';
 import type { UseGlossarySessionResult } from '../hooks/useGlossarySession';
+import BrandedQr from './BrandedQr';
 
 interface Props {
     open: boolean;
@@ -36,6 +37,12 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
         if (!session?.joinCode || typeof window === 'undefined') return '';
         return `${window.location.origin}/session/${session.joinCode}`;
     }, [session?.joinCode]);
+
+    // The printable QR target. Unlike joinUrl this never changes between
+    // sessions: /j resolves server-side to whatever session is currently live.
+    const permanentUrl = useMemo(() => (
+        typeof window === 'undefined' ? '' : `${window.location.origin}/j`
+    ), []);
 
     useEffect(() => {
         if (!joinUrl) {
@@ -302,6 +309,21 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                             )}
                         </div>
                     )}
+
+                    <div className="mt-4 border-t border-zinc-800 pt-4">
+                        <div className="mb-1 text-[0.625rem] font-mono uppercase tracking-widest text-zinc-500">{t.permanentQr}</div>
+                        <p className="mb-3 text-xs text-zinc-500">{t.permanentQrHint}</p>
+                        <div className="rounded border border-zinc-800 bg-white p-3">
+                            <BrandedQr
+                                value={permanentUrl}
+                                size={160}
+                                className="flex flex-col items-center"
+                                downloadLabels={{ png: t.downloadPng, svg: t.downloadSvg }}
+                                downloadName="glossary-permanent-qr"
+                            />
+                        </div>
+                        <div className="mt-2 break-all text-center font-mono text-xs text-zinc-500">{permanentUrl}</div>
+                    </div>
                 </div>
             </div>
 

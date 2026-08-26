@@ -7,6 +7,7 @@ const HeatmapPage = lazy(() => import('./HeatmapPage'));
 const PresentationPage = lazy(() => import('./PresentationPage'));
 const PresentationControl = lazy(() => import('./PresentationControl'));
 const GlossarySessionPage = lazy(() => import('./GlossarySessionPage'));
+const JoinRedirectPage = lazy(() => import('./JoinRedirectPage'));
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="/present" element={<PresentationPage />} />
           <Route path="/present-control" element={<PresentationControl />} />
           <Route path="/session/:code" element={<GlossarySessionPage />} />
+          <Route path="/join" element={<JoinRedirectPage />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

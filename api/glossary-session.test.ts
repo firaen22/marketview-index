@@ -89,8 +89,18 @@ function lastSetSession(): GlossarySession {
     return JSON.parse(redisState.current.set.mock.calls.at(-1)[1]);
 }
 
+function sessionSetCalls() {
+    return redisState.current.set.mock.calls.filter((c: any[]) => String(c[0]).startsWith('glossary:sess:'));
+}
+
+function sessionEvalCalls() {
+    // Pointer compare-and-delete evals carry KEYS=['glossary:current']; the
+    // session CAS script keys on glossary:sess:*.
+    return redisState.current.eval.mock.calls.filter((c: any[]) => String(c[1]?.[0]).startsWith('glossary:sess:'));
+}
+
 function lastEvalSession(): GlossarySession {
-    return JSON.parse(redisState.current.eval.mock.calls.at(-1)[2][1]);
+    return JSON.parse(sessionEvalCalls().at(-1)[2][1]);
 }
 
 describe('glossary-session API handler', () => {
@@ -430,8 +440,10 @@ describe('glossary-session API handler', () => {
             body: { action: 'start', mode: 'all', slideVersion: 123, keepAfter: true },
         }));
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenLastCalledWith(expect.stringMatching(/^glossary:sess:/), expect.any(String), { ex: 43200, nx: true });
-        expect(lastSetSession()).toMatchObject({ version: 0 });
+        expect(sessionSetCalls().at(-1)).toEqual([expect.stringMatching(/^glossary:sess:/), expect.any(String), { ex: 43200, nx: true }]);
+        expect(JSON.parse(sessionSetCalls().at(-1)[1])).toMatchObject({ version: 0 });
+        // start advertises the new session on the permanent-QR pointer.
+        expect(redisState.current.set).toHaveBeenLastCalledWith('glossary:current', expect.stringMatching(/^[A-HJKMNP-Z2-9]{8}$/), { ex: 43200 });
 
         redisState.current.get.mockResolvedValue(sessionJson());
         res = await call(makeReq({
@@ -441,7 +453,7 @@ describe('glossary-session API handler', () => {
         }));
         expect(res.statusCode).toBe(200);
         expect(lastEvalSession()).toMatchObject({ mode: 'all', keepAfter: false, version: 1 });
-        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '43200']);
+        expect(sessionEvalCalls().at(-1)[2].slice(2)).toEqual(['EX', '43200']);
 
         redisState.current.get.mockResolvedValue(sessionJson({ keepAfter: true }));
         res = await call(makeReq({
@@ -451,7 +463,7 @@ describe('glossary-session API handler', () => {
         }));
         expect(res.statusCode).toBe(200);
         expect(lastEvalSession()).toMatchObject({ status: 'ended', endedAt: 5000, version: 1 });
-        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '604800']);
+        expect(sessionEvalCalls().at(-1)[2].slice(2)).toEqual(['EX', '604800']);
 
         redisState.current.get.mockResolvedValue(sessionJson({ status: 'ended', endedAt: 4000 }));
         res = await call(makeReq({
@@ -461,7 +473,7 @@ describe('glossary-session API handler', () => {
         }));
         expect(res.statusCode).toBe(200);
         expect(lastEvalSession()).toMatchObject({ status: 'live', endedAt: null, version: 1 });
-        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '43200']);
+        expect(sessionEvalCalls().at(-1)[2].slice(2)).toEqual(['EX', '43200']);
         expect(redisState.current.expire.mock.calls.some(call => String(call[0]).startsWith('glossary:sess:'))).toBe(false);
     });
 
@@ -477,9 +489,11 @@ describe('glossary-session API handler', () => {
         }));
 
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenCalledTimes(2);
-        expect(redisState.current.set.mock.calls[0][2]).toEqual({ ex: 43200, nx: true });
-        expect(redisState.current.set.mock.calls[1][2]).toEqual({ ex: 43200, nx: true });
+        expect(sessionSetCalls()).toHaveLength(2);
+        expect(sessionSetCalls()[0][2]).toEqual({ ex: 43200, nx: true });
+        expect(sessionSetCalls()[1][2]).toEqual({ ex: 43200, nx: true });
+        // The pointer records the code that actually won the NX claim.
+        expect(redisState.current.set).toHaveBeenLastCalledWith('glossary:current', JSON.parse(sessionSetCalls()[1][1]).joinCode, { ex: 43200 });
     });
 
     it('retries a stale push against the fresh session so both interleaved pushes survive', async () => {
@@ -543,7 +557,40 @@ describe('glossary-session API handler', () => {
         expect(res.statusCode).toBe(200);
         expect(redisState.current.del).not.toHaveBeenCalled();
         expect(lastEvalSession()).toMatchObject({ status: 'ended', endedAt: 5000, updatedAt: 5000, version: 1 });
-        expect(redisState.current.eval.mock.calls.at(-1)[2].slice(2)).toEqual(['EX', '60']);
+        expect(sessionEvalCalls().at(-1)[2].slice(2)).toEqual(['EX', '60']);
+        // end clears the permanent-QR pointer via compare-and-delete.
+        const pointerEvals = redisState.current.eval.mock.calls.filter((c: any[]) => c[1]?.[0] === 'glossary:current');
+        expect(pointerEvals).toHaveLength(1);
+        // KEYS[2] lets the Lua re-check liveness atomically (G1).
+        expect(pointerEvals[0][1]).toEqual(['glossary:current', 'glossary:sess:ABCD2345']);
+        expect(pointerEvals[0][2]).toEqual(['ABCD2345']);
+    });
+
+    it('reopen re-advertises the session on the permanent-QR pointer (A4)', async () => {
+        redisState.current.get.mockResolvedValue(sessionJson({ status: 'ended', endedAt: 4000 }));
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: { action: 'reopen', code: 'ABCD2345' },
+        }));
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.set).toHaveBeenLastCalledWith('glossary:current', 'ABCD2345', { ex: 43200 });
+    });
+
+    it('a pointer-write failure never fails the presenter action (A5)', async () => {
+        redisState.current.set.mockImplementation(async (key: string) => {
+            if (key === 'glossary:current') throw new Error('pointer down');
+            return 'OK';
+        });
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: { action: 'start', mode: 'all' },
+        }));
+        expect(res.statusCode).toBe(200);
+        expect(consoleError).toHaveBeenCalled();
+        consoleError.mockRestore();
     });
 
     it('returns auth configuration errors and unknown action errors', async () => {
