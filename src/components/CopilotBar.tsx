@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Edit2, Send, Trash2, XCircle } from 'lucide-react';
-import type { CatalogItem, PresentCommand } from '../../lib/presentCommand';
+import { parseCommandDeterministic, type CatalogItem, type PresentCommand } from '../../lib/presentCommand';
 import { clearPresentCommand, fetchProjectorState, PresentCommandApiError, sendPresentCommand } from '../presentCommandApi';
 import { findMacro, resolveMacros, runMacro, validateMacroDraft, type Macro } from '../copilotMacros';
 import { getSetting, setSetting } from '../settings';
@@ -85,7 +85,7 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText, command
     const macros = useMemo(() => resolveMacros(customMacros), [customMacros]);
 
     const setDismissibleStatus = (nextStatus: Extract<Status, { type: 'success' | 'error' }>) => {
-        const delay = nextStatus.type === 'success' ? 3000 : 6000;
+        const delay = nextStatus.type === 'success' && !nextStatus.unconfirmed ? 3000 : 6000;
         setStatus(nextStatus);
         dismissTimerRef.current = setTimeout(() => {
             setStatus(current => current === nextStatus ? { type: 'idle' } : current);
@@ -93,7 +93,7 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText, command
         }, delay);
     };
 
-    const pollAck = (command: PresentCommand, message: string) => {
+    const pollAck = (command: PresentCommand, message: string, resendText: string) => {
         abortAck();
         const controller = new AbortController();
         ackControllerRef.current = controller;
@@ -115,7 +115,7 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText, command
             if (attempts >= 8) {
                 if (ackControllerRef.current !== controller) return;
                 ackControllerRef.current = null;
-                setDismissibleStatus({ type: 'success', message });
+                setDismissibleStatus({ type: 'success', message, unconfirmed: true, resendText });
                 return;
             }
             setTimeout(tick, 1500);
@@ -184,14 +184,21 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText, command
             // projector's `lid` — so their ack can never arrive, and polling for
             // it just burns 8 projector-state requests against the poll rate
             // limit on the single most frequent command in a presentation.
-            if (command.kind !== 'page') pollAck(command, message);
+            if (command.kind !== 'page') pollAck(command, message, commandText);
             navigator.vibrate?.(30);
             // Conditional for the same reason as the macro branch above.
             if (overrideText === undefined) setText(current => current === commandText ? '' : current);
         } catch (error) {
             if ((error as DOMException).name === 'AbortError') return;
             if (requestControllerRef.current !== controller) return;
-            setDismissibleStatus({ type: 'error', message: errorMessage(error) });
+            const parsedCommand = parseCommandDeterministic(commandText, catalog);
+            const retriable = parsedCommand?.kind !== 'page'
+                && !(error instanceof PresentCommandApiError && (error.status === 422 || error.status === 409));
+            setDismissibleStatus({
+                type: 'error',
+                message: errorMessage(error),
+                ...(retriable ? { resendText: commandText } : {}),
+            });
         } finally {
             if (requestControllerRef.current === controller) requestControllerRef.current = null;
         }
@@ -375,8 +382,17 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText, command
                     </div>
                 </div>
             )}
-            <div className={`mt-2 text-xs ${status.type === 'error' || (status.type === 'success' && status.failed) ? 'text-rose-400' : status.type === 'success' ? 'text-emerald-400' : status.type === 'macro' ? 'text-amber-400' : 'text-zinc-500'}`}>
-                {hint}{status.type === 'success' && status.confirmed ? ' ✓' : ''}
+            <div className={`mt-2 flex items-center gap-2 text-xs ${status.type === 'error' || (status.type === 'success' && status.failed) ? 'text-rose-400' : status.type === 'success' && status.unconfirmed ? 'text-amber-400' : status.type === 'success' ? 'text-emerald-400' : status.type === 'macro' ? 'text-amber-400' : 'text-zinc-500'}`}>
+                <span>{hint}{status.type === 'success' && status.confirmed ? ' ✓' : ''}{status.type === 'success' && status.unconfirmed ? ' · not confirmed' : ''}</span>
+                {(status.type === 'success' || status.type === 'error') && status.resendText ? (
+                    <button
+                        type="button"
+                        onClick={() => void handleSend(status.resendText)}
+                        className="inline-flex items-center justify-center px-2 py-1 min-w-[44px] min-h-[44px] rounded-lg text-xs font-semibold bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800"
+                    >
+                        Resend
+                    </button>
+                ) : null}
             </div>
         </section>
     );

@@ -5,8 +5,8 @@ export type Status =
     | { type: 'idle' }
     | { type: 'sending' }
     | { type: 'macro'; name: string; step: number; total: number }
-    | { type: 'success'; message: string; confirmed?: boolean; failed?: boolean }
-    | { type: 'error'; message: string };
+    | { type: 'success'; message: string; confirmed?: boolean; failed?: boolean; unconfirmed?: boolean; resendText?: string }
+    | { type: 'error'; message: string; resendText?: string };
 
 export interface CopilotCommandLifecycle {
     status: Status;
