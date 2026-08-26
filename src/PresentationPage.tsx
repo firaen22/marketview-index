@@ -408,6 +408,12 @@ export default function PresentationPage() {
         if (explanation) {
             setRemoteJargon({ id: commandId, terms: [{ term, explanation }] });
             scheduleRemoteJargonClear();
+            // Fan the explained term into the audience glossary session too:
+            // the projector card clears after 30s, but people on /j during a
+            // live Q&A otherwise never see it. reportTerms no-ops unless a
+            // session is live on a page, and its push is debounced off the
+            // render path — never await it here.
+            glossaryReportTerms([{ term, explanation }], lang);
             return;
         }
         void fetchExplainTerm(term, lang, geminiKey)
@@ -415,9 +421,10 @@ export default function PresentationPage() {
                 if (!result || latestExplainIdRef.current !== commandId) return;
                 setRemoteJargon({ id: commandId, terms: [result] });
                 scheduleRemoteJargonClear();
+                glossaryReportTerms([result], lang);
             })
             .catch(() => undefined);
-    }, [geminiKey, glossaryLookup, lang, scheduleRemoteJargonClear]);
+    }, [geminiKey, glossaryLookup, glossaryReportTerms, lang, scheduleRemoteJargonClear]);
 
     const postToIndexIframe = useCallback((msg: unknown): boolean => {
         const win = indexIframeRef.current?.contentWindow;
