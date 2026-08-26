@@ -10,17 +10,19 @@ import {
     normalizeJoinCode,
     publicSessionView,
 } from '../lib/glossarySession.js';
+import handleJoinResolve, { POINTER_COMPARE_AND_DELETE } from '../lib/joinResolve.js';
 
 type MutationTtl = { mode: 'EX'; seconds: number } | { mode: 'KEEPTTL' };
 type MutationStatus = 'not_found' | 'conflict' | 'session_ended';
 type SessionEndedMutation = { error: 'session_ended' };
 
 const SESSION_PREFIX = 'glossary:sess:';
-// Pointer the permanent /j QR resolves through (see api/join.ts). Best-effort:
-// a failure here must never fail the presenter action that triggered it, and
-// /api/join independently checks session.status === 'live' before honoring a
-// pointer, so a stale/lost pointer self-heals on the next scan rather than
-// silently misdirecting the audience.
+// Pointer the permanent /j QR resolves through (lib/joinResolve.ts, served by
+// this same function via ?resolve=current). Best-effort: a failure here must
+// never fail the presenter action that triggered it, and the resolver
+// independently checks session.status === 'live' before honoring a pointer, so
+// a stale/lost pointer self-heals on the next scan rather than silently
+// misdirecting the audience.
 const CURRENT_SESSION_KEY = 'glossary:current';
 const LIVE_TTL_SECONDS = 12 * 60 * 60;
 const ENDED_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -58,22 +60,10 @@ function sessionKey(code: string): string {
     return `${SESSION_PREFIX}${code}`;
 }
 
-// Compare-and-delete: only clears the pointer if it still names `code`, so
-// ending/superseding an OLD session can never steal the pointer away from a
-// session that has since become current. The liveness re-check makes the
-// delete atomic against a concurrent reopen of the SAME code: a reopen that
-// landed after our stale read keeps its freshly re-advertised pointer.
-// Sessions are written with JSON.stringify (no spaces), so the plain-text
-// status marker is a reliable probe inside the script.
-const POINTER_CAD_SCRIPT = `
-if redis.call('GET', KEYS[1]) == ARGV[1] then
-    local sess = redis.call('GET', KEYS[2])
-    if not sess or not string.find(sess, '"status":"live"', 1, true) then
-        return redis.call('DEL', KEYS[1])
-    end
-end
-return 0
-`;
+// The permanent-QR pointer compare-and-delete is shared with the /j resolver
+// (lib/joinResolve.ts) so the two callers can never drift apart on the
+// liveness re-check that makes the delete safe against a concurrent reopen.
+const POINTER_CAD_SCRIPT = POINTER_COMPARE_AND_DELETE;
 
 async function setCurrentPointer(code: string): Promise<void> {
     try {
@@ -197,6 +187,13 @@ function validPage(value: unknown): value is number {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+    // The permanent /j QR rewrites here with ?resolve=current. It is dispatched
+    // ahead of the storage guard on purpose: a scanner must degrade to the
+    // /join waiting page, never see a 503, even with Redis unconfigured.
+    if (req.query?.resolve === 'current') {
+        return handleJoinResolve(req, res);
+    }
+
     if (!redis) {
         return json(res, 503, { error: 'Storage not configured' });
     }

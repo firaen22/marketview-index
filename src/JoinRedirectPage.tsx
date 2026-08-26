@@ -4,9 +4,9 @@ import { Radio } from 'lucide-react';
 import { getLocale } from './locales';
 
 // The permanent-QR waiting room. Scanning /j with no live session lands here;
-// we poll /api/join?format=json and hop to /session/:code the moment the
-// presenter starts one. This page must never navigate to /api/join itself —
-// that would bounce straight back here in a redirect loop.
+// we poll the /j resolver as JSON and hop to /session/:code the moment the
+// presenter starts one. This page must never navigate to /j itself — that
+// would bounce straight back here in a redirect loop.
 const POLL_MS = 5000;
 const SLOW_POLL_MS = 15000;
 // After this many consecutive misses (~25s of no session), back off to the
@@ -30,7 +30,7 @@ export default function JoinRedirectPage() {
         const poll = async () => {
             let code: string | null = null;
             try {
-                const res = await fetch('/api/join?format=json', { cache: 'no-store' });
+                const res = await fetch('/api/glossary-session?resolve=current&format=json', { cache: 'no-store' });
                 if (res.ok) {
                     const body = await res.json();
                     if (typeof body?.code === 'string' && JOIN_CODE_PATTERN.test(body.code)) {

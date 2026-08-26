@@ -12,11 +12,11 @@
         },
         {
             "source": "/j",
-            "destination": "/api/join"
+            "destination": "/api/glossary-session?resolve=current"
         },
         {
             "source": "/j/",
-            "destination": "/api/join"
+            "destination": "/api/glossary-session?resolve=current"
         },
         {
             "source": "/(.*)",

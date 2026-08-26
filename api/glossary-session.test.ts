@@ -66,6 +66,11 @@ function makeRes() {
             res.body = body;
             return res;
         }),
+        // The /j resolver branch ends redirects without a body.
+        end: vi.fn(() => {
+            res.ended = true;
+            return res;
+        }),
     };
     return res;
 }
@@ -591,6 +596,39 @@ describe('glossary-session API handler', () => {
         expect(res.statusCode).toBe(200);
         expect(consoleError).toHaveBeenCalled();
         consoleError.mockRestore();
+    });
+
+    it('?resolve=current serves the permanent-QR redirect from this function (12-fn cap)', async () => {
+        redisState.current.get.mockImplementation(async (key: string) => {
+            if (key === 'glossary:current') return 'ABCD2345';
+            if (key === 'glossary:sess:ABCD2345') return sessionJson({ status: 'live' });
+            return null;
+        });
+
+        const res = await call(makeReq({ method: 'GET', query: { resolve: 'current' } }));
+
+        expect(res.statusCode).toBe(302);
+        expect(res.headers['Location']).toBe('/session/ABCD2345');
+    });
+
+    it('?resolve=current degrades to /join instead of 503 when Redis is unconfigured', async () => {
+        redisState.current = null;
+
+        const res = await call(makeReq({ method: 'GET', query: { resolve: 'current' } }));
+
+        // Dispatched ahead of the storage guard: a scanner must never see 503.
+        expect(res.statusCode).toBe(302);
+        expect(res.headers['Location']).toBe('/join');
+    });
+
+    it('?resolve=current does not consume the 30/min presenter rate-limit bucket', async () => {
+        redisState.current.get.mockResolvedValue(null);
+
+        await call(makeReq({ method: 'GET', query: { resolve: 'current' } }));
+
+        const buckets = redisState.current.incr.mock.calls.map((c: any[]) => String(c[0]));
+        expect(buckets).toHaveLength(1);
+        expect(buckets[0]).toMatch(/^glossary_join_rl/);
     });
 
     it('returns auth configuration errors and unknown action errors', async () => {

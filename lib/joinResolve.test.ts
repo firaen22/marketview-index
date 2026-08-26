@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GlossarySession } from '../lib/glossarySession';
+import type { GlossarySession } from './glossarySession';
 
 const redisState = vi.hoisted(() => ({
     current: {
@@ -12,13 +12,13 @@ const redisState = vi.hoisted(() => ({
     } as any,
 }));
 
-vi.mock('../lib/redis.js', () => ({
+vi.mock('./redis.js', () => ({
     get redis() {
         return redisState.current;
     },
 }));
 
-const { default: handler } = await import('./join');
+const { default: handler } = await import('./joinResolve');
 
 const CODE = 'ABCD2345';
 
@@ -91,7 +91,7 @@ function stubPointer(pointer: unknown, session?: unknown) {
     });
 }
 
-describe('/api/join permanent QR resolver', () => {
+describe('permanent QR resolver (/j)', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         redisState.current = {

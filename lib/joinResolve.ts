@@ -1,17 +1,20 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { redis } from '../lib/redis.js';
-import { incrementRateLimit } from '../lib/rateLimit.js';
-import { isValidJoinCode } from '../lib/glossarySession.js';
+import { redis } from './redis.js';
+import { incrementRateLimit } from './rateLimit.js';
+import { isValidJoinCode } from './glossarySession.js';
 
-// Permanent QR resolver. The printed QR encodes `${origin}/j`, which vercel.json
-// rewrites here. We look up the pointer key and 302 the scanner to the live
-// session, or to the /join waiting page when nothing is live. This endpoint is
-// public and must never 500 at a scanner: every failure path degrades to /join.
-const CURRENT_KEY = 'glossary:current';
+// Permanent-QR resolver. The printed QR encodes `${origin}/j`, which vercel.json
+// rewrites onto /api/glossary-session?resolve=current — it lives inside that
+// function rather than its own /api/join because the Hobby plan caps a
+// deployment at 12 Serverless Functions and the project is at the cap. The
+// glossary-session function is the natural host: it already owns the pointer.
+//
+// This path is public and must never 500 at a scanner: every failure degrades
+// to the /join waiting page.
+export const CURRENT_KEY = 'glossary:current';
 const SESSION_PREFIX = 'glossary:sess:';
 const RATE_LIMIT_WINDOW_SECONDS = 60;
 // A whole conference room NATs to one client IP and scans within seconds, so
-// this is deliberately far above glossary-session's 30/min presenter limit.
+// this is deliberately far above the presenter API's 30/min limit.
 const RATE_LIMIT_MAX = 240;
 
 // Delete the pointer only if it still holds the code we just found stale AND
@@ -19,7 +22,7 @@ const RATE_LIMIT_MAX = 240;
 // session read and this delete must not lose its freshly re-advertised pointer.
 // Sessions are written with JSON.stringify (no spaces), so the plain-text
 // status marker below is a reliable liveness probe inside the script.
-const COMPARE_AND_DELETE = `
+export const POINTER_COMPARE_AND_DELETE = `
 if redis.call('GET', KEYS[1]) == ARGV[1] then
     local sess = redis.call('GET', KEYS[2])
     if not sess or not string.find(sess, '"status":"live"', 1, true) then
@@ -29,7 +32,7 @@ end
 return 0
 `;
 
-async function rateLimit(req: VercelRequest): Promise<boolean> {
+async function rateLimit(req: any): Promise<boolean> {
     if (!redis) return true;
     try {
         const count = await incrementRateLimit(redis, req, 'glossary_join_rl', RATE_LIMIT_WINDOW_SECONDS);
@@ -40,7 +43,7 @@ async function rateLimit(req: VercelRequest): Promise<boolean> {
     }
 }
 
-function noStore(res: VercelResponse) {
+function noStore(res: any) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -49,7 +52,7 @@ function noStore(res: VercelResponse) {
 
 // 302, never 301: browsers cache 301 permanently and would pin every future
 // scan of the printed QR to a dead session. Targets are relative paths only.
-function redirect(res: VercelResponse, path: string) {
+function redirect(res: any, path: string) {
     noStore(res);
     res.setHeader('Location', path);
     return res.status(302).end();
@@ -83,7 +86,7 @@ async function resolveLiveCode(): Promise<string | null> {
         // Stale pointer (session expired/ended/corrupt): self-heal so the next
         // scan short-circuits, but never fail the response over it.
         try {
-            await redis.eval(COMPARE_AND_DELETE, [CURRENT_KEY, `${SESSION_PREFIX}${code}`], [code]);
+            await redis.eval(POINTER_COMPARE_AND_DELETE, [CURRENT_KEY, `${SESSION_PREFIX}${code}`], [code]);
         } catch (error) {
             console.error('Join pointer cleanup error:', error);
         }
@@ -92,7 +95,7 @@ async function resolveLiveCode(): Promise<string | null> {
     return code;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handleJoinResolve(req: any, res: any) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
         noStore(res);
         return res.status(405).json({ error: 'Method not allowed' });
@@ -102,8 +105,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!await rateLimit(req)) {
         // Pollers read 429 as a miss and back off; a QR scanner instead
-        // degrades to the /join waiting page (static, CDN-served) like every
-        // other failure path — never a raw JSON error on a phone screen.
+        // degrades to the /join waiting page like every other failure path —
+        // never a raw JSON error on a phone screen.
         if (wantsJson) {
             noStore(res);
             return res.status(429).json({ error: 'rate_limited' });
