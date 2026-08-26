@@ -13,14 +13,21 @@ import { useRootScale } from '../hooks/useViewportScale';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl as string;
 
-// A stall cap, deliberately NOT a total-elapsed cap. A real deck is tens of
-// megabytes of full-page images fetched through the R2 proxy a chunk at a
-// time, and a measured production load took 21s on a fast office link — a
-// flat 30s ceiling (the one src/pdfText.ts uses for its single-shot text
-// extraction) would abort a healthy load on venue wifi. What is never healthy
-// is SILENCE: pdfjs reports progress on every chunk, so going this long with
-// no byte of progress means the transfer is wedged, not merely slow.
-export const PDF_STALL_TIMEOUT_MS = 45_000;
+// How long a load may run before the projector says so. This does NOT abort
+// anything — it only surfaces a hint and keeps the manual reload in reach.
+//
+// An automatic abort was tried and removed. It cannot be built on pdfjs's
+// progress callback: when the server advertises BOTH streaming and byte ranges
+// — which the R2 proxy does — pdfjs detaches it (`pdf.mjs:15856`
+// `if (isStreamingSupported && isRangeSupported) this.#fullReader.onProgress = null`),
+// and every range reader is constructed with `onProgress: null`
+// (`pdf.mjs:13477`). So on the real production path the callback can go silent
+// for the whole load while the transfer is perfectly healthy, and any timer
+// re-armed by it degenerates into a fixed guillotine. Measured loads of the
+// live deck ranged from 21s to 153s, so a guillotine short enough to be useful
+// would fire on healthy loads — in front of an audience. A slow deck must
+// never be killed; it must be legible, and the presenter must have a way out.
+export const PDF_SLOW_LOAD_HINT_MS = 30_000;
 
 interface Props {
     url: string;
@@ -52,6 +59,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     // -1 = the server sent no length, so a percentage would be a lie.
     const [progress, setProgress] = useState(-1);
     const [retryNonce, setRetryNonce] = useState(0);
+    const [slow, setSlow] = useState(false);
     const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -64,51 +72,36 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         setNumPages(0);
         setPdf(null);
         setProgress(-1);
+        setSlow(false);
         const task = pdfjsLib.getDocument(url);
 
-        // Re-armed on every progress callback: the timer measures time since the
-        // last byte arrived, not time since the load began. Without it a wedged
-        // transfer left `loading` true forever — a spinner with no error, no
-        // percentage and no way back, in front of a live audience.
-        let stallTimer: number | null = null;
-        const clearStall = () => {
-            if (stallTimer !== null) { window.clearTimeout(stallTimer); stallTimer = null; }
-        };
-        const armStall = () => {
-            clearStall();
-            stallTimer = window.setTimeout(() => {
-                if (cancelled) return;
-                // destroy() rejects task.promise, so the catch below would also
-                // fire with a pdfjs "worker destroyed" message. Settle the UI
-                // here first and let the epoch-style `cancelled` flag keep that
-                // rejection from overwriting this clearer message.
-                cancelled = true;
-                task.destroy();
-                setError(L.pdfStalled);
-                setLoading(false);
-            }, PDF_STALL_TIMEOUT_MS);
-        };
-        armStall();
+        // Purely cosmetic: flips the "this is taking a while" hint on. Nothing
+        // is cancelled when it fires — see PDF_SLOW_LOAD_HINT_MS.
+        const hintTimer = window.setTimeout(() => {
+            if (!cancelled) setSlow(true);
+        }, PDF_SLOW_LOAD_HINT_MS);
 
+        // Kept for the percentage when pdfjs does supply it (a server without
+        // range support still reports). It is never load-bearing: on the
+        // production path it may never fire at all.
         task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => {
             if (cancelled) return;
-            armStall();
             setProgress(total > 0 ? Math.min(1, loaded / total) : -1);
         };
 
         task.promise
             .then(doc => {
-                clearStall();
+                window.clearTimeout(hintTimer);
                 if (cancelled) { doc.destroy(); return; }
                 setPdf(doc); setNumPages(doc.numPages); setLoading(false);
             })
             .catch(err => {
-                clearStall();
+                window.clearTimeout(hintTimer);
                 if (cancelled) return;
                 setError(err?.message || L.pdfLoadError); setLoading(false);
             });
-        return () => { cancelled = true; clearStall(); task.destroy(); };
-    }, [url, retryNonce, L.pdfLoadError, L.pdfStalled]);
+        return () => { cancelled = true; window.clearTimeout(hintTimer); task.destroy(); };
+    }, [url, retryNonce, L.pdfLoadError]);
 
     useEffect(() => {
         if (!pdf || !canvasRef.current) return;
@@ -261,10 +254,24 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
         <div className="absolute inset-0 bg-zinc-950 overflow-auto">
             <div className="min-h-full flex items-start justify-center py-6 px-4 pb-20">
                 {loading
-                    ? <div className="text-zinc-500 text-sm">
-                        {progress >= 0
-                            ? `${L.pdfLoading} ${Math.round(progress * 100)}%`
-                            : L.pdfLoading}
+                    ? <div className="flex flex-col items-center gap-3 text-sm">
+                        <span className="text-zinc-500">
+                            {progress >= 0
+                                ? `${L.pdfLoading} ${Math.round(progress * 100)}%`
+                                : L.pdfLoading}
+                        </span>
+                        {/* A big deck legitimately takes a while, so the way out
+                            is offered rather than taken: the presenter decides,
+                            no timer ever discards a load that is still healthy. */}
+                        {slow && (
+                            <>
+                                <span className="text-zinc-600">{L.pdfSlow}</span>
+                                <button
+                                    onClick={() => setRetryNonce(n => n + 1)}
+                                    className="px-4 py-2 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500"
+                                >{L.pdfRetry}</button>
+                            </>
+                        )}
                     </div>
                     : <canvas ref={canvasRef} className="shadow-2xl" />
                 }

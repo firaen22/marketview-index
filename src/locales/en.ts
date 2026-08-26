@@ -140,7 +140,7 @@ export default {
         scClose: "close",
         pdfLoading: "Loading PDF…",
         pdfLoadError: "Failed to load PDF",
-        pdfStalled: "PDF stopped loading — the deck may be too large or the connection dropped",
+        pdfSlow: "Still loading — a large deck can take a minute. Reload if it looks stuck.",
         pdfRetry: "Retry",
         pdfPageError: "Failed to load PDF page",
         pdfRenderError: "Failed to render PDF page",

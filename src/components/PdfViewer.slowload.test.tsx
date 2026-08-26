@@ -34,7 +34,7 @@ const pdfjs = vi.hoisted(() => {
 vi.mock('pdfjs-dist', () => pdfjs);
 vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({ default: 'worker.js' }));
 
-const { PdfViewer, PDF_STALL_TIMEOUT_MS } = await import('./PdfViewer');
+const { PdfViewer, PDF_SLOW_LOAD_HINT_MS } = await import('./PdfViewer');
 type PdfViewerHandle = import('./PdfViewer').PdfViewerHandle;
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -56,7 +56,23 @@ function render(url = '/api/pdf-proxy?key=1700000000000-abcdef123456-deck.pdf') 
 
 const text = () => container.textContent ?? '';
 
-describe('PdfViewer never leaves the projector on an endless spinner', () => {
+// The nav pill always renders arrow buttons, so find Retry by its label.
+const retryButton = () =>
+    Array.from(container.querySelectorAll('button'))
+        .find(b => (b.textContent ?? '').includes('Retry')) ?? null;
+
+// Enough of a PDFDocumentProxy for the render effect to run without throwing.
+const fakeDoc = () => ({
+    numPages: 10,
+    destroy: vi.fn(),
+    getPage: vi.fn(async () => ({
+        getViewport: () => ({ width: 960, height: 540 }),
+        render: () => ({ promise: Promise.resolve(), cancel: vi.fn() }),
+        getTextContent: async () => ({ items: [] }),
+    })),
+});
+
+describe('PdfViewer never leaves the projector with no way out', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         pdfjs.state.task = null;
@@ -72,38 +88,42 @@ describe('PdfViewer never leaves the projector on an endless spinner', () => {
         vi.useRealTimers();
     });
 
-    it('surfaces an error and a retry once the transfer goes silent', async () => {
+    it('offers a reload once a load is taking a long time', async () => {
         await render();
         await flush();
         expect(text()).toContain('Loading PDF');
+        expect(retryButton()).toBeNull();
 
-        await act(async () => { await vi.advanceTimersByTimeAsync(PDF_STALL_TIMEOUT_MS + 1); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(PDF_SLOW_LOAD_HINT_MS + 1); });
         await flush();
 
-        expect(text()).toContain('PDF stopped loading');
+        expect(text()).toContain('Still loading');
         expect(text()).toContain('Retry');
-        expect(text()).not.toContain('Loading PDF');
-        expect(pdfjs.state.task!.destroy).toHaveBeenCalled();
     });
 
-    it('does not abort a slow deck that is still delivering bytes', async () => {
+    it('never discards a slow load, however long it runs', async () => {
         await render();
         await flush();
 
-        // Three quiet-but-progressing stretches, each just under the cap. A
-        // total-elapsed timeout would have killed this healthy load.
-        for (const loaded of [5_000_000, 12_000_000, 20_000_000]) {
-            await act(async () => { await vi.advanceTimersByTimeAsync(PDF_STALL_TIMEOUT_MS - 1_000); });
-            act(() => { pdfjs.state.task!.onProgress!({ loaded, total: 22_499_981 }); });
-            await flush();
-        }
+        // Ten minutes with no progress callback at all — the exact production
+        // shape, since pdfjs detaches onProgress when the server supports both
+        // streaming and ranges. The load must survive untouched.
+        await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
+        await flush();
 
-        expect(text()).not.toContain('PDF stopped loading');
-        expect(text()).toContain('Loading PDF');
         expect(pdfjs.state.task!.destroy).not.toHaveBeenCalled();
+        expect(text()).toContain('Loading PDF');
+        expect(text()).not.toContain('Failed');
+
+        // ...and it still completes normally when the bytes finally land.
+        await act(async () => {
+            pdfjs.state.task!.resolve(fakeDoc());
+        });
+        await flush();
+        expect(text()).not.toContain('Loading PDF');
     });
 
-    it('shows how far along a slow deck is, so a slow load does not read as a hang', async () => {
+    it('shows a percentage when pdfjs does report progress', async () => {
         await render();
         await flush();
         act(() => { pdfjs.state.task!.onProgress!({ loaded: 11_249_990, total: 22_499_981 }); });
@@ -120,22 +140,56 @@ describe('PdfViewer never leaves the projector on an endless spinner', () => {
         expect(text()).not.toContain('%');
     });
 
-    it('retry starts a fresh load task', async () => {
+    it('surfaces a genuine load failure with a retry', async () => {
         await render();
         await flush();
-        await act(async () => { await vi.advanceTimersByTimeAsync(PDF_STALL_TIMEOUT_MS + 1); });
+        await act(async () => {
+            pdfjs.state.task!.reject(new Error('PDF not found'));
+        });
+        await flush();
+        expect(text()).toContain('PDF not found');
+        expect(text()).toContain('Retry');
+        expect(text()).not.toContain('Loading PDF');
+    });
+
+    it('retry starts a genuinely fresh load task', async () => {
+        await render();
+        await flush();
+        await act(async () => { pdfjs.state.task!.reject(new Error('PDF not found')); });
         await flush();
         expect(pdfjs.getDocument).toHaveBeenCalledTimes(1);
 
-        const button = container.querySelector('button');
-        expect(button?.textContent).toContain('Retry');
         await act(async () => {
-            button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            retryButton()!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         });
         await flush();
 
         expect(pdfjs.getDocument).toHaveBeenCalledTimes(2);
         expect(text()).toContain('Loading PDF');
-        expect(text()).not.toContain('PDF stopped loading');
+        expect(text()).not.toContain('PDF not found');
+    });
+
+    it('a task abandoned by a url change cannot settle into the new load', async () => {
+        await render('/api/pdf-proxy?key=1700000000000-abcdef123456-first.pdf');
+        await flush();
+        const first = pdfjs.state.task!;
+
+        await render('/api/pdf-proxy?key=1700000000000-abcdef123456-second.pdf');
+        await flush();
+        expect(first.destroy).toHaveBeenCalled();
+
+        // The abandoned task settling late must not touch the live render.
+        await act(async () => { first.reject(new Error('stale deck failed')); });
+        await flush();
+        expect(text()).not.toContain('stale deck failed');
+        expect(text()).toContain('Loading PDF');
+    });
+
+    it('leaves no timer armed after unmount', async () => {
+        await render();
+        await flush();
+        await act(async () => { root.unmount(); });
+        expect(vi.getTimerCount()).toBe(0);
+        root = createRoot(container);
     });
 });
