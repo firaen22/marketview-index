@@ -191,8 +191,14 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText, command
         } catch (error) {
             if ((error as DOMException).name === 'AbortError') return;
             if (requestControllerRef.current !== controller) return;
+            // A null parse is exactly the case the server hands to the LLM,
+            // which can resolve it to a relative page turn — and the server
+            // enqueues that turn before it answers, so a lost response means
+            // the wall already moved. Only offer Resend when the deterministic
+            // parse positively says this is not a page turn.
             const parsedCommand = parseCommandDeterministic(commandText, catalog);
-            const retriable = parsedCommand?.kind !== 'page'
+            const retriable = parsedCommand !== null
+                && parsedCommand.kind !== 'page'
                 && !(error instanceof PresentCommandApiError && (error.status === 422 || error.status === 409));
             setDismissibleStatus({
                 type: 'error',
