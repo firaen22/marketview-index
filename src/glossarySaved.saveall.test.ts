@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GlossaryTermSnapshot } from '../lib/glossarySession';
 import {
     GLOSSARY_SAVED_KEY,
+    MAX_SAVED_CODES,
     MAX_SAVED_TERMS_PER_CODE,
     getSavedTerms,
     saveAllTerms,
@@ -61,5 +62,46 @@ describe('saveAllTerms', () => {
         const storage = memoryStorage();
         setTermSaved('CODE', term('old'), true, storage);
         expect(saveAllTerms('CODE', [], storage)).toEqual({ terms: [term('old')], enabled: true });
+    });
+});
+
+describe('all-digit join codes', () => {
+    // An 8-char join code drawn from ABCDEFGHJKMNPQRSTUVWXYZ23456789 can come
+    // out all digits (~1 in 50k). Such a key is integer-like, so Object.keys
+    // hoists it ahead of every string key regardless of insertion order.
+    it('does not evict the all-digit code it is currently saving', () => {
+        const storage = memoryStorage();
+        for (let i = 0; i < MAX_SAVED_CODES; i += 1) {
+            setTermSaved(`ABCDEFG${String.fromCharCode(66 + i)}`, term(`old-${i}`), true, storage);
+        }
+        const numericCode = '23456789';
+
+        const result = saveAllTerms(numericCode, [term('fresh')], storage);
+
+        expect(result.enabled).toBe(true);
+        expect(getSavedTerms(numericCode, storage)).toEqual([term('fresh')]);
+    });
+
+    it('does not evict the all-digit code on the per-term save path either', () => {
+        const storage = memoryStorage();
+        for (let i = 0; i < MAX_SAVED_CODES; i += 1) {
+            setTermSaved(`ABCDEFG${String.fromCharCode(66 + i)}`, term(`old-${i}`), true, storage);
+        }
+        const numericCode = '34567892';
+
+        setTermSaved(numericCode, term('fresh'), true, storage);
+
+        expect(getSavedTerms(numericCode, storage)).toEqual([term('fresh')]);
+    });
+
+    it('still caps the number of saved codes', () => {
+        const storage = memoryStorage();
+        for (let i = 0; i < MAX_SAVED_CODES; i += 1) {
+            setTermSaved(`ABCDEFG${String.fromCharCode(66 + i)}`, term(`old-${i}`), true, storage);
+        }
+        saveAllTerms('23456789', [term('fresh')], storage);
+
+        const stored = JSON.parse(storage.getItem(GLOSSARY_SAVED_KEY) as string) as { sessions: Record<string, unknown> };
+        expect(Object.keys(stored.sessions)).toHaveLength(MAX_SAVED_CODES);
     });
 });
