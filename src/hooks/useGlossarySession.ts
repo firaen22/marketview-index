@@ -403,7 +403,10 @@ export function useGlossarySession() {
             }
             return;
         }
-        if (shouldDropEndedForNewDeck(current)) {
+        // Same copilot-only exemption as the live path below: an ended session
+        // whose only content came from explains has nothing stranded by a deck
+        // swap, and dropping it would cost the presenter the recap reference.
+        if (deckReportedRef.current && shouldDropEndedForNewDeck(current)) {
             epochRef.current += 1;
             clearStoredJoinCode();
             sessionRef.current = null;

@@ -160,6 +160,36 @@ describe('useGlossarySession renew treats copilot-only content as not-from-the-d
         expect(latest!.session?.status).toBe('live');
     });
 
+    it('keeps an ended copilot-only recap when a deck is uploaded', async () => {
+        await startLiveSession();
+
+        act(() => {
+            latest!.reportTerms([TERM], 'en');
+        });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(GLOSSARY_PUSH_DEBOUNCE_MS + 1);
+        });
+        settle('push', ok({ session: AFTER_COPILOT_PUSH }));
+        await flush();
+
+        // Presenter ends the session (keepAfter, so the recap stays around)...
+        await act(async () => {
+            void latest!.end();
+        });
+        settle('end', ok({ ok: true }));
+        await flush();
+        expect(latest!.session?.status).toBe('ended');
+
+        // ...then uploads the first deck. The recap holds nothing from any
+        // deck, so it must not be dropped and the stored code must survive.
+        await act(async () => {
+            void latest!.renew();
+        });
+        await flush();
+        expect(latest!.session?.status).toBe('ended');
+        expect(localStorage.getItem('marketflow_glossary_session')).not.toBeNull();
+    });
+
     it('still retires the session once the deck itself contributed a page', async () => {
         await startLiveSession();
 
