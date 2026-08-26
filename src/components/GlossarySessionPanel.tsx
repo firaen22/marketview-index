@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Clipboard, ExternalLink, Loader2, Maximize2, Play, Power, RotateCcw, X } from 'lucide-react';
-import { toDataURL } from 'qrcode';
 import type { GlossarySession } from '../../lib/glossarySession';
 import { getLocale, type Lang } from '../locales';
 import { cn } from '../utils';
 import { Toggle } from './Toggle';
 import type { UseGlossarySessionResult } from '../hooks/useGlossarySession';
 import BrandedQr from './BrandedQr';
+import QrAmbience from './QrAmbience';
 
 interface Props {
     open: boolean;
@@ -22,13 +22,36 @@ function isAuthOrStorageError(error: string | null): boolean {
     return /unauthorized|present_api_key|storage not configured|missing present_api_key|401|503/i.test(error);
 }
 
+// qr-code-styling renders at a fixed pixel size, so the projector QR tracks the
+// viewport itself instead of scaling with CSS — rasterizing a small code up to
+// wall size is exactly how scans start failing at the back of the room.
+function FullscreenQr({ value, alt }: { value: string; alt: string }) {
+    const [size, setSize] = useState(() => fullscreenQrSize());
+
+    useEffect(() => {
+        const onResize = () => setSize(fullscreenQrSize());
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    return (
+        <div role="img" aria-label={alt}>
+            <BrandedQr value={value} size={size} variant="screen" />
+        </div>
+    );
+}
+
+function fullscreenQrSize(): number {
+    const vmin = Math.min(window.innerWidth, window.innerHeight);
+    // Mirrors the previous min(72vmin, 45rem) with a 60vmin floor.
+    return Math.round(Math.max(vmin * 0.6, Math.min(vmin * 0.72, 720)));
+}
+
 export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }: Props) {
     const t = getLocale(lang).glossary.presenter;
     const session = glossary.session;
     const [mode, setMode] = useState<Mode>('gradual');
     const [keepAfter, setKeepAfter] = useState(true);
-    const [qrUrl, setQrUrl] = useState<string | null>(null);
-    const [qrError, setQrError] = useState(false);
     const [copied, setCopied] = useState(false);
     const [fullscreenQr, setFullscreenQr] = useState(false);
     const copyTextRef = useRef<HTMLTextAreaElement | null>(null);
@@ -37,37 +60,6 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
         if (!session?.joinCode || typeof window === 'undefined') return '';
         return `${window.location.origin}/session/${session.joinCode}`;
     }, [session?.joinCode]);
-
-    // The printable QR target. Unlike joinUrl this never changes between
-    // sessions: /j resolves server-side to whatever session is currently live.
-    const permanentUrl = useMemo(() => (
-        typeof window === 'undefined' ? '' : `${window.location.origin}/j`
-    ), []);
-
-    useEffect(() => {
-        if (!joinUrl) {
-            setQrUrl(null);
-            setQrError(false);
-            return;
-        }
-
-        let cancelled = false;
-        setQrUrl(null);
-        setQrError(false);
-        void toDataURL(joinUrl, {
-            margin: 1,
-            width: 320,
-            color: { dark: '#09090b', light: '#ffffff' },
-        }).then(url => {
-            if (!cancelled) setQrUrl(url);
-        }).catch(() => {
-            if (!cancelled) setQrError(true);
-        });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [joinUrl]);
 
     useEffect(() => {
         if (!fullscreenQr) return;
@@ -216,14 +208,12 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
 
                             <button
                                 type="button"
-                                onClick={() => qrUrl && setFullscreenQr(true)}
+                                onClick={() => joinUrl && setFullscreenQr(true)}
                                 className="flex w-full min-h-64 items-center justify-center rounded border border-zinc-800 bg-white p-4 text-zinc-950 transition hover:border-emerald-500"
                                 aria-label={t.openQr}
                             >
-                                {qrUrl ? (
-                                    <img src={qrUrl} alt={t.qrAlt} className="h-56 w-56" />
-                                ) : qrError ? (
-                                    <span className="break-all px-3 text-center font-mono text-sm">{joinUrl}</span>
+                                {joinUrl ? (
+                                    <BrandedQr value={joinUrl} size={224} variant="screen" />
                                 ) : (
                                     <span className="flex items-center gap-2 text-sm text-zinc-600">
                                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -310,26 +300,12 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                         </div>
                     )}
 
-                    <div className="mt-4 border-t border-zinc-800 pt-4">
-                        <div className="mb-1 text-[0.625rem] font-mono uppercase tracking-widest text-zinc-500">{t.permanentQr}</div>
-                        <p className="mb-3 text-xs text-zinc-500">{t.permanentQrHint}</p>
-                        <div className="rounded border border-zinc-800 bg-white p-3">
-                            <BrandedQr
-                                value={permanentUrl}
-                                size={160}
-                                className="flex flex-col items-center"
-                                downloadLabels={{ png: t.downloadPng, svg: t.downloadSvg }}
-                                downloadName="glossary-permanent-qr"
-                            />
-                        </div>
-                        <div className="mt-2 break-all text-center font-mono text-xs text-zinc-500">{permanentUrl}</div>
-                    </div>
                 </div>
             </div>
 
             {fullscreenQr && session && (
                 <div
-                    className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-6 bg-black/95 p-6 text-center"
+                    className="fixed inset-0 z-[70] flex flex-col items-center justify-center gap-6 overflow-hidden bg-black/95 p-6 text-center"
                     onClick={() => setFullscreenQr(false)}
                     role="dialog"
                     aria-label={t.fullscreenQr}
@@ -342,18 +318,13 @@ export function GlossarySessionPanel({ open, onClose, glossary, lang = 'zh-TW' }
                     >
                         <X className="h-6 w-6" />
                     </button>
-                    <div className="rounded bg-white p-5">
-                        {qrUrl ? (
-                            <img src={qrUrl} alt={t.qrAlt} className="h-[min(72vmin,45rem)] w-[min(72vmin,45rem)] min-h-[60vmin] min-w-[60vmin]" />
-                        ) : (
-                            <div className="flex h-[60vmin] w-[60vmin] items-center justify-center p-4 font-mono text-lg text-zinc-950">
-                                {joinUrl}
-                            </div>
-                        )}
+                    <QrAmbience />
+                    <div className="relative rounded-2xl bg-white p-5 shadow-[0_0_5rem_rgb(16_185_129_/_0.25)]">
+                        {joinUrl && <FullscreenQr value={joinUrl} alt={t.qrAlt} />}
                     </div>
-                    <div className="font-mono text-6xl font-bold tracking-[0.18em] text-zinc-100">{session.joinCode}</div>
-                    <div className="max-w-4xl break-all font-mono text-2xl text-emerald-300">{joinUrl}</div>
-                    <div className="flex items-center gap-2 text-sm text-zinc-500">
+                    <div className="relative font-mono text-6xl font-bold tracking-[0.18em] text-zinc-100">{session.joinCode}</div>
+                    <div className="relative max-w-4xl break-all font-mono text-2xl text-emerald-300">{joinUrl}</div>
+                    <div className="relative flex items-center gap-2 text-sm text-zinc-500">
                         <Maximize2 className="h-4 w-4" />
                         {t.closeQrHint}
                     </div>

@@ -2,36 +2,60 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Download } from 'lucide-react';
 import QRCodeStyling from 'qr-code-styling';
 
+type QrVariant = 'print' | 'screen';
+
 interface BrandedQrProps {
     value: string;
     size?: number;
     className?: string;
+    /**
+     * 'print' is flat black for posters; 'screen' adds the emerald gradient used
+     * on the projector. Both stay dark-on-white — see buildQr.
+     */
+    variant?: QrVariant;
     /** Localized labels for the two download buttons; omit to hide them. */
     downloadLabels?: { png: string; svg: string };
     /** Basename (no extension) for downloaded files. */
     downloadName?: string;
 }
 
-// Styled QR for print/poster use (the permanent /j link). errorCorrectionLevel
-// stays 'H': the rounded styling plus any future center logo eat into module
-// legibility, and H keeps the code scannable from the back of a room.
-function buildQr(value: string, size: number): QRCodeStyling {
+// errorCorrectionLevel stays 'H': rounded modules eat into legibility, and H
+// keeps the code scannable from the back of a room.
+//
+// The 'screen' gradient runs #047857 -> #09090b. Both ends are deliberately
+// dark (contrast vs the white background stays >7:1 across the whole ramp), so
+// the emerald reads as styling to a human while a scanner still sees an
+// unambiguous dark module. Anything lighter starts costing scans at projector
+// distance, which is the one thing this QR cannot afford.
+function buildQr(value: string, size: number, variant: QrVariant): QRCodeStyling {
+    const dark = '#09090b';
+    const gradient = variant === 'screen'
+        ? {
+            type: 'linear' as const,
+            rotation: Math.PI / 4,
+            colorStops: [
+                { offset: 0, color: '#047857' },
+                { offset: 1, color: dark },
+            ],
+        }
+        : undefined;
+
     return new QRCodeStyling({
         width: size,
         height: size,
         type: 'svg',
         data: value,
         qrOptions: { errorCorrectionLevel: 'H' },
-        dotsOptions: { color: '#09090b', type: 'rounded' },
-        cornersSquareOptions: { color: '#09090b', type: 'extra-rounded' },
-        cornersDotOptions: { color: '#09090b', type: 'dot' },
+        dotsOptions: { color: dark, gradient, type: 'rounded' },
+        cornersSquareOptions: { color: dark, type: 'extra-rounded' },
+        cornersDotOptions: { color: dark, type: 'dot' },
         backgroundOptions: { color: '#ffffff' },
     });
 }
 
-export default function BrandedQr({ value, size = 224, className, downloadLabels, downloadName = 'glossary-qr' }: BrandedQrProps) {
+export default function BrandedQr({ value, size = 224, className, variant = 'print', downloadLabels, downloadName = 'glossary-qr' }: BrandedQrProps) {
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const qr = useMemo(() => (value ? buildQr(value, size) : null), [value, size]);
+    const qr = useMemo(() => (value ? buildQr(value, size, variant) : null), [value, size, variant]);
 
     useEffect(() => {
         const container = containerRef.current;
@@ -46,7 +70,8 @@ export default function BrandedQr({ value, size = 224, className, downloadLabels
 
     // Downloads re-render at print resolution rather than screen size.
     const download = (extension: 'png' | 'svg') => {
-        const printQr = buildQr(value, 1024);
+        // Downloads are for print, so they never carry the screen gradient.
+        const printQr = buildQr(value, 1024, 'print');
         void printQr.download({ name: downloadName, extension });
     };
 
