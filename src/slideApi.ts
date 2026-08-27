@@ -1,4 +1,5 @@
 import type { PresentSlide } from './settings';
+import { maybeCompressPdf } from './pdfCompress';
 
 const API_KEY = import.meta.env.VITE_PRESENT_API_KEY;
 
@@ -51,11 +52,12 @@ export async function deletePdf(url: string): Promise<void> {
 }
 
 export async function uploadPdf(file: File): Promise<string> {
+    const upload = await maybeCompressPdf(file);
     // Step 1: get a presigned PUT URL from our server
     const tokenRes = await fetch('/api/present-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ filename: file.name, size: file.size }),
+        body: JSON.stringify({ filename: upload.name, size: upload.size }),
     });
     if (!tokenRes.ok) {
         const err = await tokenRes.json().catch(() => ({ error: tokenRes.statusText }));
@@ -71,7 +73,7 @@ export async function uploadPdf(file: File): Promise<string> {
     const uploadRes = await fetch(uploadUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/pdf' },
-        body: file,
+        body: upload,
     });
     if (!uploadRes.ok) throw new Error(`R2 upload failed (${uploadRes.status})`);
 
