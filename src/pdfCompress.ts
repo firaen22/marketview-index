@@ -24,6 +24,18 @@ export const COMPRESS_JPEG_QUALITY = 0.95;
 export const COMPRESS_BUDGET_MS = 60_000;
 export const COMPRESS_MAX_PAGES = 80;
 export const COMPRESS_MAX_PAGE_PIXELS = 30_000_000;
+// A real full-page export lands within a rounded pixel of the page's aspect.
+export const COMPRESS_ASPECT_TOLERANCE = 0.005;
+// ...and resolves the page at 72 dpi or better. A page-shaped bitmap can still
+// be a small logo (160x90 has exactly a 960x540pt slide's aspect), and the
+// render scale is derived from it: accepting one would rasterize the whole
+// slide at 160px and blow it back up on the projector.
+export const COMPRESS_MIN_SCALE = 1;
+// Guards the aspect arithmetic below against degenerate boxes: a sub-point
+// width makes heightPt/widthPt Infinity, and every comparison against it is
+// false, so the ratio tests would wave the page through.
+export const COMPRESS_MIN_PAGE_PT = 1;
+export const COMPRESS_MAX_PAGE_PT = 20_000;
 
 const RAW_SCAN_CHUNK_BYTES = 0x8000;
 
@@ -83,7 +95,8 @@ function qualifyPage(page: PDFPageProxy, operatorList: PDFOperatorList, ops: Ops
     if (!Array.isArray(view) || view.length !== 4
         || view[0] !== 0 || view[1] !== 0
         || !Number.isFinite(view[2]) || !Number.isFinite(view[3])
-        || !(view[2] > 0) || !(view[3] > 0)) return null;
+        || !(view[2] >= COMPRESS_MIN_PAGE_PT) || !(view[2] <= COMPRESS_MAX_PAGE_PT)
+        || !(view[3] >= COMPRESS_MIN_PAGE_PT) || !(view[3] <= COMPRESS_MAX_PAGE_PT)) return null;
     const widthPt = view[2];
     const heightPt = view[3];
 
@@ -125,6 +138,25 @@ function qualifyPage(page: PDFPageProxy, operatorList: PDFOperatorList, ops: Ops
     if (!Number.isSafeInteger(widthPx) || !Number.isSafeInteger(heightPx)
         || (widthPx as number) <= 0 || (heightPx as number) <= 0
         || (widthPx as number) * (heightPx as number) > COMPRESS_MAX_PAGE_PIXELS) return null;
+
+    // Two NECESSARY conditions for "one full-page bitmap", not a proof of it:
+    // the placement matrix is never read, so a bitmap with the page's aspect
+    // and enough pixels can still sit inside part of the page. What these do
+    // rule out is the two shapes that wreck a slide, because the render scale
+    // below comes from the bitmap's own width:
+    //   - a portrait scan letterboxed on a 16:9 slide (aspect), which would be
+    //     rendered far below its native resolution and shipped blurred;
+    //   - a page-shaped logo (scale), which would rasterize the whole slide at
+    //     the logo's width.
+    // The residual case — same aspect, >=72 dpi, partial coverage — still
+    // renders the page at >=1x, so it costs sharpness on one image rather than
+    // the slide. Proving true coverage means accumulating the CTM across
+    // save/restore, which needs a real-deck fixture to validate against actual
+    // pdfjs operator lists; until then, refusing more is the cheap failure.
+    const pageAspect = heightPt / widthPt;
+    const imageAspect = (heightPx as number) / (widthPx as number);
+    if (Math.abs(imageAspect - pageAspect) > COMPRESS_ASPECT_TOLERANCE * pageAspect) return null;
+    if ((widthPx as number) / widthPt < COMPRESS_MIN_SCALE) return null;
 
     return { widthPt, heightPt, widthPx: widthPx as number, heightPx: heightPx as number };
 }
@@ -223,7 +255,19 @@ export async function maybeCompressPdf(file: File): Promise<File> {
                     const blob = await canvasBlob(canvas);
                     if (!blob) return file;
                     const jpeg = new Uint8Array(await blob.arrayBuffer());
-                    pages.push({ ...qualified, jpeg });
+                    // The XObject dictionary must describe the JPEG that was
+                    // actually encoded, which is the CANVAS — sized from the
+                    // page box, not from the source bitmap. They diverge
+                    // whenever the bitmap's pixel aspect differs from the
+                    // page's point aspect (a portrait scan on a 16:9 slide),
+                    // and a /Height that lies about the stream corrupts the
+                    // slide in every decoder that trusts the dictionary.
+                    pages.push({
+                        ...qualified,
+                        widthPx: canvas.width,
+                        heightPx: canvas.height,
+                        jpeg,
+                    });
                 } finally {
                     canvas.width = 0;
                     canvas.height = 0;
@@ -235,7 +279,12 @@ export async function maybeCompressPdf(file: File): Promise<File> {
         }
 
         const output = assemblePdf(pages);
-        const validationTask = pdfjsLib.getDocument({ data: output, password: () => { throw new Error('encrypted'); } } as any);
+        // `.slice()` is load-bearing, not defensive copying: getDocument posts
+        // `data.buffer` to the worker in the TRANSFER list (pdf.mjs GetDocRequest),
+        // which DETACHES it here. Handing it `output` directly leaves
+        // output.byteLength === 0, which silently defeats the size guard below
+        // and makes `new File([output])` a zero-byte deck.
+        const validationTask = pdfjsLib.getDocument({ data: output.slice(), password: () => { throw new Error('encrypted'); } } as any);
         const validationDoc = await validationTask.promise;
         try {
             if (validationDoc.numPages !== doc.numPages) return file;

@@ -1,11 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function useTickerSnap() {
-    const ref = useRef<HTMLDivElement | null>(null);
     const [shift, setShift] = useState(0);
+    const observerRef = useRef<ResizeObserver | null>(null);
 
-    useEffect(() => {
-        const element = ref.current;
+    // A CALLBACK ref, not useRef + useEffect([]): the ticker track is not
+    // rendered while market data is still loading (DashboardHeader gates it on
+    // `isLoading`, which starts true), so a mount-only effect reads ref.current
+    // as null, returns, and never runs again once the track appears — leaving
+    // the snap permanently off on the only path the dashboard actually takes.
+    // A callback ref fires whenever the element attaches or detaches.
+    const ref = useCallback((element: HTMLDivElement | null) => {
+        observerRef.current?.disconnect();
+        observerRef.current = null;
         if (!element) return;
 
         const measure = () => {
@@ -18,7 +25,12 @@ export function useTickerSnap() {
         if (typeof ResizeObserver === 'undefined') return;
         const observer = new ResizeObserver(measure);
         observer.observe(element);
-        return () => observer.disconnect();
+        observerRef.current = observer;
+    }, []);
+
+    useEffect(() => () => {
+        observerRef.current?.disconnect();
+        observerRef.current = null;
     }, []);
 
     const style = shift >= 1

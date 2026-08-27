@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // pdfjs is faked so a test can hand back any page shape it likes. The real
 // module is exercised end-to-end against the production deck separately; what
@@ -234,5 +234,129 @@ describe('maybeCompressPdf shrinks raster decks and refuses everything else', ()
         pdfjs.state.docs = [doc];
         await maybeCompressPdf(deck());
         expect(doc.destroy).toHaveBeenCalled();
+    });
+});
+
+describe('the assembled deck survives self-validation and describes itself honestly', () => {
+    // Real pdfjs posts `data.buffer` to the worker in the TRANSFER list, which
+    // detaches it in this thread. The production mock must do the same or the
+    // zero-byte-upload bug is invisible to every test.
+    // mockReset restores the implementation vi.fn() was created with, so the
+    // detaching stub cannot leak into the tests below it.
+    afterEach(() => { pdfjs.getDocument.mockReset(); });
+
+    function detachOnLoad() {
+        pdfjs.getDocument.mockImplementation(((options: any) => {
+            const data = options?.data;
+            if (data instanceof Uint8Array && data.byteLength > 0) {
+                structuredClone(data.buffer, { transfer: [data.buffer] });
+            }
+            pdfjs.state.loadCalls += 1;
+            const doc = pdfjs.state.docs.shift();
+            return { promise: doc instanceof Error ? Promise.reject(doc) : Promise.resolve(doc) };
+        }) as unknown as typeof pdfjs.getDocument);
+    }
+
+    it('still returns real compressed bytes when pdfjs transfers the buffer it is handed', async () => {
+        detachOnLoad();
+        const pages = Array.from({ length: 3 }, () => rasterPage());
+        pdfjs.state.docs = [fakeDoc(pages), fakeDoc(pages)];
+        const input = deck();
+
+        const out = await maybeCompressPdf(input);
+
+        expect(out).not.toBe(input);
+        expect(out.size).toBeGreaterThan(0);
+        expect(new TextDecoder().decode(await out.arrayBuffer())).toContain('%PDF-1.4');
+    });
+
+    it('declares the rendered canvas height, not the source bitmap height', async () => {
+        // 1000x562 on a 960x540pt page: within the aspect tolerance, but the
+        // page renders to a 563px-tall canvas. The dictionary must describe the
+        // JPEG that was written, not the bitmap it came from.
+        const { OPS } = pdfjs;
+        const page = rasterPage({
+            view: [0, 0, 960, 540],
+            getOperatorList: vi.fn(async () => ({
+                fnArray: [OPS.save, OPS.paintImageXObject, OPS.restore],
+                argsArray: [[], ['img_p0_1', 1000, 562], []],
+            })),
+            getViewport: vi.fn(({ scale }: { scale: number }) => ({ width: 960 * scale, height: 540 * scale })),
+        });
+        const seen: Array<{ width: number; height: number }> = [];
+        HTMLCanvasElement.prototype.toBlob = function (this: HTMLCanvasElement, cb: BlobCallback) {
+            seen.push({ width: this.width, height: this.height });
+            cb(toBlobResult);
+        };
+        pdfjs.state.docs = [fakeDoc([page]), fakeDoc([page])];
+
+        const out = await maybeCompressPdf(deck());
+        const text = new TextDecoder().decode(await out.arrayBuffer());
+
+        expect(seen).toEqual([{ width: 1000, height: 563 }]);
+        expect(text).toContain('/Width 1000 /Height 563');
+        expect(text).not.toContain('/Height 562');
+    });
+
+    it('refuses a degenerate page box whose aspect arithmetic is not finite', async () => {
+        // A sub-point width makes heightPt/widthPt Infinity, and every ratio
+        // comparison against Infinity is false — so without a bounds check the
+        // aspect and scale tests both wave the page through.
+        const { OPS } = pdfjs;
+        const page = rasterPage({
+            view: [0, 0, Number.MIN_VALUE, 540],
+            getOperatorList: vi.fn(async () => ({
+                fnArray: [OPS.save, OPS.paintImageXObject, OPS.restore],
+                argsArray: [[], ['img_p0_1', 1672, 941], []],
+            })),
+            getViewport: vi.fn(({ scale }: { scale: number }) => ({ width: Number.MIN_VALUE * scale, height: 540 * scale })),
+        });
+        pdfjs.state.docs = [fakeDoc([page]), fakeDoc([page])];
+        const input = deck();
+
+        expect(await maybeCompressPdf(input)).toBe(input);
+        expect(pdfjs.state.loadCalls).toBe(1);
+    });
+
+    it('refuses a page-shaped bitmap that is only a small logo', async () => {
+        // 160x90 has EXACTLY the 960x540pt page aspect, so the aspect test
+        // alone lets it through — and the render scale would then rasterize the
+        // whole slide at 160px wide.
+        const { OPS } = pdfjs;
+        const page = rasterPage({
+            view: [0, 0, 960, 540],
+            getOperatorList: vi.fn(async () => ({
+                fnArray: [OPS.constructPath, OPS.save, OPS.paintImageXObject, OPS.restore],
+                argsArray: [[], [], ['img_p0_1', 160, 90], []],
+            })),
+            getViewport: vi.fn(({ scale }: { scale: number }) => ({ width: 960 * scale, height: 540 * scale })),
+        });
+        pdfjs.state.docs = [fakeDoc([page]), fakeDoc([page])];
+        const input = deck();
+
+        expect(await maybeCompressPdf(input)).toBe(input);
+        expect(pdfjs.state.loadCalls).toBe(1);
+    });
+
+    it('refuses a page whose bitmap does not cover the page', async () => {
+        // A portrait A4 scan letterboxed on a 16:9 slide. The render scale comes
+        // from the page width, so compressing this would ship every slide at a
+        // fraction of the scan's native resolution.
+        const { OPS } = pdfjs;
+        const page = rasterPage({
+            view: [0, 0, 960, 540],
+            getOperatorList: vi.fn(async () => ({
+                fnArray: [OPS.save, OPS.paintImageXObject, OPS.restore],
+                argsArray: [[], ['img_p0_1', 1700, 2200], []],
+            })),
+            getViewport: vi.fn(({ scale }: { scale: number }) => ({ width: 960 * scale, height: 540 * scale })),
+        });
+        // Two docs queued so a refusal cannot be an artifact of the validation
+        // load finding an empty queue; loadCalls proves we never got that far.
+        pdfjs.state.docs = [fakeDoc([page]), fakeDoc([page])];
+        const input = deck();
+
+        expect(await maybeCompressPdf(input)).toBe(input);
+        expect(pdfjs.state.loadCalls).toBe(1);
     });
 });
