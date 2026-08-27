@@ -8,6 +8,7 @@ import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
 import { useViewportScale } from './hooks/useViewportScale';
+import { useTickerSnap } from './hooks/useTickerSnap';
 import { getLocale } from './locales';
 import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp, Sunrise, Grid3x3, Play, Pause, QrCode } from 'lucide-react';
 import { TickerItem } from './components/TickerItem';
@@ -223,6 +224,7 @@ export default function PresentationPage() {
     // Projector surface: scale typography and layout with display resolution so
     // a 4K projector shows the deck at the same apparent size as a 1080p one.
     useViewportScale();
+    const { ref: tickerRef, style: tickerStyle } = useTickerSnap();
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
     const initialSettings = React.useMemo(() => getSettings(), []);
     const geminiKey = initialSettings.geminiKey;
@@ -1102,7 +1104,7 @@ export default function PresentationPage() {
                     {stripMode === 'compact' && (
                         <div className="overflow-hidden relative h-9 flex items-center">
                             {pinned.length > 0 ? (
-                                <div className="inline-flex animate-ticker whitespace-nowrap">
+                                <div ref={tickerRef} style={tickerStyle} className="inline-flex animate-ticker whitespace-nowrap">
                                     {pinned.map((item) => <TickerItem key={item.symbol} item={item} t={t} />)}
                                     <span aria-hidden="true" className="inline-flex">
                                         {pinned.map((item) => <TickerItem key={`${item.symbol}-dup`} item={item} t={t} />)}
