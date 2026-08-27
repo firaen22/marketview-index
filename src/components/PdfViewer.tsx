@@ -60,9 +60,17 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     const [progress, setProgress] = useState(-1);
     const [retryNonce, setRetryNonce] = useState(0);
     const [slow, setSlow] = useState(false);
+    // The localized strings are read through a ref so they can be used inside
+    // the load/render effects WITHOUT sitting in their dependency arrays. They
+    // are only ever error fallbacks, but as deps they made a language change
+    // (which arrives cross-tab via useSettingsSync, mid-presentation) tear down
+    // and re-download the whole deck and reset the presenter to page 1.
+    const LRef = useRef(L);
     const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+    useEffect(() => { LRef.current = L; });
 
     useEffect(() => {
         let cancelled = false;
@@ -98,10 +106,10 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
             .catch(err => {
                 window.clearTimeout(hintTimer);
                 if (cancelled) return;
-                setError(err?.message || L.pdfLoadError); setLoading(false);
+                setError(err?.message || LRef.current.pdfLoadError); setLoading(false);
             });
         return () => { cancelled = true; window.clearTimeout(hintTimer); task.destroy(); };
-    }, [url, retryNonce, L.pdfLoadError]);
+    }, [url, retryNonce]);
 
     useEffect(() => {
         if (!pdf || !canvasRef.current) return;
@@ -132,20 +140,20 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
             }, err => {
                 if (err?.name !== 'RenderingCancelledException') {
                     console.error('PDF render error:', err);
-                    if (!cancelled) setError(err?.message || L.pdfRenderError);
+                    if (!cancelled) setError(err?.message || LRef.current.pdfRenderError);
                 }
             });
         }).catch(err => {
             if (cancelled) return;
             if (err?.name === 'RenderingCancelledException') return;
             console.error('PDF page load error:', err);
-            setError(err?.message || L.pdfPageError);
+            setError(err?.message || LRef.current.pdfPageError);
         });
         return () => {
             cancelled = true;
             if (renderTaskRef.current) { renderTaskRef.current.cancel(); renderTaskRef.current = null; }
         };
-    }, [pdf, pageNum, zoom, uiScale, L.pdfPageError, L.pdfRenderError]);
+    }, [pdf, pageNum, zoom, uiScale]);
 
     useEffect(() => {
         if (!pdf || !onPageChange) return;

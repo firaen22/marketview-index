@@ -15,6 +15,14 @@ function Ticker() {
     return createElement('div', { ref, style });
 }
 
+// Mirrors DashboardHeader: while `isLoading` is true the ticker track is not
+// rendered at all, so the ref holds null on the first commit and the element
+// only appears on a later render.
+function LateTicker({ mounted }: { mounted: boolean }) {
+    const { ref, style } = useTickerSnap();
+    return mounted ? createElement('div', { ref, style }) : createElement('span', null, 'loading');
+}
+
 beforeEach(() => {
     class NoopResizeObserver {
         observe = vi.fn();
@@ -59,5 +67,40 @@ describe('useTickerSnap', () => {
         await act(async () => { root.render(createElement(Ticker)); });
 
         expect((container.firstElementChild as HTMLElement).getAttribute('style')).toBeNull();
+    });
+
+    it('re-measures a track that unmounts and comes back a different width', async () => {
+        // PresentationPage drops the whole compact strip when the presenter
+        // cycles stripMode with the S key, so coming back mounts a NEW node —
+        // whose width has usually changed with the pinned symbols.
+        let width = 1000;
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+            .mockImplementation(() => ({ width } as DOMRect));
+
+        await act(async () => { root.render(createElement(LateTicker, { mounted: true })); });
+        const first = container.firstElementChild as HTMLElement;
+        expect(first.style.getPropertyValue('--ticker-shift')).toBe('500px');
+
+        await act(async () => { root.render(createElement(LateTicker, { mounted: false })); });
+        width = 800;
+        await act(async () => { root.render(createElement(LateTicker, { mounted: true })); });
+
+        const second = container.firstElementChild as HTMLElement;
+        expect(second).not.toBe(first);
+        expect(second.style.getPropertyValue('--ticker-shift')).toBe('400px');
+        expect(second.style.animationTimingFunction).toBe('steps(400, end)');
+    });
+
+    it('measures a track that only mounts after the first render', async () => {
+        // useMarketData starts isLoading=true, so this is the ONLY path the
+        // dashboard ticker ever takes.
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 15076 } as DOMRect);
+
+        await act(async () => { root.render(createElement(LateTicker, { mounted: false })); });
+        await act(async () => { root.render(createElement(LateTicker, { mounted: true })); });
+
+        const style = (container.firstElementChild as HTMLElement).style;
+        expect(style.getPropertyValue('--ticker-shift')).toBe('7538px');
+        expect(style.animationTimingFunction).toBe('steps(7538, end)');
     });
 });

@@ -209,4 +209,30 @@ describe('PdfViewer never leaves the projector with no way out', () => {
         expect(vi.getTimerCount()).toBe(0);
         root = createRoot(container);
     });
+
+    it('keeps the loaded deck and the presenter\'s page across a language change', async () => {
+        // The presenter flips language in the control tab; useSettingsSync
+        // pushes it to the projector mid-presentation. That must not re-download
+        // a 20MB deck or throw away the page the audience is looking at.
+        const ref = createRef<PdfViewerHandle>();
+        const doc = fakeDoc();
+        await act(async () => {
+            root.render(createElement(PdfViewer, { url: '/deck.pdf', ref, lang: 'en' }));
+        });
+        await act(async () => { pdfjs.state.task!.resolve(doc); });
+        await flush();
+        act(() => { ref.current!.goToPage(7); });
+        await flush();
+        expect(text()).toContain('7 / 10');
+        expect(pdfjs.getDocument).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            root.render(createElement(PdfViewer, { url: '/deck.pdf', ref, lang: 'zh-TW' }));
+        });
+        await flush();
+
+        expect(pdfjs.getDocument).toHaveBeenCalledTimes(1);
+        expect(doc.destroy).not.toHaveBeenCalled();
+        expect(text()).toContain('7 / 10');
+    });
 });
