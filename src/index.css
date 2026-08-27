@@ -71,13 +71,14 @@ html.mv-viewport-scale {
   will-change: transform, opacity;
 }
 
+/* Whole-pixel offsets keep glyphs crisp; 50% is the pre-measurement fallback that reproduces the old behavior exactly. */
 @keyframes ticker {
   0% {
     transform: translateX(0);
   }
 
   100% {
-    transform: translateX(-50%);
+    transform: translateX(calc(-1 * var(--ticker-shift, 50%)));
   }
 }
 

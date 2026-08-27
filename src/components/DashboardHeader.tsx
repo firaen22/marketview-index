@@ -5,6 +5,7 @@ import { LangToggle } from './LangToggle';
 import { cn } from '../utils';
 import type { IndexData } from '../types';
 import type { TDict } from '../locales';
+import { useTickerSnap } from '../hooks/useTickerSnap';
 
 interface Props {
     t: TDict;
@@ -33,6 +34,8 @@ export function DashboardHeader({
     onToggleNews, onLangChange, onOpenSettings,
     onToggleChartMode, onRefresh, onOpenTickerConfig,
 }: Props) {
+    const { ref, style } = useTickerSnap();
+
     return (
         <header className="border-b border-zinc-800 bg-black/40 backdrop-blur-xl sticky top-0 z-[100]">
             <div className="container mx-auto px-4 lg:px-6 h-16 flex items-center justify-between">
@@ -164,7 +167,7 @@ export function DashboardHeader({
                         <AlertCircle className="w-4 h-4 mr-2" /> {t.error}
                     </div>
                 ) : (
-                    <div className="inline-flex animate-ticker" aria-label="Market ticker">
+                    <div ref={ref} style={style} className="inline-flex animate-ticker" aria-label="Market ticker">
                         {tickerDisplay.map((index) => (
                             <TickerItem key={index.symbol} item={index} t={t} />
                         ))}
