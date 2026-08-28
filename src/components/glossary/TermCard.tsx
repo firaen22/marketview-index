@@ -33,7 +33,9 @@ export function TermCard({ term, lang, saved, savingEnabled, onToggleSaved, page
                 <button
                     type="button"
                     onClick={() => onToggleSaved(term)}
-                    disabled={!savingEnabled}
+                    // Unsaving stays enabled when storage writes fail: removing
+                    // entries is how the reader frees quota, which re-enables saving.
+                    disabled={!savingEnabled && !saved}
                     aria-pressed={saved}
                     aria-label={saved ? 'Remove saved term' : 'Save term'}
                     className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition-colors ${

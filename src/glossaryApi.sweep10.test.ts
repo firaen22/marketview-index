@@ -35,15 +35,44 @@ describe('glossary session responses without a session payload (sweep 10)', () =
         await expect(reopenGlossarySession('ABCD')).rejects.toBeInstanceOf(GlossaryApiError);
     });
 
-    it('fetchGlossarySession returns null for a non-object session instead of spreading it', async () => {
+    // Sweep 19 tightened the GET contract: null is reserved for a real 404.
+    // A malformed 200 (captive portal) must throw — the presenter rehydrate
+    // deletes its stored join code when it sees null.
+    it('fetchGlossarySession throws for a non-object session instead of returning null', async () => {
         stubFetch({ json: () => Promise.resolve({ session: 'live' }) });
-        await expect(fetchGlossarySession('ABCD')).resolves.toBeNull();
+        await expect(fetchGlossarySession('ABCD')).rejects.toBeInstanceOf(GlossaryApiError);
     });
 
     it('rejects an array session payload', async () => {
         stubFetch({ json: () => Promise.resolve({ session: ['live'] }) });
         await expect(reopenGlossarySession('ABCD')).rejects.toBeInstanceOf(GlossaryApiError);
         stubFetch({ json: () => Promise.resolve({ session: ['live'] }) });
+        await expect(fetchGlossarySession('ABCD')).rejects.toBeInstanceOf(GlossaryApiError);
+    });
+
+    // Sweep 19 acceptance review: an object-shaped session missing the fields
+    // every real response carries (status, terms) slipped past the guard.
+    it('rejects an object session missing status/terms', async () => {
+        stubFetch({ json: () => Promise.resolve({ session: {} }) });
+        await expect(fetchGlossarySession('ABCD')).rejects.toBeInstanceOf(GlossaryApiError);
+        stubFetch({ json: () => Promise.resolve({ session: { status: 'live' } }) });
+        await expect(startGlossarySession('all', false)).rejects.toBeInstanceOf(GlossaryApiError);
+    });
+
+    it('accepts a session with status and terms', async () => {
+        stubFetch({
+            json: () => Promise.resolve({
+                session: {
+                    status: 'live', mode: 'all', currentPage: 0, termCount: 0,
+                    joins: 0, updatedAt: 1, terms: [],
+                },
+            }),
+        });
+        await expect(fetchGlossarySession('ABCD')).resolves.toMatchObject({ status: 'live', joinCode: 'ABCD' });
+    });
+
+    it('fetchGlossarySession still returns null for a real 404', async () => {
+        stubFetch({ ok: false, status: 404 });
         await expect(fetchGlossarySession('ABCD')).resolves.toBeNull();
     });
 });

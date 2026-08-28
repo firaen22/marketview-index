@@ -95,8 +95,12 @@ export default function GlossarySessionPage() {
     const visibleTerms = tab === 'latest' ? latestTerms : tab === 'all' ? allTerms : savedTerms;
 
     const toggleSaved = (term: GlossaryTermSnapshot) => {
-        if (!poll.code || !savingEnabled) return;
+        if (!poll.code) return;
         const nextShouldSave = !isTermSaved(poll.code, term.id);
+        // A failed write (quota) disables SAVING, but unsaving must stay
+        // available — removing entries is how the reader frees the space that
+        // caused the failure, and a successful removal re-enables saving.
+        if (!savingEnabled && nextShouldSave) return;
         const result = setTermSaved(poll.code, term, nextShouldSave);
         setSavingEnabled(result.enabled);
         setSavedTerms(result.terms);

@@ -118,7 +118,8 @@ describe('parseStoredJoinCode', () => {
         expect(parseStoredJoinCode('null')).toBe(null);
     });
 
-    it('a JSON number returns null (falls through both typeof checks)', () => {
-        expect(parseStoredJoinCode('42')).toBe(null);
+    it('a numeric string returns the raw text — an all-digit join code parses as a JSON number but is still a code', () => {
+        expect(parseStoredJoinCode('23456789')).toBe('23456789');
+        expect(parseStoredJoinCode('42')).toBe('42');
     });
 });

@@ -40,11 +40,11 @@ describe('glossary saved storage', () => {
     it('treats missing, corrupt, and unknown-version storage as empty', () => {
         const storage = memoryStorage();
 
-        expect(readSavedStore(storage)).toEqual({ v: 1, sessions: {} });
+        expect(readSavedStore(storage)).toEqual({ v: 1, sessions: {}, order: [] });
         storage.setItem(GLOSSARY_SAVED_KEY, '{');
-        expect(readSavedStore(storage)).toEqual({ v: 1, sessions: {} });
+        expect(readSavedStore(storage)).toEqual({ v: 1, sessions: {}, order: [] });
         storage.setItem(GLOSSARY_SAVED_KEY, JSON.stringify({ v: 2, sessions: { ABCD2345: [term('a')] } }));
-        expect(readSavedStore(storage)).toEqual({ v: 1, sessions: {} });
+        expect(readSavedStore(storage)).toEqual({ v: 1, sessions: {}, order: [] });
     });
 
     it('saves full snapshots and removes them on a second toggle', () => {
