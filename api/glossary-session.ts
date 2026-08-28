@@ -124,7 +124,25 @@ async function rateLimit(req: any): Promise<boolean> {
 async function readSession(code: string): Promise<GlossarySession | null> {
     const stored = await redis!.get(sessionKey(code));
     if (!stored) return null;
-    const session = typeof stored === 'string' ? JSON.parse(stored) as GlossarySession : stored as GlossarySession;
+    let session: GlossarySession;
+    try {
+        session = typeof stored === 'string' ? JSON.parse(stored) as GlossarySession : stored as GlossarySession;
+    } catch {
+        // Truncated/corrupt blob throws before the shape guard below can run.
+        return null;
+    }
+    // A blob this function did not write (corruption, deploy-skew schema drift)
+    // must read as not-found, not throw: publicSessionView/mergeTerms iterate
+    // session.terms, so a missing array would turn every audience poll into a
+    // 500 loop with no self-heal until the key's TTL.
+    if (
+        !session
+        || typeof session !== 'object'
+        || (session.status !== 'live' && session.status !== 'ended')
+        || !Array.isArray(session.terms)
+    ) {
+        return null;
+    }
     session.version = typeof session.version === 'number' && Number.isFinite(session.version) ? session.version : 0;
     return session;
 }

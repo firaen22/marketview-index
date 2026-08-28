@@ -42,9 +42,19 @@ async function readJson(response: Response): Promise<any> {
 
 // A 200 whose body is not our JSON (captive portal, proxy error page) reaches
 // readJson's {} fallback; callers would then hand `undefined` to UI code
-// expecting a session. Fail loudly instead.
+// expecting a session. Fail loudly instead. Every server response's session
+// carries status live|ended and a terms array, so an object missing either
+// (proxy JSON error body, schema drift) is equally not ours.
+function isSessionShaped(value: any): boolean {
+    return !!value
+        && typeof value === 'object'
+        && !Array.isArray(value)
+        && (value.status === 'live' || value.status === 'ended')
+        && Array.isArray(value.terms);
+}
+
 function requireSession(payload: any): ClientGlossarySession {
-    if (!payload?.session || typeof payload.session !== 'object' || Array.isArray(payload.session)) {
+    if (!isSessionShaped(payload?.session)) {
         throw new GlossaryApiError(502, 'Glossary server returned an invalid response');
     }
     return payload.session as ClientGlossarySession;
@@ -70,7 +80,13 @@ export async function fetchGlossarySession(code: string): Promise<ClientGlossary
     if (!response.ok) {
         throw new GlossaryApiError(response.status, payload?.error || `Glossary session load failed (${response.status})`);
     }
-    if (!payload?.session || typeof payload.session !== 'object' || Array.isArray(payload.session)) return null;
+    // Only a real 404 means "session gone" (null). A 200 whose body is not our
+    // JSON (captive portal, proxy error page) must throw instead: the presenter
+    // rehydrate treats null as expired and DELETES its stored join code, so a
+    // hotel-wifi splash page would silently kill the live session.
+    if (!isSessionShaped(payload.session)) {
+        throw new GlossaryApiError(502, 'Glossary server returned an invalid response');
+    }
     // The public view omits keepAfter — leave it undefined so callers know it
     // is unknown rather than assuming the server kept the session.
     return { ...payload.session, joinCode: code } as ClientGlossarySession;

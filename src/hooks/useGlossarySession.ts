@@ -32,6 +32,9 @@ export function parseStoredJoinCode(value: string | null): string | null {
         if (parsed && typeof parsed === 'object' && typeof parsed.joinCode === 'string') {
             return parsed.joinCode.trim() || null;
         }
+        // An all-digit join code ("23456789" — the alphabet includes 2-9)
+        // parses as a JSON number; it is still a code, not legacy JSON.
+        if (typeof parsed === 'number') return raw;
     } catch {
         return raw;
     }
@@ -299,6 +302,11 @@ export function useGlossarySession() {
             epochRef.current += 1;
             pendingRenewRef.current = null;
             writeStoredJoinCode(next.joinCode);
+            // Sync the ref immediately (same reason as the mount rehydrate): a
+            // renew() firing before the [session] effect catches up would read
+            // a null sessionRef, take the no-session path, and clear the
+            // stored code this start just wrote.
+            sessionRef.current = next;
             if (!mountedRef.current) return;
             setSession(next);
             currentPageRef.current = next.currentPage ?? 0;
@@ -318,6 +326,14 @@ export function useGlossarySession() {
         const epoch = epochRef.current;
         const current = sessionRef.current;
         if (!current) return;
+        // Drop any debounced push now: the session is being ended on purpose,
+        // and a push firing mid-end would race a quick reopen — the server
+        // accepts it against the reopened session and regresses currentPage.
+        if (debounceRef.current !== null) {
+            window.clearTimeout(debounceRef.current);
+            debounceRef.current = null;
+        }
+        pendingRef.current = null;
         setLoading(true);
         setError(null);
         try {
@@ -369,6 +385,9 @@ export function useGlossarySession() {
             // could not rehydrate it.
             epochRef.current += 1;
             writeStoredJoinCode(next.joinCode);
+            // Same immediate ref sync as start(): a renew() in the render gap
+            // would otherwise read null and clear the stored code.
+            sessionRef.current = next;
             if (!mountedRef.current) return;
             setSession(next);
         } catch (caught) {

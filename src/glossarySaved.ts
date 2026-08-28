@@ -7,10 +7,15 @@ export const MAX_SAVED_CODES = 20;
 interface SavedStore {
     v: 1;
     sessions: Record<string, GlossaryTermSnapshot[]>;
+    // Explicit LRU order (oldest first). Object key order cannot carry this:
+    // an all-digit join code ("23456789") is an integer-like key, which
+    // Object.keys lists first regardless of insertion order — so age-based
+    // eviction over the keys would always sacrifice such a code first.
+    order: string[];
 }
 
 function emptyStore(): SavedStore {
-    return { v: 1, sessions: {} };
+    return { v: 1, sessions: {}, order: [] };
 }
 
 function getStorage(storage?: Storage | null): Storage | null {
@@ -55,7 +60,24 @@ export function readSavedStore(storage?: Storage | null): SavedStore {
             if (!Array.isArray(terms)) continue;
             sessions[code] = terms.filter(isTermSnapshot).slice(0, MAX_SAVED_TERMS_PER_CODE);
         }
-        return { v: 1, sessions };
+        // Rebuild the LRU order: keep the stored order where valid (dropping
+        // duplicates and codes with no entry), then append any codes it does
+        // not cover (legacy stores predate the field).
+        const rawOrder = (store as { order?: unknown }).order;
+        const seen = new Set<string>();
+        const order: string[] = [];
+        for (const code of Array.isArray(rawOrder) ? rawOrder : []) {
+            if (typeof code !== 'string' || seen.has(code)) continue;
+            if (!Object.prototype.hasOwnProperty.call(sessions, code)) continue;
+            seen.add(code);
+            order.push(code);
+        }
+        for (const code of Object.keys(sessions)) {
+            if (seen.has(code)) continue;
+            seen.add(code);
+            order.push(code);
+        }
+        return { v: 1, sessions, order };
     } catch {
         return emptyStore();
     }
@@ -81,18 +103,27 @@ export function isTermSaved(code: string, termId: string, storage?: Storage | nu
     return getSavedTerms(code, storage).some(term => term.id === termId);
 }
 
-// Object.keys lists integer-like keys (an all-digit join code such as
-// "23456789") FIRST in ascending numeric order, ahead of every string key,
-// regardless of insertion order. The delete-then-re-add "touch" below cannot
-// move such a code to the back, so a plain shift() would evict it first — the
-// code being written right now included, silently losing the save while the
-// caller still reports success. Never evict the code we just wrote.
+// Rewrite a code's entry and move it to the back of the LRU order (or drop it
+// entirely when its term list emptied). The order array — not object key
+// order — is what eviction walks, so an all-digit code ages like any other.
+function touchCode(store: SavedStore, code: string, terms: GlossaryTermSnapshot[]): void {
+    delete store.sessions[code];
+    store.order = store.order.filter(item => item !== code);
+    if (terms.length > 0) {
+        store.sessions[code] = terms;
+        store.order.push(code);
+    }
+}
+
+// Evict least-recently-saved codes first. Never evict the code we just wrote —
+// silently losing the save while the caller still reports success.
 function evictOldestCodes(store: SavedStore, keep: string): void {
-    const evictable = Object.keys(store.sessions).filter(code => code !== keep);
+    const evictable = store.order.filter(code => code !== keep);
     while (Object.keys(store.sessions).length > MAX_SAVED_CODES) {
         const oldest = evictable.shift();
         if (!oldest) break;
         delete store.sessions[oldest];
+        store.order = store.order.filter(code => code !== oldest);
     }
 }
 
@@ -109,11 +140,7 @@ export function setTermSaved(
         ? [term, ...withoutTerm].slice(0, MAX_SAVED_TERMS_PER_CODE)
         : withoutTerm;
 
-    delete store.sessions[code];
-    if (nextTerms.length > 0) {
-        store.sessions[code] = nextTerms;
-    }
-
+    touchCode(store, code, nextTerms);
     evictOldestCodes(store, code);
 
     const enabled = writeSavedStore(store, storage);
@@ -143,9 +170,7 @@ export function saveAllTerms(
     }
     const nextTerms = [...newTerms, ...current].slice(0, MAX_SAVED_TERMS_PER_CODE);
 
-    delete store.sessions[code];
-    if (nextTerms.length > 0) store.sessions[code] = nextTerms;
-
+    touchCode(store, code, nextTerms);
     evictOldestCodes(store, code);
 
     const enabled = writeSavedStore(store, storage);
