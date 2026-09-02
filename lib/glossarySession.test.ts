@@ -7,6 +7,7 @@ import {
     mergeTerms,
     normalizeJoinCode,
     publicSessionView,
+    visiblePageCeiling,
     visibleTerms,
 } from './glossarySession';
 
@@ -17,6 +18,7 @@ function makeSession(partial: Partial<GlossarySession> = {}): GlossarySession {
         status: 'live',
         mode: 'gradual',
         currentPage: 0,
+        maxPage: 0,
         slideVersion: 0,
         startedAt: 1,
         endedAt: null,
@@ -143,5 +145,51 @@ describe('glossary session pure helpers', () => {
             updatedAt: 500,
             terms: [visible],
         });
+    });
+
+    it('uses the high-water mark for gradual visibility', () => {
+        const terms = [1, 2, 5].map(firstPage => ({
+            id: `page-${firstPage}`,
+            term: `Page ${firstPage}`,
+            explanation: { en: 'Text' },
+            firstPage,
+            unlockedAt: 0,
+        }));
+
+        expect(visibleTerms(makeSession({ terms, currentPage: 3, maxPage: 5 }))).toEqual(terms);
+    });
+
+    it('uses currentPage when maxPage is absent or non-finite', () => {
+        const terms = [1, 2, 5].map(firstPage => ({
+            id: `page-${firstPage}`,
+            term: `Page ${firstPage}`,
+            explanation: { en: 'Text' },
+            firstPage,
+            unlockedAt: 0,
+        }));
+        const legacy = makeSession({ terms, currentPage: 3 }) as Omit<GlossarySession, 'maxPage'> as GlossarySession;
+
+        expect(visibleTerms(legacy)).toEqual(terms.slice(0, 2));
+        expect(visibleTerms({ ...legacy, maxPage: NaN })).toEqual(terms.slice(0, 2));
+    });
+
+    it('lets currentPage jump ahead of maxPage', () => {
+        const term = { id: 'page-5', term: 'Page 5', explanation: { en: 'Text' }, firstPage: 5, unlockedAt: 0 };
+
+        expect(visibleTerms(makeSession({ terms: [term], currentPage: 8, maxPage: 5 }))).toEqual([term]);
+    });
+
+    it('keeps all-mode and ended sessions fully visible', () => {
+        const terms = [
+            { id: 'page-5', term: 'Page 5', explanation: { en: 'Text' }, firstPage: 5, unlockedAt: 0 },
+        ];
+
+        expect(visibleTerms(makeSession({ terms, mode: 'all', currentPage: 0, maxPage: 0 }))).toEqual(terms);
+        expect(visibleTerms(makeSession({ terms, status: 'ended', currentPage: 0, maxPage: 0 }))).toEqual(terms);
+    });
+
+    it('calculates the ceiling from finite numeric pages', () => {
+        expect(visiblePageCeiling({ currentPage: 3, maxPage: 'x' as any } as GlossarySession)).toBe(3);
+        expect(visiblePageCeiling({ currentPage: -1 as any, maxPage: 2 } as GlossarySession)).toBe(2);
     });
 });

@@ -28,6 +28,7 @@ function makeSession(partial: Partial<GlossarySession> = {}): GlossarySession {
         status: 'live',
         mode: 'gradual',
         currentPage: 0,
+        maxPage: 0,
         slideVersion: 0,
         startedAt: 1000,
         endedAt: null,

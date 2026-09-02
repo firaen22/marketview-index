@@ -21,6 +21,7 @@ export interface GlossarySession {
     status: 'live' | 'ended';
     mode: 'all' | 'gradual';
     currentPage: number;
+    maxPage: number;
     slideVersion: number;
     startedAt: number;
     endedAt: number | null;
@@ -122,9 +123,19 @@ export function mergeTerms(
     return { terms, termLimitReached };
 }
 
+export function visiblePageCeiling(session: GlossarySession): number {
+    const currentPage = typeof session.currentPage === 'number' && Number.isFinite(session.currentPage)
+        ? session.currentPage
+        : 0;
+    const maxPage = typeof session.maxPage === 'number' && Number.isFinite(session.maxPage)
+        ? session.maxPage
+        : 0;
+    return Math.max(currentPage, maxPage);
+}
+
 export function visibleTerms(session: GlossarySession): GlossaryTermSnapshot[] {
     if (session.status === 'ended' || session.mode === 'all') return session.terms;
-    return session.terms.filter(term => term.firstPage <= session.currentPage);
+    return session.terms.filter(term => term.firstPage <= visiblePageCeiling(session));
 }
 
 export function publicSessionView(session: GlossarySession) {

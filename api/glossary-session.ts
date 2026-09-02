@@ -144,6 +144,7 @@ async function readSession(code: string): Promise<GlossarySession | null> {
         return null;
     }
     session.version = typeof session.version === 'number' && Number.isFinite(session.version) ? session.version : 0;
+    session.maxPage = typeof session.maxPage === 'number' && Number.isFinite(session.maxPage) ? session.maxPage : 0;
     return session;
 }
 
@@ -274,6 +275,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 status: 'live',
                 mode: parsed.body.mode,
                 currentPage: 0,
+                maxPage: 0,
                 slideVersion: parsed.body.slideVersion ?? 0,
                 startedAt: now,
                 endedAt: null,
@@ -330,6 +332,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 const stale = typeof pushSeq === 'number' && typeof pushEpoch === 'string'
                     && session.push?.epoch === pushEpoch && pushSeq <= session.push.seq;
                 session.terms = merged.terms;
+                session.maxPage = Math.max(Number.isFinite(session.maxPage) ? session.maxPage : 0, parsed.body.page);
                 if (!stale) {
                     session.currentPage = parsed.body.page;
                     if (typeof pushSeq === 'number' && typeof pushEpoch === 'string') {
