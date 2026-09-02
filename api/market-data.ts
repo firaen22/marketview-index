@@ -193,7 +193,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 // Keep in sync with TimeRange (src/types/index.ts) and PresentRange (lib/presentCommand.ts).
 export const VALID_RANGES = ['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'];
 
+// Newest real chart point older than this → item.stale. Weekly bars (5Y) are
+// dated at the week's START (verified live 2026-09-02: ^GSPC/^HSI last bar =
+// Mon 08-31 / Sun 08-30), so on a Monday before the new bar exists the newest
+// point is already 7+ days old — weekly gets a 14-day budget.
 const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+const STALE_AFTER_WEEKLY_MS = 14 * 24 * 60 * 60 * 1000;
 
 // Yahoo Taiwan fund NAV history. Endpoint captured from tw.stock.yahoo.com's
 // fund history page on 2026-09-02; it answers without cookies, a user agent,
@@ -328,8 +333,12 @@ export async function fetchAllIndices(range: string) {
       // Calculate change based on the authentic history span
       const firstClose = chartData[0].close;
       const lastClose = chartData[chartData.length - 1].close;
-      const newestDate = new Date(chartData[chartData.length - 1].date).getTime();
-      stale = Number.isFinite(newestDate) && Date.now() - newestDate > STALE_AFTER_MS;
+      // Guard the date like the history mapping does: a missing date must
+      // not read as epoch 0 (= permanently stale).
+      const newestPoint = chartData[chartData.length - 1];
+      const newestDate = newestPoint.date ? new Date(newestPoint.date).getTime() : NaN;
+      stale = Number.isFinite(newestDate)
+        && Date.now() - newestDate > (interval === '1wk' ? STALE_AFTER_WEEKLY_MS : STALE_AFTER_MS);
 
       // FOR FUNDS: The quote API 'regularMarketPrice' is often stale by months. 
       // We overwrite it with the true latest chart close.

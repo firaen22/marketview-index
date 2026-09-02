@@ -111,6 +111,29 @@ describe('market-data sweep 20 hardening', () => {
         expect(estimated).not.toHaveProperty('stale');
     });
 
+    // NIM (sweep 20 review): Yahoo dates weekly bars at the week's start, so
+    // on a Monday morning the newest 5Y point is 7+ days old for every symbol.
+    it('gives weekly (5Y) bars a 14-day budget before flagging stale', async () => {
+        const YF = (await import('yahoo-finance2')).default as any;
+        const orig = YF.prototype.chart;
+        const day = 24 * 60 * 60 * 1000;
+        YF.prototype.chart = async (symbol: string, ...rest: any[]) => {
+            state.chartCalls.push([symbol, ...rest]);
+            const age = symbol === '^GSPC' ? 9 * day : symbol === '^HSI' ? 20 * day : 0;
+            return { quotes: [{ date: new Date(Date.now() - age - 7 * day), close: 90 }, { date: new Date(Date.now() - age), close: 100 }] };
+        };
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('down', { status: 503 }))));
+        try {
+            const weekly = await fetchAllIndices('5Y');
+            expect(weekly.find((i) => i.symbol === '^GSPC')).not.toHaveProperty('stale');
+            expect(weekly.find((i) => i.symbol === '^HSI')!.stale).toBe(true);
+            const daily = await fetchAllIndices('1M');
+            expect(daily.find((i) => i.symbol === '^GSPC')!.stale).toBe(true);
+        } finally {
+            YF.prototype.chart = orig;
+        }
+    });
+
     it('merges only valid cached in-scope missing symbols in index order', () => {
         const fresh = [{ symbol: '^GSPC', price: 1 }];
         const cached = [
