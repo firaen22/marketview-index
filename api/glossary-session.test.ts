@@ -27,6 +27,7 @@ function makeSession(partial: Partial<GlossarySession> = {}): GlossarySession {
         status: 'live',
         mode: 'gradual',
         currentPage: 0,
+        maxPage: 0,
         slideVersion: 0,
         startedAt: 1000,
         endedAt: null,
@@ -340,6 +341,59 @@ describe('glossary-session API handler', () => {
 
         expect(res.statusCode).toBe(200);
         expect(lastEvalSession()).toMatchObject({ currentPage: 3, push: { epoch: 'epoch-a', seq: 5 }, updatedAt: 5000 });
+    });
+
+    it('preserves the high-water mark when pushing back and exposes prior terms on GET', async () => {
+        const pageFiveTerm = { id: 'page-five', term: 'Page Five', explanation: { en: 'Text' }, firstPage: 5, unlockedAt: 1000 };
+        redisState.current.get.mockResolvedValue(sessionJson({ currentPage: 5, maxPage: 5, terms: [pageFiveTerm] }));
+
+        await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: { action: 'push', code: 'ABCD2345', page: 3, lang: 'en', terms: [] },
+        }));
+
+        const written = lastEvalSession();
+        expect(written).toMatchObject({ currentPage: 3, maxPage: 5 });
+        redisState.current.get.mockResolvedValue(JSON.stringify(written));
+        const res = await call(makeReq({ method: 'GET', query: { code: 'ABCD2345' } }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.session.terms).toEqual([pageFiveTerm]);
+    });
+
+    it('advances maxPage for stale pushes without changing currentPage', async () => {
+        redisState.current.get.mockResolvedValue(sessionJson({
+            currentPage: 5,
+            maxPage: 5,
+            push: { epoch: 'epoch-a', seq: 5 },
+        }));
+
+        const res = await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: {
+                action: 'push', code: 'ABCD2345', page: 9, lang: 'en', terms: [],
+                pushEpoch: 'epoch-a', pushSeq: 4,
+            },
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(lastEvalSession()).toMatchObject({ currentPage: 5, maxPage: 9, push: { epoch: 'epoch-a', seq: 5 } });
+    });
+
+    it('normalizes legacy gradual blobs without maxPage on GET', async () => {
+        const { maxPage: _maxPage, ...legacy } = makeSession({
+            currentPage: 2,
+            terms: [
+                { id: 'page-one', term: 'Page One', explanation: { en: 'Text' }, firstPage: 1, unlockedAt: 0 },
+                { id: 'page-four', term: 'Page Four', explanation: { en: 'Text' }, firstPage: 4, unlockedAt: 0 },
+            ],
+        });
+        redisState.current.get.mockResolvedValue(JSON.stringify(legacy));
+
+        const res = await call(makeReq({ method: 'GET', query: { code: 'ABCD2345' } }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.session.terms.map((term: any) => term.id)).toEqual(['page-one']);
     });
 
     it('rejects pushSeq without pushEpoch', async () => {

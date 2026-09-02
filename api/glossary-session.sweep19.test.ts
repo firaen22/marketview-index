@@ -86,6 +86,7 @@ describe('corrupt stored session blobs (sweep 19)', () => {
     it('a well-formed blob still loads', async () => {
         redisState.current.get.mockResolvedValue({
             joinCode: 'ABCD2345', status: 'live', mode: 'all', currentPage: 1,
+            maxPage: 0,
             slideVersion: 0, startedAt: 1, endedAt: null, keepAfter: true,
             joins: 0, terms: [], updatedAt: 1, version: 3,
         });
