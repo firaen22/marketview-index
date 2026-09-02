@@ -74,6 +74,14 @@ export const MarketStatCard: React.FC<{
                         {t?.indexNames?.[item.name] || displayName(item, t.language)}
                     </h4>
                     <span className="text-[0.625rem] text-zinc-500 font-mono tracking-wider">{item.symbol}</span>
+                    {item.stale && (
+                        <span
+                            className="ml-1.5 text-[0.5625rem] font-semibold uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/15 text-amber-300 align-middle"
+                            title={t.dataFreshness.stale}
+                        >
+                            {t.dataFreshness.stale}
+                        </span>
+                    )}
                 </div>
                 <div className="text-right flex flex-col items-end">
                     <div className={cn("text-base font-mono font-bold leading-none", isPositive ? "text-emerald-400" : "text-rose-400")}>

@@ -132,15 +132,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isCron || forceRefresh || !parsedCache) {
       console.log(`Fetching fresh data for range ${range} from Yahoo Finance...`);
       const freshData = await fetchAllIndices(range);
+      const mergedData = Array.isArray(parsedCache?.data)
+        ? mergeCarriedForward(freshData, parsedCache.data)
+        : freshData;
 
       const payload = {
         success: true,
         source: isCron ? 'cron_updated_cache' : (redis ? 'live_api_cached' : 'live_api_no_redis'),
         timestamp: new Date().toISOString(),
-        data: freshData,
+        data: mergedData,
       };
 
-      const hasEstimatedData = freshData.some((item: any) => item.estimated === true);
+      const hasEstimatedData = mergedData.some((item: any) => item.estimated === true);
       if (redis && !hasEstimatedData) {
         // Cache expires in 1 hour
         await redis.set(RANGE_CACHE_KEY, JSON.stringify(payload), { ex: 3600 });
@@ -190,6 +193,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 // Keep in sync with TimeRange (src/types/index.ts) and PresentRange (lib/presentCommand.ts).
 export const VALID_RANGES = ['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'];
 
+const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
 // Yahoo Taiwan fund NAV history. Endpoint captured from tw.stock.yahoo.com's
 // fund history page on 2026-09-02; it answers without cookies, a user agent,
 // or the page's tracking params. Response: { closePrices: string[], dates: string[] }
@@ -235,7 +240,9 @@ export async function fetchAllIndices(range: string) {
   const symbols = INDICES_TO_FETCH.map(i => i.symbol);
   let quotes: any[] = [];
   try {
-    quotes = await yahooFinance.quote(symbols);
+    quotes = await yahooFinance.quote(symbols, undefined, {
+      fetchOptions: { signal: AbortSignal.timeout(5000) },
+    });
   } catch (err: any) {
     throw new Error('Failed to fetch from Yahoo Finance in batch: ' + err.message);
   }
@@ -277,7 +284,9 @@ export async function fetchAllIndices(range: string) {
       if (tw.length > 0) return { quotes: tw };
       console.warn(`Symbol ${index.symbol}: Yahoo TW history empty, falling back to Yahoo Finance chart`);
     }
-    return yahooFinance.chart(index.symbol, { period1, period2, interval }).catch(() => ({ quotes: [] }));
+    return yahooFinance.chart(index.symbol, { period1, period2, interval }, {
+      fetchOptions: { signal: AbortSignal.timeout(5000) },
+    }).catch(() => ({ quotes: [] }));
   }));
 
   const results = [];
@@ -307,6 +316,7 @@ export async function fetchAllIndices(range: string) {
     let ytdChange = 0;
     let ytdChangePercent = 0;
     let estimated = false;
+    let stale = false;
 
     if (chartData.length > 0) {
       // Use authentic history points
@@ -318,6 +328,8 @@ export async function fetchAllIndices(range: string) {
       // Calculate change based on the authentic history span
       const firstClose = chartData[0].close;
       const lastClose = chartData[chartData.length - 1].close;
+      const newestDate = new Date(chartData[chartData.length - 1].date).getTime();
+      stale = Number.isFinite(newestDate) && Date.now() - newestDate > STALE_AFTER_MS;
 
       // FOR FUNDS: The quote API 'regularMarketPrice' is often stale by months. 
       // We overwrite it with the true latest chart close.
@@ -379,6 +391,7 @@ export async function fetchAllIndices(range: string) {
       ytdChangePercent,
       history,
       ...(estimated ? { estimated: true } : {}),
+      ...(stale ? { stale: true } : {}),
     });
   }
 
@@ -387,4 +400,19 @@ export async function fetchAllIndices(range: string) {
   }
 
   return results;
+}
+
+export function mergeCarriedForward(fresh: any[], cachedData: any[]) {
+  const freshSymbols = new Set(fresh.map((item: any) => item?.symbol));
+  const carried = INDICES_TO_FETCH
+    .map(index => cachedData.find((item: any) => item && typeof item === 'object' && typeof item.symbol === 'string' && item.symbol === index.symbol))
+    .filter((item: any) => item && !freshSymbols.has(item.symbol))
+    .map((item: any) => ({ ...item, stale: true }));
+
+  if (carried.length === 0) return fresh;
+
+  return [...fresh, ...carried].sort((a: any, b: any) => (
+    INDICES_TO_FETCH.findIndex(index => index.symbol === a.symbol)
+    - INDICES_TO_FETCH.findIndex(index => index.symbol === b.symbol)
+  ));
 }

@@ -22,6 +22,10 @@ export interface IndexData {
     history: HistoryPoint[];
     category: IndexCategory;
     subCategory?: string;
+    /** Server flag: newest real data point is >7 days old, or the item was
+     *  carried forward from the previous cache because the provider dropped
+     *  it. The card shows a "Delayed" pill; nothing else changes. */
+    stale?: boolean;
 }
 
 export interface NewsItem {
