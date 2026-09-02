@@ -66,3 +66,27 @@ describe('fund missing from Yahoo quote batch (2026-09-02)', () => {
         }
     });
 });
+
+// Sweep 20 (agy + codex): a quote object that is present but carries no
+// usable regularMarketPrice (Yahoo returns the symbol with nulls) used to ship
+// price 0 alongside a valid chart, and got cached for an hour.
+describe('quote present but priceless (sweep 20)', () => {
+    it('uses the last chart close when the quote price is 0/null', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('down', { status: 503 }))));
+        const YF = (await import('yahoo-finance2')).default as any;
+        const origQuote = YF.prototype.quote;
+        YF.prototype.quote = async (symbols: string[]) => (await origQuote(symbols)).map((q: any) => (
+            q.symbol === '^HSI' ? { symbol: '^HSI', regularMarketPrice: null } : q
+        ));
+        try {
+            const results = await fetchAllIndices('YTD');
+            const hsi = results.find((r) => r.symbol === '^HSI')!;
+            expect(hsi.price).toBeCloseTo(100);
+            expect(hsi.change).toBeCloseTo(10);
+            expect(hsi.estimated).toBeUndefined();
+        } finally {
+            YF.prototype.quote = origQuote;
+        }
+    });
+});

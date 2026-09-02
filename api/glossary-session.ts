@@ -144,7 +144,16 @@ async function readSession(code: string): Promise<GlossarySession | null> {
         return null;
     }
     session.version = typeof session.version === 'number' && Number.isFinite(session.version) ? session.version : 0;
-    session.maxPage = typeof session.maxPage === 'number' && Number.isFinite(session.maxPage) ? session.maxPage : 0;
+    // maxPage: absent on blobs written before the high-water deploy — seed it
+    // from currentPage so the first back-navigation keeps the pages already
+    // shown (sweep 20). Only this API writes it and validPage caps pushes at
+    // 10000, so a non-integer/out-of-range value is corruption: never let it
+    // become the visibility ceiling or survive the next write.
+    session.maxPage = typeof session.maxPage === 'number' && Number.isInteger(session.maxPage)
+        && session.maxPage >= 0 && session.maxPage <= 10000
+        ? session.maxPage
+        : (typeof session.currentPage === 'number' && Number.isInteger(session.currentPage)
+            && session.currentPage >= 0 && session.currentPage <= 10000 ? session.currentPage : 0);
     return session;
 }
 

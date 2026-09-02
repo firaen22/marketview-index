@@ -396,6 +396,35 @@ describe('glossary-session API handler', () => {
         expect(res.body.session.terms.map((term: any) => term.id)).toEqual(['page-one']);
     });
 
+    // Sweep 20 (agy): a session that was live across the maxPage deploy has no
+    // maxPage field. Seeding it from currentPage (not 0) means the first
+    // back-navigation after the deploy keeps the pages already shown.
+    it('seeds a legacy blob\'s maxPage from currentPage on first write', async () => {
+        const { maxPage: _maxPage, ...legacy } = makeSession({ currentPage: 5 });
+        redisState.current.get.mockResolvedValue(JSON.stringify(legacy));
+
+        await call(makeReq({
+            method: 'POST',
+            headers: { 'x-api-key': 'secret' },
+            body: { action: 'push', code: 'ABCD2345', page: 3, lang: 'en', terms: [] },
+        }));
+
+        expect(lastEvalSession()).toMatchObject({ currentPage: 3, maxPage: 5 });
+    });
+
+    // Sweep 20 (codex): only this API writes maxPage and validPage caps pushes
+    // at 10000, so a non-integer or out-of-range value is corruption. It must
+    // not become the visibility ceiling or be rewritten on the next mutation.
+    it('drops a corrupt maxPage instead of exposing future terms through it', async () => {
+        const futureTerm = { id: 'page-9999', term: 'Far', explanation: { en: 'Text' }, firstPage: 9999, unlockedAt: 0 };
+        for (const bad of [1e9, 2.5, -1]) {
+            redisState.current.get.mockResolvedValue(sessionJson({ currentPage: 2, maxPage: bad, terms: [futureTerm] }));
+            const res = await call(makeReq({ method: 'GET', query: { code: 'ABCD2345' } }));
+            expect(res.statusCode).toBe(200);
+            expect(res.body.session.terms).toEqual([]);
+        }
+    });
+
     it('rejects pushSeq without pushEpoch', async () => {
         const res = await call(makeReq({
             method: 'POST',

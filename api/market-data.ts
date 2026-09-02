@@ -204,7 +204,10 @@ export async function fetchYahooTwFundHistory(
   const url = 'https://tw.stock.yahoo.com/_td-stock/api/resource/FundServices.fundsPriceHistory'
     + `;fundId=${encodeURIComponent(fundId)};timeslot=${encodeURIComponent(timeslot)}`;
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    // 5s, not 8s: quote() runs before this and the Yahoo Finance chart
+    // fallback after it, so a stalled TW call at 8s pushed the whole refresh
+    // against a 10s function budget (sweep 20). Live latency is ~1s.
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!response.ok) return [];
     const body: any = await response.json();
     const dates: unknown[] = Array.isArray(body?.dates) ? body.dates : [];
@@ -318,9 +321,13 @@ export async function fetchAllIndices(range: string) {
 
       // FOR FUNDS: The quote API 'regularMarketPrice' is often stale by months. 
       // We overwrite it with the true latest chart close.
-      if ((index.category === 'Fund' || !quote) && lastClose > 0) {
+      // Also when the quote is present but priceless (regularMarketPrice
+      // null/0): shipping price 0 next to a valid chart blanked the tile and
+      // was cached for an hour (sweep 20).
+      const priceless = !quote || !(price > 0);
+      if ((index.category === 'Fund' || priceless) && lastClose > 0) {
         price = lastClose;
-        if (!quote) { open = price; high = price; low = price; }
+        if (priceless) { open = price; high = price; low = price; }
         if (chartData.length > 1) {
           const prevDayClose = chartData[chartData.length - 2].close;
           change = price - prevDayClose;
