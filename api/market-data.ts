@@ -132,15 +132,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isCron || forceRefresh || !parsedCache) {
       console.log(`Fetching fresh data for range ${range} from Yahoo Finance...`);
       const freshData = await fetchAllIndices(range);
+      const mergedData = Array.isArray(parsedCache?.data)
+        ? mergeCarriedForward(freshData, parsedCache.data)
+        : freshData;
 
       const payload = {
         success: true,
         source: isCron ? 'cron_updated_cache' : (redis ? 'live_api_cached' : 'live_api_no_redis'),
         timestamp: new Date().toISOString(),
-        data: freshData,
+        data: mergedData,
       };
 
-      const hasEstimatedData = freshData.some((item: any) => item.estimated === true);
+      const hasEstimatedData = mergedData.some((item: any) => item.estimated === true);
       if (redis && !hasEstimatedData) {
         // Cache expires in 1 hour
         await redis.set(RANGE_CACHE_KEY, JSON.stringify(payload), { ex: 3600 });
@@ -190,6 +193,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 // Keep in sync with TimeRange (src/types/index.ts) and PresentRange (lib/presentCommand.ts).
 export const VALID_RANGES = ['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'];
 
+// Newest real chart point older than this → item.stale. Weekly bars (5Y) are
+// dated at the week's START (verified live 2026-09-02: ^GSPC/^HSI last bar =
+// Mon 08-31 / Sun 08-30), so on a Monday before the new bar exists the newest
+// point is already 7+ days old — weekly gets a 14-day budget.
+const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+const STALE_AFTER_WEEKLY_MS = 14 * 24 * 60 * 60 * 1000;
+
 // Yahoo Taiwan fund NAV history. Endpoint captured from tw.stock.yahoo.com's
 // fund history page on 2026-09-02; it answers without cookies, a user agent,
 // or the page's tracking params. Response: { closePrices: string[], dates: string[] }
@@ -204,7 +214,10 @@ export async function fetchYahooTwFundHistory(
   const url = 'https://tw.stock.yahoo.com/_td-stock/api/resource/FundServices.fundsPriceHistory'
     + `;fundId=${encodeURIComponent(fundId)};timeslot=${encodeURIComponent(timeslot)}`;
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    // 5s, not 8s: quote() runs before this and the Yahoo Finance chart
+    // fallback after it, so a stalled TW call at 8s pushed the whole refresh
+    // against a 10s function budget (sweep 20). Live latency is ~1s.
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!response.ok) return [];
     const body: any = await response.json();
     const dates: unknown[] = Array.isArray(body?.dates) ? body.dates : [];
@@ -232,7 +245,9 @@ export async function fetchAllIndices(range: string) {
   const symbols = INDICES_TO_FETCH.map(i => i.symbol);
   let quotes: any[] = [];
   try {
-    quotes = await yahooFinance.quote(symbols);
+    quotes = await yahooFinance.quote(symbols, undefined, {
+      fetchOptions: { signal: AbortSignal.timeout(5000) },
+    });
   } catch (err: any) {
     throw new Error('Failed to fetch from Yahoo Finance in batch: ' + err.message);
   }
@@ -274,7 +289,9 @@ export async function fetchAllIndices(range: string) {
       if (tw.length > 0) return { quotes: tw };
       console.warn(`Symbol ${index.symbol}: Yahoo TW history empty, falling back to Yahoo Finance chart`);
     }
-    return yahooFinance.chart(index.symbol, { period1, period2, interval }).catch(() => ({ quotes: [] }));
+    return yahooFinance.chart(index.symbol, { period1, period2, interval }, {
+      fetchOptions: { signal: AbortSignal.timeout(5000) },
+    }).catch(() => ({ quotes: [] }));
   }));
 
   const results = [];
@@ -304,6 +321,7 @@ export async function fetchAllIndices(range: string) {
     let ytdChange = 0;
     let ytdChangePercent = 0;
     let estimated = false;
+    let stale = false;
 
     if (chartData.length > 0) {
       // Use authentic history points
@@ -315,12 +333,22 @@ export async function fetchAllIndices(range: string) {
       // Calculate change based on the authentic history span
       const firstClose = chartData[0].close;
       const lastClose = chartData[chartData.length - 1].close;
+      // Guard the date like the history mapping does: a missing date must
+      // not read as epoch 0 (= permanently stale).
+      const newestPoint = chartData[chartData.length - 1];
+      const newestDate = newestPoint.date ? new Date(newestPoint.date).getTime() : NaN;
+      stale = Number.isFinite(newestDate)
+        && Date.now() - newestDate > (interval === '1wk' ? STALE_AFTER_WEEKLY_MS : STALE_AFTER_MS);
 
       // FOR FUNDS: The quote API 'regularMarketPrice' is often stale by months. 
       // We overwrite it with the true latest chart close.
-      if ((index.category === 'Fund' || !quote) && lastClose > 0) {
+      // Also when the quote is present but priceless (regularMarketPrice
+      // null/0): shipping price 0 next to a valid chart blanked the tile and
+      // was cached for an hour (sweep 20).
+      const priceless = !quote || !(price > 0);
+      if ((index.category === 'Fund' || priceless) && lastClose > 0) {
         price = lastClose;
-        if (!quote) { open = price; high = price; low = price; }
+        if (priceless) { open = price; high = price; low = price; }
         if (chartData.length > 1) {
           const prevDayClose = chartData[chartData.length - 2].close;
           change = price - prevDayClose;
@@ -372,6 +400,7 @@ export async function fetchAllIndices(range: string) {
       ytdChangePercent,
       history,
       ...(estimated ? { estimated: true } : {}),
+      ...(stale ? { stale: true } : {}),
     });
   }
 
@@ -380,4 +409,19 @@ export async function fetchAllIndices(range: string) {
   }
 
   return results;
+}
+
+export function mergeCarriedForward(fresh: any[], cachedData: any[]) {
+  const freshSymbols = new Set(fresh.map((item: any) => item?.symbol));
+  const carried = INDICES_TO_FETCH
+    .map(index => cachedData.find((item: any) => item && typeof item === 'object' && typeof item.symbol === 'string' && item.symbol === index.symbol))
+    .filter((item: any) => item && !freshSymbols.has(item.symbol))
+    .map((item: any) => ({ ...item, stale: true }));
+
+  if (carried.length === 0) return fresh;
+
+  return [...fresh, ...carried].sort((a: any, b: any) => (
+    INDICES_TO_FETCH.findIndex(index => index.symbol === a.symbol)
+    - INDICES_TO_FETCH.findIndex(index => index.symbol === b.symbol)
+  ));
 }
