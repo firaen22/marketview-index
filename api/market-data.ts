@@ -28,7 +28,11 @@ const INDICES_TO_FETCH = [
     category: 'Fund',
     subCategory: 'Technology',
     name: '駿利亨德森遠見基金 - 環球科技領先基金',
-    nameEn: 'Janus Henderson Horizon Fund - Global Technology Leaders Fund'
+    nameEn: 'Janus Henderson Horizon Fund - Global Technology Leaders Fund',
+    // Yahoo Finance's series for this share class (A2 USD, LU0070992663)
+    // stopped on 2026-07-17 and its quote endpoint dropped the symbol; Yahoo
+    // Taiwan still publishes the daily NAV under this Morningstar id.
+    twFundId: 'F0GBR04E8V:FO'
   },
   {
     symbol: '0P00001EVH',
@@ -186,6 +190,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 // Keep in sync with TimeRange (src/types/index.ts) and PresentRange (lib/presentCommand.ts).
 export const VALID_RANGES = ['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'];
 
+// Yahoo Taiwan fund NAV history. Endpoint captured from tw.stock.yahoo.com's
+// fund history page on 2026-09-02; it answers without cookies, a user agent,
+// or the page's tracking params. Response: { closePrices: string[], dates: string[] }
+// oldest-first, daily. Returns [] on any failure so the caller can fall back.
+export async function fetchYahooTwFundHistory(
+  fundId: string,
+  period1: string,
+  period2: string,
+  interval: '1d' | '1wk',
+): Promise<Array<{ date: Date; close: number }>> {
+  const timeslot = `${period1}T00:00:00Z-${period2}T23:59:59Z`;
+  const url = 'https://tw.stock.yahoo.com/_td-stock/api/resource/FundServices.fundsPriceHistory'
+    + `;fundId=${encodeURIComponent(fundId)};timeslot=${encodeURIComponent(timeslot)}`;
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return [];
+    const body: any = await response.json();
+    const dates: unknown[] = Array.isArray(body?.dates) ? body.dates : [];
+    const closes: unknown[] = Array.isArray(body?.closePrices) ? body.closePrices : [];
+    const points: Array<{ date: Date; close: number }> = [];
+    for (let i = 0; i < Math.min(dates.length, closes.length); i++) {
+      const close = Number(closes[i]);
+      const date = new Date(`${dates[i]}T00:00:00Z`);
+      if (!Number.isFinite(close) || close <= 0 || Number.isNaN(date.getTime())) continue;
+      points.push({ date, close });
+    }
+    if (interval === '1wk') {
+      // Daily NAVs over 5Y are ~1250 points; keep one per week plus the last
+      // point, matching the weekly bars the Yahoo Finance path returns.
+      return points.filter((_, i) => i % 5 === 0 || i === points.length - 1);
+    }
+    return points;
+  } catch (error) {
+    console.warn(`Yahoo TW fund history failed for ${fundId}:`, error instanceof Error ? error.message : error);
+    return [];
+  }
+}
+
 export async function fetchAllIndices(range: string) {
   const symbols = INDICES_TO_FETCH.map(i => i.symbol);
   let quotes: any[] = [];
@@ -223,25 +265,41 @@ export async function fetchAllIndices(range: string) {
   // intraday interval would return an empty series for exactly the funds page.
   const interval = range === '5Y' ? '1wk' : '1d';
 
-  // Fetch true dynamic history in parallel
-  const rawHistories = await Promise.all(symbols.map(s =>
-    yahooFinance.chart(s, { period1, period2, interval }).catch(() => ({ quotes: [] }))
-  ));
+  // Fetch true dynamic history in parallel. Entries with a twFundId take
+  // their NAV series from Yahoo Taiwan first and only fall back to Yahoo
+  // Finance's chart when that fetch fails or comes back empty.
+  const rawHistories = await Promise.all(INDICES_TO_FETCH.map(async (index: any) => {
+    if (index.twFundId) {
+      const tw = await fetchYahooTwFundHistory(index.twFundId, period1, period2, interval);
+      if (tw.length > 0) return { quotes: tw };
+      console.warn(`Symbol ${index.symbol}: Yahoo TW history empty, falling back to Yahoo Finance chart`);
+    }
+    return yahooFinance.chart(index.symbol, { period1, period2, interval }).catch(() => ({ quotes: [] }));
+  }));
 
   const results = [];
   for (let idx = 0; idx < INDICES_TO_FETCH.length; idx++) {
     const index = INDICES_TO_FETCH[idx] as any;
     const quote = quotes.find((q: any) => q.symbol === index.symbol);
-    if (!quote) { console.warn(`Skipping symbol ${index.symbol}: quote not found in batch response`); continue; }
-
-    let price = quote.regularMarketPrice || 0;
-    let change = quote.regularMarketChange || 0;
-    let changePercent = quote.regularMarketChangePercent || 0;
-    const open = quote.regularMarketOpen || price;
-    const high = quote.regularMarketDayHigh || price;
-    const low = quote.regularMarketDayLow || price;
-
     const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt && Number.isFinite(pt.close) && pt.close > 0);
+    // Yahoo's quote endpoint silently drops some mutual-fund symbols (0P00000EBQ
+    // vanished from the batch on 2026-09-02) while its chart endpoint still
+    // serves the full NAV history. Only skip when BOTH are empty; a chart-only
+    // symbol is built from its last close below.
+    if (!quote && chartData.length === 0) {
+      console.warn(`Skipping symbol ${index.symbol}: no quote in batch response and no chart history`);
+      continue;
+    }
+    if (!quote) {
+      console.warn(`Symbol ${index.symbol}: quote missing from batch response, building from chart history`);
+    }
+
+    let price = quote?.regularMarketPrice || 0;
+    let change = quote?.regularMarketChange || 0;
+    let changePercent = quote?.regularMarketChangePercent || 0;
+    let open = quote?.regularMarketOpen || price;
+    let high = quote?.regularMarketDayHigh || price;
+    let low = quote?.regularMarketDayLow || price;
     let history = [];
     let ytdChange = 0;
     let ytdChangePercent = 0;
@@ -260,8 +318,9 @@ export async function fetchAllIndices(range: string) {
 
       // FOR FUNDS: The quote API 'regularMarketPrice' is often stale by months. 
       // We overwrite it with the true latest chart close.
-      if (index.category === 'Fund' && lastClose > 0) {
+      if ((index.category === 'Fund' || !quote) && lastClose > 0) {
         price = lastClose;
+        if (!quote) { open = price; high = price; low = price; }
         if (chartData.length > 1) {
           const prevDayClose = chartData[chartData.length - 2].close;
           change = price - prevDayClose;
