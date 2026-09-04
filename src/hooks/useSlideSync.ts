@@ -82,16 +82,19 @@ export function useSlideSync(options?: UseSlideSyncOptions): UseSlideSyncResult 
 
         let pollTimer: number | null = null;
         let inFlight = false;
+        // Set on cleanup: an in-flight poll from a superseded effect run must
+        // not reschedule itself into a second timer chain.
+        let stopped = false;
 
         const schedulePoll = (ms: number) => {
-            if (!mountedRef.current) return;
+            if (stopped || !mountedRef.current) return;
             if (pollTimer !== null) clearTimeout(pollTimer);
             pollTimer = window.setTimeout(poll, ms);
         };
 
         const poll = async () => {
             pollTimer = null;
-            if (!mountedRef.current) return;
+            if (stopped || !mountedRef.current) return;
 
             // Background tabs sleep to save battery/bandwidth; visibilitychange catches up on wake.
             if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
@@ -108,9 +111,7 @@ export function useSlideSync(options?: UseSlideSyncOptions): UseSlideSyncResult 
                 // Silently ignore network or validation errors during polling
             } finally {
                 inFlight = false;
-                if (mountedRef.current) {
-                    schedulePoll(pollRemoteMs);
-                }
+                schedulePoll(pollRemoteMs);
             }
         };
 
@@ -130,6 +131,7 @@ export function useSlideSync(options?: UseSlideSyncOptions): UseSlideSyncResult 
         schedulePoll(pollRemoteMs);
 
         return () => {
+            stopped = true;
             if (pollTimer !== null) clearTimeout(pollTimer);
             if (typeof document !== 'undefined') {
                 document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -143,7 +145,12 @@ export function useSlideSync(options?: UseSlideSyncOptions): UseSlideSyncResult 
             if (e.key === 'marketflow_settings' && e.newValue) {
                 try {
                     const parsed = JSON.parse(e.newValue);
-                    if (isValidPresentSlide(parsed?.presentSlide)) setSlide(parsed.presentSlide);
+                    // Other keys in marketflow_settings (presentResume on every
+                    // page turn) fire this too; an unchanged updatedAt is the
+                    // same slide, so do not hand out a new object identity.
+                    if (isValidPresentSlide(parsed?.presentSlide) && parsed.presentSlide.updatedAt !== slideRef.current.updatedAt) {
+                        setSlide(parsed.presentSlide);
+                    }
                 } catch {}
             }
         };

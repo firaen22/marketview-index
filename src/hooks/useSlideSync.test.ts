@@ -401,6 +401,59 @@ describe('useSlideSync remote polling', () => {
         expect(latest.slide.content).toBe('local deck');
     });
 
+    it('applies a newer remote deck after a local edit has finished saving (timer handle cleared)', async () => {
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 10_000 }));
+        });
+        await flush();
+
+        await act(async () => {
+            latest.saveSlide({ content: 'local deck' });
+        });
+        // Debounce fires, save goes in flight, then resolves.
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(800);
+        });
+        await flush();
+        expect(resolveSave).toBeTypeOf('function');
+        await act(async () => { resolveSave!(); });
+        await flush();
+        expect(latest.cloudStatus).toBe('ok');
+
+        mockLoadRemoteSlide.mockResolvedValue({ mode: 'markdown', content: 'phone deck', updatedAt: Date.now() + 50_000 });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+        expect(latest.slide.content).toBe('phone deck');
+    });
+
+    it('a poll in flight when polling is disabled does not reschedule', async () => {
+        let resolveLoad: ((v: PresentSlide | null) => void) | null = null;
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 10_000 }));
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+
+        mockLoadRemoteSlide.mockImplementationOnce(() => new Promise(res => { resolveLoad = res; }));
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 0 }));
+        });
+        await act(async () => { resolveLoad!(null); });
+        await flush();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(60_000);
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(2);
+    });
+
     it('treats 0, negative, NaN, non-finite pollRemoteMs as no polling', async () => {
         for (const invalid of [0, -1000, Number.NaN, Number.POSITIVE_INFINITY]) {
             await act(async () => {
