@@ -20,9 +20,11 @@ import { usePresentAssist } from './hooks/usePresentAssist';
 import { sendPresentPageCommand } from './presentCommandApi';
 import { PreflightPanel } from './components/PreflightPanel';
 import { useCopilotCommand } from './hooks/useCopilotCommand';
+import { useWakeLock } from './hooks/useWakeLock';
 import { Toast, useToast } from './components/Toast';
 
 export default function PresentationControl() {
+    useWakeLock(true);
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
     const { message: toastMessage, showToast } = useToast();
     const lang = getSettings().lang;

@@ -9,6 +9,7 @@ import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
 import { useViewportScale } from './hooks/useViewportScale';
+import { useWakeLock } from './hooks/useWakeLock';
 import { useTickerSnap } from './hooks/useTickerSnap';
 import { getLocale } from './locales';
 import { Pencil, Maximize2, Minimize2, ExternalLink, Keyboard, LayoutGrid, Rows3, EyeOff, LayoutDashboard, Presentation, TrendingUp, Sunrise, Grid3x3, Play, Pause, QrCode } from 'lucide-react';
@@ -226,6 +227,7 @@ export default function PresentationPage() {
     // Projector surface: scale typography and layout with display resolution so
     // a 4K projector shows the deck at the same apparent size as a 1080p one.
     useViewportScale();
+    useWakeLock(true);
     const { ref: tickerRef, style: tickerStyle } = useTickerSnap();
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync({ pollRemoteMs: 10_000 });
     const initialSettings = React.useMemo(() => getSettings(), []);
