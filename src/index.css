@@ -18,6 +18,14 @@
  * The 16px floor keeps every display at or below 1080p pixel-identical to
  * before this rule existed; the 32px ceiling caps growth at 2x and holds it
  * there for 5K/8K. */
+/* The projector laptop is usually driven by a trackpad. A two-finger
+   horizontal swipe is the browser's go-back gesture and would leave /present
+   mid-talk; overscroll containment is what turns that gesture off. */
+html.mv-viewport-scale,
+html.mv-viewport-scale body {
+    overscroll-behavior: none;
+}
+
 html.mv-viewport-scale {
   font-size: clamp(16px, calc(100vmin / 67.5), 32px);
 }

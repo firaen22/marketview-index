@@ -34,6 +34,7 @@ import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
 import { DataFreshness } from './components/DataFreshness';
 import { usePresentCommand } from './hooks/usePresentCommand';
+import { useTrackpadGestures } from './hooks/useTrackpadGestures';
 import type { ProjectorState } from './hooks/usePresentCommand';
 import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentRange } from '../lib/presentCommand';
 import { buildGlossaryLookup, JARGON_GLOSSARY, lookupExplanation, normalizeTerm } from '../lib/jargonGlossary';
@@ -763,6 +764,19 @@ export default function PresentationPage() {
         onPageDown: useCallback(() => {
             if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.nextPage();
         }, [mainView, slide.mode]),
+    });
+
+    // Trackpad swipes and pinches act on the PDF only, like a clicker: no
+    // spotlight cycling, so an accidental brush never changes the quote card.
+    const pdfOnScreen = mainView === 'slide' && slide.mode === 'pdf';
+    useTrackpadGestures({
+        enabled: true,
+        onSwipeLeft: useCallback(() => { if (pdfOnScreen) pdfRef.current?.nextPage(); }, [pdfOnScreen]),
+        onSwipeRight: useCallback(() => { if (pdfOnScreen) pdfRef.current?.prevPage(); }, [pdfOnScreen]),
+        onPinch: useCallback((direction: 'in' | 'out') => {
+            if (!pdfOnScreen) return;
+            setPdfZoom(z => direction === 'in' ? Math.min(200, z + 25) : Math.max(25, z - 25));
+        }, [pdfOnScreen]),
     });
 
     const pinnedRaw = tickerSymbols !== null
