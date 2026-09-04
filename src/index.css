@@ -23,7 +23,7 @@
    mid-talk; overscroll containment is what turns that gesture off. */
 html.mv-viewport-scale,
 html.mv-viewport-scale body {
-    overscroll-behavior: none;
+  overscroll-behavior: none;
 }
 
 html.mv-viewport-scale {
