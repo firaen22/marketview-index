@@ -623,7 +623,7 @@ export default function PresentationPage() {
         // A kept-mounted iframe is no longer blurred by unmounting; a clicker
         // keydown would otherwise land in the hidden embed instead of window.
         const active = document.activeElement;
-        if (active instanceof HTMLIFrameElement) active.blur();
+        if (active instanceof HTMLIFrameElement && active.getAttribute('aria-hidden') === 'true') active.blur();
     }, [mainView]);
 
     useEffect(() => {
