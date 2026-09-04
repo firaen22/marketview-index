@@ -5,6 +5,7 @@ const redisState = vi.hoisted(() => ({
 }));
 const marketState = vi.hoisted(() => ({
     fetchAllIndices: vi.fn(),
+    readLastGood: vi.fn(),
 }));
 
 vi.mock('../../lib/redis.js', () => ({
@@ -14,8 +15,20 @@ vi.mock('../../lib/redis.js', () => ({
 }));
 vi.mock('../market-data.js', () => ({
     CACHE_KEY: 'global_market_cache_yfinance_v1',
+    LAST_GOOD_KEY: 'global_market_last_good_v1',
+    LAST_GOOD_TTL_SECONDS: 7 * 24 * 3600,
     fetchAllIndices: marketState.fetchAllIndices,
+    readLastGood: marketState.readLastGood,
+    // Faithful-enough stand-in: cached rows for symbols missing from `fresh`
+    // are appended, badged stale. The real one also filters by INDICES_TO_FETCH
+    // and renderability; that is covered by the market-data tests.
+    mergeCarriedForward: (fresh: any[], cached: any[]) => [
+        ...fresh,
+        ...cached.filter((c) => !fresh.some((f) => f.symbol === c.symbol)).map((c) => ({ ...c, stale: true })),
+    ],
 }));
+
+const hourlyWrites = () => redisState.set.mock.calls.filter((c) => String(c[0]).startsWith('global_market_cache_yfinance_v1'));
 
 const { default: handler } = await import('./update-market-data');
 
@@ -47,6 +60,7 @@ describe('update-market-data cron', () => {
         process.env.CRON_SECRET = 'cron-secret';
         redisState.set.mockReset().mockResolvedValue('OK');
         marketState.fetchAllIndices.mockReset();
+        marketState.readLastGood.mockReset().mockResolvedValue(null);
     });
 
     it.each([undefined, 'Bearer wrong-secret'])('rejects missing or wrong CRON_SECRET authorization (%s)', async authorization => {
@@ -87,11 +101,31 @@ describe('update-market-data cron', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body.success).toBe(false);
         expect(res.body.results['1M']).toMatchObject({ success: false });
-        expect(redisState.set).toHaveBeenCalledTimes(3);
+        expect(hourlyWrites()).toHaveLength(3);
         expect(redisState.set).not.toHaveBeenCalledWith(
             'global_market_cache_yfinance_v1_1M',
             expect.anything(),
             expect.anything(),
+        );
+    });
+
+    it('carries a still-failing symbol from last_good into the pre-warmed cache', async () => {
+        // This cron fires at 01:30, hours after the hourly cache expired, so it
+        // was exactly where a failing symbol fell out of the morning payload.
+        marketState.fetchAllIndices.mockResolvedValue([{ symbol: 'A' }]);
+        marketState.readLastGood.mockImplementation(async (range: string) => (
+            range === '1M' ? { data: [{ symbol: 'A' }, { symbol: 'B', price: 7 }] } : null
+        ));
+
+        const res = await call('Bearer cron-secret');
+
+        expect(res.body.results['1M']).toEqual({ success: true, count: 2 });
+        const hourly = hourlyWrites().find((c) => c[0] === 'global_market_cache_yfinance_v1_1M')!;
+        expect(JSON.parse(hourly[1]).data).toContainEqual({ symbol: 'B', price: 7, stale: true });
+        expect(redisState.set).toHaveBeenCalledWith(
+            'global_market_last_good_v1_1M',
+            expect.stringContaining('"symbol":"B"'),
+            { ex: 7 * 24 * 3600 },
         );
     });
 
@@ -107,7 +141,7 @@ describe('update-market-data cron', () => {
         expect(res.body.success).toBe(false);
         expect(res.body.results['3M']).toMatchObject({ success: false });
         expect(res.body.results['1M']).toEqual({ success: true, count: 1 });
-        expect(redisState.set).toHaveBeenCalledTimes(3);
+        expect(hourlyWrites()).toHaveLength(3);
         expect(redisState.set).not.toHaveBeenCalledWith(
             'global_market_cache_yfinance_v1_3M',
             expect.anything(),

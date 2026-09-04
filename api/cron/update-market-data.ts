@@ -1,5 +1,8 @@
 import { redis } from '../../lib/redis.js';
-import { fetchAllIndices, CACHE_KEY } from '../market-data.js';
+import {
+  fetchAllIndices, mergeCarriedForward, readLastGood,
+  CACHE_KEY, LAST_GOOD_KEY, LAST_GOOD_TTL_SECONDS,
+} from '../market-data.js';
 
 // Deliberately a subset of VALID_RANGES: pre-warming all seven would multiply
 // this cron's Yahoo fan-out past the function timeout. The extra ranges
@@ -20,10 +23,19 @@ export default async function handler(req: any, res: any) {
   const results: Record<string, { success: boolean; count?: number; error?: string }> = {};
   for (const range of RANGES) {
     try {
-      const data = await fetchAllIndices(range);
-      if (!Array.isArray(data) || data.length === 0) {
+      const fresh = await fetchAllIndices(range);
+      if (!Array.isArray(fresh) || fresh.length === 0) {
         throw new Error('No valid market data returned');
       }
+      // This cron fires at 01:30, hours after the hourly cache expired, so it
+      // was exactly where a still-failing symbol fell out: nothing to carry it
+      // from, and the payload written here — the one the morning presentation
+      // opens on — was one tile short, with no Delayed badge because there was
+      // no tile to badge. Carry from last_good, as api/market-data.ts does.
+      const lastGood = await readLastGood(range);
+      const data = Array.isArray(lastGood?.data)
+        ? mergeCarriedForward(fresh, lastGood.data)
+        : fresh;
       // Same contract as api/market-data.ts: synthesized (estimated) entries
       // must never be cached — skipping the write keeps whatever clean data
       // is already in Redis instead of overwriting it for an hour.
@@ -37,6 +49,7 @@ export default async function handler(req: any, res: any) {
         data,
       };
       await redis.set(`${CACHE_KEY}_${range}`, JSON.stringify(payload), { ex: 3600 });
+      await redis.set(`${LAST_GOOD_KEY}_${range}`, JSON.stringify(payload), { ex: LAST_GOOD_TTL_SECONDS });
       results[range] = { success: true, count: data.length };
     } catch (error: any) {
       console.error(`Cron pre-warm failed for range ${range}:`, error);
