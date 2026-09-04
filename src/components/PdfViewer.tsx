@@ -31,11 +31,17 @@ export const PDF_SLOW_LOAD_HINT_MS = 30_000;
 
 interface Props {
     url: string;
+    initialPage?: number;
     zoom?: number;
     keyboardEnabled?: boolean;
     onPageText?: (page: number, text: string, imageDataUrl?: string) => void;
     onPageChange?: (page: number) => void;
     lang?: 'en' | 'zh-TW';
+}
+
+export function clampInitialPage(value: unknown, numPages: number): number {
+    if (numPages < 1 || typeof value !== 'number' || !Number.isFinite(value) || value < 1) return 1;
+    return Math.min(numPages, value);
 }
 
 export interface PdfViewerHandle {
@@ -47,7 +53,7 @@ export interface PdfViewerHandle {
     goToPage: (page: number | 'last') => boolean;
 }
 
-export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, keyboardEnabled = true, onPageText, onPageChange, lang = 'en' }, ref) => {
+export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, initialPage, zoom = 100, keyboardEnabled = true, onPageText, onPageChange, lang = 'en' }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const uiScale = useRootScale();
     const L = getLocale(lang).present;
@@ -69,6 +75,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
     const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
     const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const initialPageRef = useRef(initialPage);
+    const initialPageAppliedRef = useRef(false);
 
     useEffect(() => { LRef.current = L; });
 
@@ -101,6 +109,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(({ url, zoom = 100, 
             .then(doc => {
                 window.clearTimeout(hintTimer);
                 if (cancelled) { doc.destroy(); return; }
+                setPageNum(initialPageAppliedRef.current ? 1 : clampInitialPage(initialPageRef.current, doc.numPages));
+                initialPageAppliedRef.current = true;
                 setPdf(doc); setNumPages(doc.numPages); setLoading(false);
             })
             .catch(err => {

@@ -27,12 +27,19 @@ export interface PresentSlide {
     updatedAt: number;
 }
 
+export interface PresentResume {
+    view: PresentView;
+    pdfPage: number;
+    slideUpdatedAt: number;
+}
+
 interface MarketFlowSettings {
     lang: 'en' | 'zh-TW';
     chartMode: 'nominal' | 'percent';
     showFunds: boolean;
     geminiKey: string;
     presentSlide: PresentSlide;
+    presentResume: PresentResume | null;
     tickerSymbols: string[] | null;
     morningBrief: string[];
     presentCycle: PresentCycle;
@@ -65,6 +72,7 @@ const DEFAULTS: MarketFlowSettings = {
     showFunds: true,
     geminiKey: '',
     presentSlide: DEFAULT_SLIDE,
+    presentResume: null,
     tickerSymbols: null,
     morningBrief: [],
     presentCycle: DEFAULT_PRESENT_CYCLE,
@@ -132,6 +140,19 @@ function normalizePresentSlide(value: unknown): PresentSlide {
     return { mode: slide.mode as PresentSlideMode, content: slide.content, updatedAt: slide.updatedAt };
 }
 
+export function normalizePresentResume(value: unknown): PresentResume | null {
+    if (!value || typeof value !== 'object') return null;
+    const resume = value as Record<string, unknown>;
+    if (!PRESENT_VIEWS.includes(resume.view as PresentView)) return null;
+    if (typeof resume.pdfPage !== 'number' || !Number.isFinite(resume.pdfPage) || resume.pdfPage < 1) return null;
+    if (typeof resume.slideUpdatedAt !== 'number' || !Number.isFinite(resume.slideUpdatedAt)) return null;
+    return {
+        view: resume.view as PresentView,
+        pdfPage: resume.pdfPage,
+        slideUpdatedAt: resume.slideUpdatedAt,
+    };
+}
+
 function stringArray(value: unknown): string[] | null {
     if (!Array.isArray(value)) return null;
     return value.filter((v): v is string => typeof v === 'string');
@@ -146,6 +167,7 @@ function withNormalizedSettings(value: Partial<MarketFlowSettings>): MarketFlowS
         showFunds: typeof value.showFunds === 'boolean' ? value.showFunds : DEFAULTS.showFunds,
         geminiKey: typeof value.geminiKey === 'string' ? value.geminiKey : DEFAULTS.geminiKey,
         presentSlide: normalizePresentSlide(value.presentSlide),
+        presentResume: normalizePresentResume(value.presentResume),
         tickerSymbols: value.tickerSymbols === null ? null : stringArray(value.tickerSymbols) ?? DEFAULTS.tickerSymbols,
         morningBrief: stringArray(value.morningBrief) ?? DEFAULTS.morningBrief,
         presentCycle: normalizePresentCycle(value.presentCycle),
@@ -181,6 +203,7 @@ function loadFromStorage(): MarketFlowSettings {
         })(),
         geminiKey: safeGetItem('user_gemini_key') || DEFAULTS.geminiKey,
         presentSlide: DEFAULTS.presentSlide,
+        presentResume: DEFAULTS.presentResume,
         tickerSymbols: DEFAULTS.tickerSymbols,
         morningBrief: DEFAULTS.morningBrief,
         presentCycle: DEFAULTS.presentCycle,
