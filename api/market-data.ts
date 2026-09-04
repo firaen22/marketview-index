@@ -131,7 +131,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 2. 如果是 Cron 時段 (早上 9 點)、強制更新、或 Redis 內完全沒資料，就拉取新資料並寫入 Redis
     if (isCron || forceRefresh || !parsedCache) {
       console.log(`Fetching fresh data for range ${range} from Yahoo Finance...`);
-      const freshData = await fetchAllIndices(range);
+      const freshData = await fetchAllIndices(range, Boolean(parsedCache));
       const mergedData = Array.isArray(parsedCache?.data)
         ? mergeCarriedForward(freshData, parsedCache.data)
         : freshData;
@@ -144,7 +144,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       };
 
       const hasEstimatedData = mergedData.some((item: any) => item.estimated === true);
-      if (redis && !hasEstimatedData) {
+      // A symbol whose quote AND chart both failed is `continue`d, not marked
+      // estimated, so an incomplete payload used to look clean to the check
+      // above and get cached for an hour. That persists a HOLE: the tile is
+      // absent, so it carries no Delayed badge either, and every request until
+      // the TTL expires serves the gap. Only cache a payload that covers every
+      // symbol — an incomplete one is still returned to this caller, just not
+      // remembered.
+      const isComplete = mergedData.length === INDICES_TO_FETCH.length;
+      if (redis && !hasEstimatedData && isComplete) {
         // Cache expires in 1 hour
         await redis.set(RANGE_CACHE_KEY, JSON.stringify(payload), { ex: 3600 });
       }
@@ -209,6 +217,7 @@ export async function fetchYahooTwFundHistory(
   period1: string,
   period2: string,
   interval: '1d' | '1wk',
+  signal?: AbortSignal,
 ): Promise<Array<{ date: Date; close: number }>> {
   const timeslot = `${period1}T00:00:00Z-${period2}T23:59:59Z`;
   const url = 'https://tw.stock.yahoo.com/_td-stock/api/resource/FundServices.fundsPriceHistory'
@@ -217,7 +226,9 @@ export async function fetchYahooTwFundHistory(
     // 5s, not 8s: quote() runs before this and the Yahoo Finance chart
     // fallback after it, so a stalled TW call at 8s pushed the whole refresh
     // against a 10s function budget (sweep 20). Live latency is ~1s.
-    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    // A caller-supplied signal SHARES one budget with that chart fallback, so
+    // the two cannot burn 5s each in sequence — see fetchAllIndices.
+    const response = await fetch(url, { signal: signal ?? AbortSignal.timeout(5000) });
     if (!response.ok) return [];
     const body: any = await response.json();
     const dates: unknown[] = Array.isArray(body?.dates) ? body.dates : [];
@@ -241,7 +252,22 @@ export async function fetchYahooTwFundHistory(
   }
 }
 
-export async function fetchAllIndices(range: string) {
+/**
+ * `hasFrozenFallback` says whether the caller holds a cached payload it can
+ * serve if this throws. It decides what a batch-quote failure means:
+ *
+ * - WITH a fallback, rethrowing is the better outcome. The handler's catch
+ *   serves `server_stale_cache` — real data, badged Delayed — and it does so
+ *   at ~5s. Carrying on instead would spend another 5s on charts and push the
+ *   request into Vercel's ~10s kill, and a killed function NEVER runs the
+ *   catch, so the projector would get nothing at all rather than frozen data.
+ * - WITHOUT one, there is nothing to fall back to, so chart-only is strictly
+ *   better than the 'No Cache Available' blank screen: the `!quote` path below
+ *   builds a full item from chart history, and `results.length === 0` still
+ *   throws if even that fails.
+ */
+export async function fetchAllIndices(range: string, hasFrozenFallback = false) {
+  const startedAt = Date.now();
   const symbols = INDICES_TO_FETCH.map(i => i.symbol);
   let quotes: any[] = [];
   try {
@@ -249,7 +275,9 @@ export async function fetchAllIndices(range: string) {
       fetchOptions: { signal: AbortSignal.timeout(5000) },
     });
   } catch (err: any) {
-    throw new Error('Failed to fetch from Yahoo Finance in batch: ' + err.message);
+    if (hasFrozenFallback) throw err;
+    console.warn('Yahoo Finance batch quote failed, building from charts only:', err?.message);
+    quotes = [];
   }
 
   // Calculate dynamic start date based on range
@@ -283,14 +311,24 @@ export async function fetchAllIndices(range: string) {
   // Fetch true dynamic history in parallel. Entries with a twFundId take
   // their NAV series from Yahoo Taiwan first and only fall back to Yahoo
   // Finance's chart when that fetch fails or comes back empty.
+  // ONE deadline for the whole chart phase, not one per request. A twFundId
+  // entry awaits Yahoo TW and only then its chart fallback, so per-request 5s
+  // budgets let that single symbol spend 10s — on top of the 5s quote above,
+  // ~15s against a function budget with no maxDuration set in vercel.json
+  // (Vercel's default is ~10s). A killed function never runs the handler's
+  // catch, so overrunning costs the frozen-cache fallback entirely. Sharing
+  // one signal caps the phase however the fallbacks chain, and the remaining
+  // budget accounts for the time quote() already spent.
+  const chartBudgetMs = Math.max(1500, 8000 - (Date.now() - startedAt));
+  const chartSignal = AbortSignal.timeout(chartBudgetMs);
   const rawHistories = await Promise.all(INDICES_TO_FETCH.map(async (index: any) => {
     if (index.twFundId) {
-      const tw = await fetchYahooTwFundHistory(index.twFundId, period1, period2, interval);
+      const tw = await fetchYahooTwFundHistory(index.twFundId, period1, period2, interval, chartSignal);
       if (tw.length > 0) return { quotes: tw };
       console.warn(`Symbol ${index.symbol}: Yahoo TW history empty, falling back to Yahoo Finance chart`);
     }
     return yahooFinance.chart(index.symbol, { period1, period2, interval }, {
-      fetchOptions: { signal: AbortSignal.timeout(5000) },
+      fetchOptions: { signal: chartSignal },
     }).catch(() => ({ quotes: [] }));
   }));
 
@@ -298,7 +336,14 @@ export async function fetchAllIndices(range: string) {
   for (let idx = 0; idx < INDICES_TO_FETCH.length; idx++) {
     const index = INDICES_TO_FETCH[idx] as any;
     const quote = quotes.find((q: any) => q.symbol === index.symbol);
-    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt && Number.isFinite(pt.close) && pt.close > 0);
+    // A malformed date survives a close-only filter and then throws RangeError
+    // at `new Date(pt.date).toISOString()` below — which escapes fetchAllIndices
+    // and freezes the WHOLE payload, not just this symbol. Reject unparseable
+    // dates the way fetchYahooTwFundHistory already does; an ABSENT date stays
+    // allowed, since it is handled as "unknown" downstream.
+    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt
+      && Number.isFinite(pt.close) && pt.close > 0
+      && (pt.date === undefined || pt.date === null || !Number.isNaN(new Date(pt.date).getTime())));
     // Yahoo's quote endpoint silently drops some mutual-fund symbols (0P00000EBQ
     // vanished from the batch on 2026-09-02) while its chart endpoint still
     // serves the full NAV history. Only skip when BOTH are empty; a chart-only
@@ -348,7 +393,12 @@ export async function fetchAllIndices(range: string) {
       const priceless = !quote || !(price > 0);
       if ((index.category === 'Fund' || priceless) && lastClose > 0) {
         price = lastClose;
-        if (priceless) { open = price; high = price; low = price; }
+        // The quote's OHLC describes the quote's own (for funds, often
+        // months-old) price, not the chart close just substituted for it —
+        // prod served the gold fund at price 112.5 under High/Low 114.6 on
+        // 2026-09-05, i.e. a price outside its own day range on the card.
+        // A fund publishes one NAV per day, so the range collapses to it.
+        open = price; high = price; low = price;
         if (chartData.length > 1) {
           const prevDayClose = chartData[chartData.length - 2].close;
           change = price - prevDayClose;
@@ -382,6 +432,15 @@ export async function fetchAllIndices(range: string) {
       }
       history = [];
       estimated = true;
+      // Badge EVERY estimated tile, not just funds. The ytdChange above is
+      // synthesised from fiftyTwoWeekLow — it is not a real YTD — and the
+      // sparkline is empty, yet no client reads `estimated`, so the invented
+      // figure renders as fact. mergeCarriedForward only rescues this when a
+      // cache row exists; with a cold cache the tile survives as-is, which is
+      // exactly the stale-without-a-banner case. A fund's quote NAV may also
+      // be months old. An index's price is still live, so `stale` slightly
+      // over-states the problem here — the safe direction under the invariant.
+      stale = true;
     }
 
     results.push({
@@ -411,16 +470,46 @@ export async function fetchAllIndices(range: string) {
   return results;
 }
 
+/**
+ * A cached row is only worth carrying if it can actually render. `/` reaches
+ * MarketStatCard through useDashboardData, which — unlike useMarketData —
+ * applies no `usableQuotes` gate, and the card dereferences
+ * `changePercent.toFixed`, `ytdChangePercent.toFixed` and
+ * `low/high.toLocaleString()` unguarded. A cache row from an older deploy with
+ * a different item shape would therefore throw during render and blank the
+ * dashboard. Mirrors the field list in useMarketData.usableQuotes.
+ */
+function isRenderable(item: any) {
+  return Number.isFinite(item?.price)
+    && Number.isFinite(item?.changePercent)
+    && Number.isFinite(item?.ytdChangePercent)
+    && Number.isFinite(item?.low)
+    && Number.isFinite(item?.high)
+    && Array.isArray(item?.history);
+}
+
 export function mergeCarriedForward(fresh: any[], cachedData: any[]) {
-  const freshSymbols = new Set(fresh.map((item: any) => item?.symbol));
+  // An `estimated` item is the chart-failed fallback: empty history (blank
+  // sparkline) and a ytdChange synthesised from fiftyTwoWeekLow, rendered by
+  // the client with no cue at all. When the previous payload still holds real
+  // data for that symbol it is strictly better, badged stale — so treat an
+  // estimated item as absent and let the carry-forward below replace it.
+  const freshSymbols = new Set(
+    fresh.filter((item: any) => item?.estimated !== true).map((item: any) => item?.symbol),
+  );
   const carried = INDICES_TO_FETCH
     .map(index => cachedData.find((item: any) => item && typeof item === 'object' && typeof item.symbol === 'string' && item.symbol === index.symbol))
-    .filter((item: any) => item && !freshSymbols.has(item.symbol))
+    .filter((item: any) => item && !freshSymbols.has(item.symbol) && isRenderable(item))
     .map((item: any) => ({ ...item, stale: true }));
 
   if (carried.length === 0) return fresh;
 
-  return [...fresh, ...carried].sort((a: any, b: any) => (
+  // Only drop an estimated item when something real actually replaced it;
+  // with no cached entry the symbol still has to appear.
+  const carriedSymbols = new Set(carried.map((item: any) => item.symbol));
+  const kept = fresh.filter((item: any) => item?.estimated !== true || !carriedSymbols.has(item?.symbol));
+
+  return [...kept, ...carried].sort((a: any, b: any) => (
     INDICES_TO_FETCH.findIndex(index => index.symbol === a.symbol)
     - INDICES_TO_FETCH.findIndex(index => index.symbol === b.symbol)
   ));
