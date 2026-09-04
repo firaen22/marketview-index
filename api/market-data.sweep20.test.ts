@@ -90,10 +90,18 @@ describe('market-data sweep 20 hardening', () => {
         for (const args of state.chartCalls) {
             expect(args[2].fetchOptions.signal).toBeInstanceOf(AbortSignal);
         }
-        expect(new Set(state.chartCalls.map((args) => args[2].fetchOptions.signal)).size).toBe(state.chartCalls.length);
+        // Reversed in sweep 21 round 2. This asserted one FRESH signal per chart
+        // call; the phase now shares ONE. Per-call budgets meant a twFundId
+        // entry could spend 5s on Yahoo TW and then another 5s on its chart
+        // fallback — sequentially, on top of the 5s quote — about 15s against a
+        // function budget with no maxDuration set (Vercel default ~10s), and a
+        // killed function never runs the handler's frozen-cache catch. These
+        // calls are launched together by Promise.all, so one shared deadline
+        // bounds the whole phase however the fallbacks chain.
+        expect(new Set(state.chartCalls.map((args) => args[2].fetchOptions.signal)).size).toBe(1);
     });
 
-    it('marks old real history stale, leaves current history unflagged, and does not mark estimated fallback', async () => {
+    it('marks old real history stale, leaves current history unflagged, and badges the estimated fallback', async () => {
         const results = await fetchAllIndices('YTD');
 
         const oldIndex = results.find((item) => item.symbol === '^HSI')!;
@@ -108,7 +116,12 @@ describe('market-data sweep 20 hardening', () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('down', { status: 503 }))));
         const estimated = (await fetchAllIndices('YTD')).find((item) => item.symbol === '^HSI')!;
         expect(estimated.estimated).toBe(true);
-        expect(estimated).not.toHaveProperty('stale');
+        // Reversed in sweep 21 round 2. This asserted an estimated fallback is
+        // NOT stale. But its ytdChange is synthesised from fiftyTwoWeekLow and
+        // its sparkline is empty, and no client reads `estimated` — so the
+        // invented figure rendered as fact with no cue at all. Badging is the
+        // safe direction under the projector invariant.
+        expect(estimated.stale).toBe(true);
     });
 
     // NIM (sweep 20 review): Yahoo dates weekly bars at the week's start, so
@@ -136,16 +149,23 @@ describe('market-data sweep 20 hardening', () => {
 
     it('merges only valid cached in-scope missing symbols in index order', () => {
         const fresh = [{ symbol: '^GSPC', price: 1 }];
+        // Full-shape since sweep 21 round 2: a carried row is now also required
+        // to be RENDERABLE, because `/` reaches MarketStatCard through
+        // useDashboardData, which applies no usableQuotes gate.
+        const hsi = {
+            symbol: '^HSI', price: 4, changePercent: 1, ytdChangePercent: 1,
+            low: 3, high: 5, history: [],
+        };
         const cached = [
             null,
             { price: 2 },
             { symbol: 'OUT-OF-SCOPE', price: 3 },
-            { symbol: '^HSI', price: 4 },
+            hsi,
         ];
 
         expect(mergeCarriedForward(fresh, cached)).toEqual([
             { symbol: '^GSPC', price: 1 },
-            { symbol: '^HSI', price: 4, stale: true },
+            { ...hsi, stale: true },
         ]);
         expect(mergeCarriedForward(fresh, [])).toEqual(fresh);
     });
@@ -155,7 +175,11 @@ describe('market-data sweep 20 hardening', () => {
         state.emptyChartSymbol = '^HSI';
         state.redis.get.mockResolvedValue(JSON.stringify({
             success: true,
-            data: [{ symbol: '^HSI', price: 321, history: [] }],
+            // Full-shape since sweep 21 round 2 — carried rows must be renderable.
+            data: [{
+                symbol: '^HSI', price: 321, changePercent: 1, ytdChangePercent: 1,
+                low: 320, high: 322, history: [],
+            }],
         }));
         vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('down', { status: 503 }))));
 

@@ -49,7 +49,11 @@ describe('sweep 21 — quote present but chart empty', () => {
         state.emptyChartSymbol = '^HSI';
         state.redis.get.mockResolvedValue(JSON.stringify({
             success: true,
-            data: [{ symbol: '^HSI', price: 321, history: [{ value: 321, date: new Date().toISOString() }] }],
+            // Full-shape since round 2 — carried rows must be renderable.
+            data: [{
+                symbol: '^HSI', price: 321, changePercent: 1, ytdChangePercent: 1,
+                low: 320, high: 322, history: [{ value: 321, date: new Date().toISOString() }],
+            }],
         }));
 
         const res = makeRes();
