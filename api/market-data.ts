@@ -249,7 +249,14 @@ export async function fetchAllIndices(range: string) {
       fetchOptions: { signal: AbortSignal.timeout(5000) },
     });
   } catch (err: any) {
-    throw new Error('Failed to fetch from Yahoo Finance in batch: ' + err.message);
+    // Do NOT rethrow. Aborting here skips every chart fetch, so on a cold cache
+    // the handler answered 'API Error and No Cache Available' with no data at
+    // all — a blank projector. The 5s deadline added in sweep 20 made a slow
+    // 24-symbol batch a hard miss rather than a slow success, so degrade to
+    // chart-only instead: the `!quote` path below already builds a full item
+    // from chart history, and results.length === 0 still throws if that fails.
+    console.warn('Yahoo Finance batch quote failed, building from charts only:', err?.message);
+    quotes = [];
   }
 
   // Calculate dynamic start date based on range
@@ -298,7 +305,14 @@ export async function fetchAllIndices(range: string) {
   for (let idx = 0; idx < INDICES_TO_FETCH.length; idx++) {
     const index = INDICES_TO_FETCH[idx] as any;
     const quote = quotes.find((q: any) => q.symbol === index.symbol);
-    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt && Number.isFinite(pt.close) && pt.close > 0);
+    // A malformed date survives a close-only filter and then throws RangeError
+    // at `new Date(pt.date).toISOString()` below — which escapes fetchAllIndices
+    // and freezes the WHOLE payload, not just this symbol. Reject unparseable
+    // dates the way fetchYahooTwFundHistory already does; an ABSENT date stays
+    // allowed, since it is handled as "unknown" downstream.
+    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt
+      && Number.isFinite(pt.close) && pt.close > 0
+      && (pt.date === undefined || pt.date === null || !Number.isNaN(new Date(pt.date).getTime())));
     // Yahoo's quote endpoint silently drops some mutual-fund symbols (0P00000EBQ
     // vanished from the batch on 2026-09-02) while its chart endpoint still
     // serves the full NAV history. Only skip when BOTH are empty; a chart-only
@@ -348,7 +362,12 @@ export async function fetchAllIndices(range: string) {
       const priceless = !quote || !(price > 0);
       if ((index.category === 'Fund' || priceless) && lastClose > 0) {
         price = lastClose;
-        if (priceless) { open = price; high = price; low = price; }
+        // The quote's OHLC describes the quote's own (for funds, often
+        // months-old) price, not the chart close just substituted for it —
+        // prod served the gold fund at price 112.5 under High/Low 114.6 on
+        // 2026-09-05, i.e. a price outside its own day range on the card.
+        // A fund publishes one NAV per day, so the range collapses to it.
+        open = price; high = price; low = price;
         if (chartData.length > 1) {
           const prevDayClose = chartData[chartData.length - 2].close;
           change = price - prevDayClose;
@@ -382,6 +401,11 @@ export async function fetchAllIndices(range: string) {
       }
       history = [];
       estimated = true;
+      // A fund's regularMarketPrice is often months stale (see the note above),
+      // and with no chart there is nothing left to validate it against — so an
+      // estimated fund tile is precisely the stale-without-a-banner case. An
+      // index keeps its live quote price, so only funds are badged here.
+      if (index.category === 'Fund') stale = true;
     }
 
     results.push({
@@ -412,7 +436,14 @@ export async function fetchAllIndices(range: string) {
 }
 
 export function mergeCarriedForward(fresh: any[], cachedData: any[]) {
-  const freshSymbols = new Set(fresh.map((item: any) => item?.symbol));
+  // An `estimated` item is the chart-failed fallback: empty history (blank
+  // sparkline) and a ytdChange synthesised from fiftyTwoWeekLow, rendered by
+  // the client with no cue at all. When the previous payload still holds real
+  // data for that symbol it is strictly better, badged stale — so treat an
+  // estimated item as absent and let the carry-forward below replace it.
+  const freshSymbols = new Set(
+    fresh.filter((item: any) => item?.estimated !== true).map((item: any) => item?.symbol),
+  );
   const carried = INDICES_TO_FETCH
     .map(index => cachedData.find((item: any) => item && typeof item === 'object' && typeof item.symbol === 'string' && item.symbol === index.symbol))
     .filter((item: any) => item && !freshSymbols.has(item.symbol))
@@ -420,7 +451,12 @@ export function mergeCarriedForward(fresh: any[], cachedData: any[]) {
 
   if (carried.length === 0) return fresh;
 
-  return [...fresh, ...carried].sort((a: any, b: any) => (
+  // Only drop an estimated item when something real actually replaced it;
+  // with no cached entry the symbol still has to appear.
+  const carriedSymbols = new Set(carried.map((item: any) => item.symbol));
+  const kept = fresh.filter((item: any) => item?.estimated !== true || !carriedSymbols.has(item?.symbol));
+
+  return [...kept, ...carried].sort((a: any, b: any) => (
     INDICES_TO_FETCH.findIndex(index => index.symbol === a.symbol)
     - INDICES_TO_FETCH.findIndex(index => index.symbol === b.symbol)
   ));
