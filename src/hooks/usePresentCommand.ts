@@ -4,6 +4,12 @@ import { isExecutablePresentCommand, PAGE_COMMAND_FRESH_MS, shouldExecute } from
 import { authHeaders } from '../presentCommandApi';
 
 const POLL_MS = 2500;
+// A delivered command means the phone remote is in play; 2.5s then dominates
+// perceived lag. Drop to 1s for a minute after each hit, then revert. Failure
+// backoff still wins while errors continue — a faster retry on a dead socket
+// just piles on.
+export const FAST_POLL_MS = 1000;
+export const ACTIVE_WINDOW_MS = 60_000;
 // fetch() has no default timeout: a stalled socket (flaky venue wifi) never
 // settles, and since the next poll is only armed after the previous one
 // resolves, one hung request would silently end page-turn delivery for the rest
@@ -93,7 +99,9 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
 
         let timeout: number | null = null;
         let stopped = false;
+        let inFlight = false;
         let failureCount = 0;
+        let lastDeliveredAt: number | null = null;
         let controller: AbortController | null = null;
         const pendingPageAckIds: string[] = [];
 
@@ -107,6 +115,10 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
         };
 
         const run = async () => {
+            // Two overlapping polls can double-execute a page turn on stage;
+            // skip rather than start a second in-flight request.
+            if (stopped || inFlight) return;
+            inFlight = true;
             controller = new AbortController();
             const pollController = controller;
             const timeoutId = window.setTimeout(() => pollController.abort(), POLL_TIMEOUT_MS);
@@ -114,34 +126,71 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
             // A null-state poll uses the bare URL, which cannot carry acks — send
             // none so pending ids survive until a projector-state poll transmits them.
             const ackIds = state ? [...pendingPageAckIds] : [];
-            const result = await fetchPresentCommand(pollController.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state, ackIds);
-            window.clearTimeout(timeoutId);
-            if (stopped) return;
+            try {
+                const result = await fetchPresentCommand(pollController.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state, ackIds);
+                if (stopped) return;
 
-            if (result.ok) {
-                for (const id of ackIds) {
-                    const index = pendingPageAckIds.indexOf(id);
-                    if (index !== -1) pendingPageAckIds.splice(index, 1);
-                }
-                failureCount = 0;
-                // Page commands execute in tap order and are acknowledged on the
-                // next successful projector poll only after the callback succeeds.
-                for (const pageCommand of result.pageCommands) {
-                    if (invokeCommand(pageCommand)) pendingPageAckIds.push(pageCommand.id);
-                }
-                const command = result.command;
-                if (command && shouldExecute(command, lastExecutedIdRef.current, result.serverTime)) {
-                    if (invokeCommand(command)) {
-                        lastExecutedIdRef.current = command.id;
+                if (result.ok) {
+                    for (const id of ackIds) {
+                        const index = pendingPageAckIds.indexOf(id);
+                        if (index !== -1) pendingPageAckIds.splice(index, 1);
                     }
+                    failureCount = 0;
+                    let delivered = false;
+                    // Page commands execute in tap order and are acknowledged on the
+                    // next successful projector poll only after the callback succeeds.
+                    for (const pageCommand of result.pageCommands) {
+                        if (invokeCommand(pageCommand)) pendingPageAckIds.push(pageCommand.id);
+                        delivered = true;
+                    }
+                    const command = result.command;
+                    if (command && shouldExecute(command, lastExecutedIdRef.current, result.serverTime)) {
+                        if (invokeCommand(command)) {
+                            lastExecutedIdRef.current = command.id;
+                        }
+                        delivered = true;
+                    }
+                    if (delivered) lastDeliveredAt = Date.now();
+                    const interval = lastDeliveredAt !== null && Date.now() - lastDeliveredAt < ACTIVE_WINDOW_MS
+                        ? FAST_POLL_MS
+                        : POLL_MS;
+                    timeout = window.setTimeout(run, interval);
+                    return;
                 }
-                timeout = window.setTimeout(run, POLL_MS);
-                return;
-            }
 
-            failureCount += 1;
-            timeout = window.setTimeout(run, presentCommandBackoffMs(failureCount));
+                failureCount += 1;
+                timeout = window.setTimeout(run, presentCommandBackoffMs(failureCount));
+            } finally {
+                window.clearTimeout(timeoutId);
+                inFlight = false;
+            }
         };
+
+        // Backgrounded tabs throttle timers (often to 10s+); a brief offline
+        // gap is the same. On wake, drop the pending interval and poll now —
+        // but never overlap an in-flight request (double page-turn on stage).
+        const pollNow = () => {
+            if (stopped || inFlight) return;
+            if (timeout !== null) {
+                window.clearTimeout(timeout);
+                timeout = null;
+            }
+            void run();
+        };
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState !== 'visible') return;
+            pollNow();
+        };
+
+        const canSubscribe = typeof document !== 'undefined'
+            && typeof document.addEventListener === 'function'
+            && typeof window !== 'undefined'
+            && typeof window.addEventListener === 'function';
+        if (canSubscribe) {
+            document.addEventListener('visibilitychange', onVisibilityChange);
+            window.addEventListener('online', pollNow);
+        }
 
         void run();
 
@@ -149,6 +198,10 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
             stopped = true;
             controller?.abort();
             if (timeout !== null) window.clearTimeout(timeout);
+            if (canSubscribe) {
+                document.removeEventListener('visibilitychange', onVisibilityChange);
+                window.removeEventListener('online', pollNow);
+            }
         };
     }, [enabled]);
 }
