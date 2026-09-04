@@ -25,9 +25,15 @@ export interface UseSlideSyncResult {
     sizeWarning: string | null;
 }
 
-export function useSlideSync(): UseSlideSyncResult {
+export interface UseSlideSyncOptions {
+    pollRemoteMs?: number;
+}
+
+export function useSlideSync(options?: UseSlideSyncOptions): UseSlideSyncResult {
     const [slide, setSlide] = useState<PresentSlide>(() => getSettings().presentSlide);
     const [cloudStatus, setCloudStatus] = useState<CloudStatus>('idle');
+    const cloudStatusRef = useRef(cloudStatus);
+    cloudStatusRef.current = cloudStatus;
     const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
     const [sizeWarning, setSizeWarning] = useState<string | null>(null);
     const [, setTick] = useState(0);
@@ -46,6 +52,16 @@ export function useSlideSync(): UseSlideSyncResult {
         return () => { mountedRef.current = false; };
     }, []);
 
+    const applyRemote = (remote: PresentSlide | null) => {
+        if (!mountedRef.current) return;
+        // Never overwrite if a local edit is waiting to save or in flight
+        if (saveTimerRef.current !== null || cloudStatusRef.current === 'saving') return;
+        if (remote && isValidPresentSlide(remote) && remote.updatedAt > slideRef.current.updatedAt) {
+            setSlide(remote);
+            setSetting('presentSlide', remote);
+        }
+    };
+
     // Periodic tick to keep "saved Ns ago" label fresh
     useEffect(() => {
         const id = setInterval(() => setTick(t => t + 1), 15000);
@@ -54,13 +70,72 @@ export function useSlideSync(): UseSlideSyncResult {
 
     // Load remote slide on mount (overrides local if newer)
     useEffect(() => {
-        loadRemoteSlide().then(remote => {
-            if (remote && remote.updatedAt > slideRef.current.updatedAt) {
-                setSlide(remote);
-                setSetting('presentSlide', remote);
-            }
-        });
+        loadRemoteSlide().then(applyRemote).catch(() => {});
     }, []);
+
+    const pollRemoteMs = options?.pollRemoteMs;
+    const shouldPoll = typeof pollRemoteMs === 'number' && Number.isFinite(pollRemoteMs) && pollRemoteMs > 0;
+
+    // Periodic remote polling for unattended displays (e.g. projector)
+    useEffect(() => {
+        if (!shouldPoll) return;
+
+        let pollTimer: number | null = null;
+        let inFlight = false;
+
+        const schedulePoll = (ms: number) => {
+            if (!mountedRef.current) return;
+            if (pollTimer !== null) clearTimeout(pollTimer);
+            pollTimer = window.setTimeout(poll, ms);
+        };
+
+        const poll = async () => {
+            pollTimer = null;
+            if (!mountedRef.current) return;
+
+            // Background tabs sleep to save battery/bandwidth; visibilitychange catches up on wake.
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+                schedulePoll(pollRemoteMs);
+                return;
+            }
+
+            if (inFlight) return;
+            inFlight = true;
+            try {
+                const remote = await loadRemoteSlide();
+                applyRemote(remote);
+            } catch {
+                // Silently ignore network or validation errors during polling
+            } finally {
+                inFlight = false;
+                if (mountedRef.current) {
+                    schedulePoll(pollRemoteMs);
+                }
+            }
+        };
+
+        const onVisibilityChange = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+                if (!inFlight) {
+                    if (pollTimer !== null) clearTimeout(pollTimer);
+                    poll();
+                }
+            }
+        };
+
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', onVisibilityChange);
+        }
+
+        schedulePoll(pollRemoteMs);
+
+        return () => {
+            if (pollTimer !== null) clearTimeout(pollTimer);
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', onVisibilityChange);
+            }
+        };
+    }, [shouldPoll, pollRemoteMs]);
 
     // Cross-tab localStorage sync
     useEffect(() => {

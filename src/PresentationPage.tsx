@@ -225,7 +225,7 @@ export default function PresentationPage() {
     // a 4K projector shows the deck at the same apparent size as a 1080p one.
     useViewportScale();
     const { ref: tickerRef, style: tickerStyle } = useTickerSnap();
-    const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
+    const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync({ pollRemoteMs: 10_000 });
     const initialSettings = React.useMemo(() => getSettings(), []);
     const initialResume = React.useMemo(() => normalizePresentResume(initialSettings.presentResume), [initialSettings.presentResume]);
     const resumeMatchesSlide = initialResume?.slideUpdatedAt === slide.updatedAt;

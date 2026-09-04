@@ -10,11 +10,15 @@ import type { UseSlideSyncResult } from './useSlideSync';
 let resolveSave: (() => void) | null = null;
 let rejectSave: ((e: unknown) => void) | null = null;
 
+const { mockLoadRemoteSlide } = vi.hoisted(() => ({
+    mockLoadRemoteSlide: vi.fn<() => Promise<PresentSlide | null>>().mockResolvedValue(null),
+}));
+
 vi.mock('../slideApi', () => ({
     // Shrunk from 256 KB so an "oversize" payload is a 2 KB string.
     MAX_CONTENT_BYTES: 1024,
     isValidPresentSlide: () => true,
-    loadRemoteSlide: async () => null,
+    loadRemoteSlide: () => mockLoadRemoteSlide(),
     StaleSaveError: class StaleSaveError extends Error {
         constructor(public remote = false) { super('x'); }
     },
@@ -32,8 +36,8 @@ let root: Root;
 let container: HTMLDivElement;
 let latest: UseSlideSyncResult;
 
-function Harness() {
-    latest = useSlideSync();
+function Harness(props: { pollRemoteMs?: number } = {}) {
+    latest = useSlideSync(props.pollRemoteMs !== undefined ? { pollRemoteMs: props.pollRemoteMs } : undefined);
     return null;
 }
 
@@ -58,6 +62,8 @@ describe('useSlideSync oversize edit vs. in-flight save', () => {
         // settings.ts memoises the parsed settings in a module-level cache that
         // localStorage.clear() cannot reach; its own 'storage' listener drops it.
         window.dispatchEvent(new StorageEvent('storage', { key: 'marketflow_settings' }));
+        mockLoadRemoteSlide.mockReset();
+        mockLoadRemoteSlide.mockResolvedValue(null);
         resolveSave = null;
         rejectSave = null;
         container = document.createElement('div');
@@ -165,6 +171,8 @@ describe('useSlideSync Save before the deck has loaded', () => {
         vi.useFakeTimers();
         localStorage.clear();
         window.dispatchEvent(new StorageEvent('storage', { key: 'marketflow_settings' }));
+        mockLoadRemoteSlide.mockReset();
+        mockLoadRemoteSlide.mockResolvedValue(null);
         resolveSave = null;
         rejectSave = null;
         container = document.createElement('div');
@@ -212,5 +220,205 @@ describe('useSlideSync Save before the deck has loaded', () => {
         });
         expect(latest.cloudStatus).toBe('saving');
         expect(resolveSave).toBeTypeOf('function');
+    });
+});
+
+describe('useSlideSync remote polling', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        localStorage.clear();
+        window.dispatchEvent(new StorageEvent('storage', { key: 'marketflow_settings' }));
+        mockLoadRemoteSlide.mockReset();
+        mockLoadRemoteSlide.mockResolvedValue(null);
+        resolveSave = null;
+        rejectSave = null;
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+    });
+
+    afterEach(async () => {
+        await act(async () => {
+            root.unmount();
+        });
+        container.remove();
+        vi.useRealTimers();
+    });
+
+    it('(a) no option -> loadRemoteSlide called exactly once (mount) after 60 s of fake time', async () => {
+        await act(async () => {
+            root.render(createElement(Harness));
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(60_000);
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+    });
+
+    it('(b) pollRemoteMs 10_000 -> called at mount, then again at ~10 s and ~20 s', async () => {
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 10_000 }));
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(2);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(3);
+    });
+
+    it('(c) a newer remote slide replaces state; an older one (updatedAt lower) does not', async () => {
+        mockLoadRemoteSlide.mockResolvedValue({ mode: 'markdown', content: 'v1', updatedAt: 1000 });
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 10_000 }));
+        });
+        await flush();
+        expect(latest.slide.content).toBe('v1');
+        expect(latest.slide.updatedAt).toBe(1000);
+
+        // Remote returns an older slide — ignored
+        mockLoadRemoteSlide.mockResolvedValue({ mode: 'markdown', content: 'v0-stale', updatedAt: 500 });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+        expect(latest.slide.content).toBe('v1');
+        expect(latest.slide.updatedAt).toBe(1000);
+
+        // Remote returns a newer slide — applied
+        mockLoadRemoteSlide.mockResolvedValue({ mode: 'markdown', content: 'v2-fresh', updatedAt: 2000 });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+        expect(latest.slide.content).toBe('v2-fresh');
+        expect(latest.slide.updatedAt).toBe(2000);
+    });
+
+    it('(d) a rejected promise does not break subsequent polls', async () => {
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 10_000 }));
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+
+        // First poll rejects
+        mockLoadRemoteSlide.mockRejectedValueOnce(new Error('fetch failed'));
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(2);
+
+        // Subsequent poll resolves successfully and updates state
+        mockLoadRemoteSlide.mockResolvedValueOnce({ mode: 'markdown', content: 'recovered', updatedAt: 5000 });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(3);
+        expect(latest.slide.content).toBe('recovered');
+    });
+
+    it('(e) unmount stops polling', async () => {
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 10_000 }));
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            root.unmount();
+        });
+        await flush();
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(30_000);
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips fetch when document is hidden and polls immediately when visible', async () => {
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 10_000 }));
+        });
+        await flush();
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+
+        // Hide document
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', writable: true, configurable: true });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+        // Skipped: count stays at 1
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+
+        // Restore visible state and fire event
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true, configurable: true });
+        await act(async () => {
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await flush();
+        // Immediately triggered poll on becoming visible
+        expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(2);
+    });
+
+    it('never applies a remote slide while a local save is pending or in flight', async () => {
+        await act(async () => {
+            root.render(createElement(Harness, { pollRemoteMs: 10_000 }));
+        });
+        await flush();
+
+        // Local edit (sets slide, sets saving, schedules save)
+        await act(async () => {
+            latest.saveSlide({ content: 'local deck' });
+        });
+        expect(latest.slide.content).toBe('local deck');
+        expect(latest.cloudStatus).toBe('saving');
+
+        // Remote poll returns newer slide while save is pending / in flight
+        mockLoadRemoteSlide.mockResolvedValue({ mode: 'markdown', content: 'remote deck', updatedAt: Date.now() + 50000 });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10_000);
+        });
+        await flush();
+
+        // Safety guard: local edit is not overwritten
+        expect(latest.slide.content).toBe('local deck');
+    });
+
+    it('treats 0, negative, NaN, non-finite pollRemoteMs as no polling', async () => {
+        for (const invalid of [0, -1000, Number.NaN, Number.POSITIVE_INFINITY]) {
+            await act(async () => {
+                root.unmount();
+                root = createRoot(container);
+            });
+            mockLoadRemoteSlide.mockClear();
+            await act(async () => {
+                root.render(createElement(Harness, { pollRemoteMs: invalid }));
+            });
+            await flush();
+            expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(30_000);
+            });
+            await flush();
+            expect(mockLoadRemoteSlide).toHaveBeenCalledTimes(1);
+        }
     });
 });
