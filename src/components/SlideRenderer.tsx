@@ -10,12 +10,15 @@ interface Props {
     pdfZoom?: number;
     pdfKeyboardEnabled?: boolean;
     pdfRef?: React.Ref<PdfViewerHandle>;
+    // Page to open once the document loads; keyed by URL so a deck swap never
+    // inherits the previous deck's page.
+    pdfInitialPage?: number;
     onPdfPageText?: (page: number, text: string, imageDataUrl?: string) => void;
     onPdfPageChange?: (page: number) => void;
     lang?: 'en' | 'zh-TW';
 }
 
-export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true, pdfRef, onPdfPageText, onPdfPageChange, lang = 'en' }) => {
+export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 100, pdfKeyboardEnabled = true, pdfRef, pdfInitialPage, onPdfPageText, onPdfPageChange, lang = 'en' }) => {
     const injected = React.useMemo(() => {
         if (slide.mode !== 'markdown' && slide.mode !== 'html') return '';
         return injectMarketTokens(slide.content, marketData);
@@ -47,7 +50,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     if (slide.mode === 'pdf') {
-        return <PdfViewer ref={pdfRef} url={slide.content.trim()} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} onPageText={onPdfPageText} onPageChange={onPdfPageChange} lang={lang} />;
+        return <PdfViewer key={slide.content.trim()} ref={pdfRef} url={slide.content.trim()} initialPage={pdfInitialPage} zoom={pdfZoom} keyboardEnabled={pdfKeyboardEnabled} onPageText={onPdfPageText} onPageChange={onPdfPageChange} lang={lang} />;
     }
 
     if (slide.mode === 'html') {

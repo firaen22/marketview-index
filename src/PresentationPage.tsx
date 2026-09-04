@@ -4,6 +4,7 @@ import { MacroStatCard } from './components/MacroStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
 import { SlideErrorBoundary } from './components/SlideErrorBoundary';
 import { getSettings, normalizePresentCycle, normalizePresentResume, setSetting, type PresentCycle, type PresentView } from './settings';
+import { resolvePresentResume } from './presentResume';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
@@ -29,7 +30,7 @@ import { useGlossarySession } from './hooks/useGlossarySession';
 import { JargonSpotlight } from './components/JargonSpotlight';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useJargon } from './hooks/useJargon';
-import { PdfViewer, type PdfViewerHandle } from './components/PdfViewer';
+import type { PdfViewerHandle } from './components/PdfViewer';
 import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
 import { DataFreshness } from './components/DataFreshness';
@@ -229,8 +230,10 @@ export default function PresentationPage() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync({ pollRemoteMs: 10_000 });
     const initialSettings = React.useMemo(() => getSettings(), []);
     const initialResume = React.useMemo(() => normalizePresentResume(initialSettings.presentResume), [initialSettings.presentResume]);
-    const resumeMatchesSlide = initialResume?.slideUpdatedAt === slide.updatedAt;
-    const restoredMainView: PresentView = resumeMatchesSlide ? initialResume!.view : 'slide';
+    // Re-evaluated each render: a newer deck arriving from the server after
+    // mount must not inherit the old deck's page.
+    const resumed = resolvePresentResume(initialResume, slide.updatedAt);
+    const restoredMainView: PresentView = resumed.view;
     const geminiKey = initialSettings.geminiKey;
     const [editorOpen, setEditorOpen] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -918,39 +921,26 @@ export default function PresentationPage() {
                 <div className="flex-1 relative overflow-hidden">
                     <div className={mainView === 'slide' ? 'w-full h-full' : 'hidden'}>
                         <SlideErrorBoundary resetKey={`${slide.mode}:${slide.updatedAt ?? 0}:${typeof slide.content === 'string' ? slide.content.length : 0}`}>
-                            {/* SlideRenderer has no resume-page prop; preserve it for all non-PDF slide modes. */}
-                            {slide.mode === 'pdf' && slide.content.trim()
-                                ? <PdfViewer
-                                    key={slide.updatedAt}
-                                    ref={pdfRef}
-                                    url={slide.content.trim()}
-                                    initialPage={resumeMatchesSlide ? initialResume?.pdfPage : undefined}
-                                    zoom={pdfZoom}
-                                    keyboardEnabled={false}
-                                    onPageText={glossaryOnPageText}
-                                    onPageChange={glossaryOnPdfPageChange}
-                                    lang={lang}
-                                />
-                                : <SlideRenderer
-                                    slide={slide}
-                                    marketData={marketData}
-                                    pdfZoom={pdfZoom}
-                                    pdfKeyboardEnabled={false}
-                                    pdfRef={pdfRef}
-                                    onPdfPageText={glossaryOnPageText}
-                                    onPdfPageChange={glossaryOnPdfPageChange}
-                                    lang={lang}
-                                />}
+                            <SlideRenderer
+                                slide={slide}
+                                marketData={marketData}
+                                pdfZoom={pdfZoom}
+                                pdfKeyboardEnabled={false}
+                                pdfRef={pdfRef}
+                                pdfInitialPage={resumed.pdfPage}
+                                onPdfPageText={glossaryOnPageText}
+                                onPdfPageChange={glossaryOnPdfPageChange}
+                                lang={lang}
+                            />
                         </SlideErrorBoundary>
                     </div>
                     {indexIframeMounted && (
                         <iframe
                             ref={attachIndexIframe}
                             src="/?embed=1"
-                            hidden={mainView !== 'index'}
-                            tabIndex={-1}
+                            tabIndex={mainView === 'index' ? undefined : -1}
                             aria-hidden={mainView !== 'index'}
-                            className={`absolute inset-0 w-full h-full border-0 bg-black ${mainView === 'index' ? '' : 'pointer-events-none'}`}
+                            className={`absolute inset-0 w-full h-full border-0 bg-black ${mainView === 'index' ? '' : 'invisible pointer-events-none'}`}
                             title="Market Index"
                         />
                     )}
@@ -958,10 +948,9 @@ export default function PresentationPage() {
                         <iframe
                             ref={attachHeatmapIframe}
                             src="/heatmap?embed=1"
-                            hidden={mainView !== 'heatmap'}
-                            tabIndex={-1}
+                            tabIndex={mainView === 'heatmap' ? undefined : -1}
                             aria-hidden={mainView !== 'heatmap'}
-                            className={`absolute inset-0 w-full h-full border-0 bg-black ${mainView === 'heatmap' ? '' : 'pointer-events-none'}`}
+                            className={`absolute inset-0 w-full h-full border-0 bg-black ${mainView === 'heatmap' ? '' : 'invisible pointer-events-none'}`}
                             title="Market Heatmap"
                         />
                     )}

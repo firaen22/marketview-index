@@ -1,3 +1,4 @@
+import { parsePresentResume } from './presentResume';
 import type { Macro } from './copilotMacros';
 import { normalizeMacros } from './copilotMacros';
 
@@ -141,16 +142,7 @@ function normalizePresentSlide(value: unknown): PresentSlide {
 }
 
 export function normalizePresentResume(value: unknown): PresentResume | null {
-    if (!value || typeof value !== 'object') return null;
-    const resume = value as Record<string, unknown>;
-    if (!PRESENT_VIEWS.includes(resume.view as PresentView)) return null;
-    if (typeof resume.pdfPage !== 'number' || !Number.isFinite(resume.pdfPage) || resume.pdfPage < 1) return null;
-    if (typeof resume.slideUpdatedAt !== 'number' || !Number.isFinite(resume.slideUpdatedAt)) return null;
-    return {
-        view: resume.view as PresentView,
-        pdfPage: resume.pdfPage,
-        slideUpdatedAt: resume.slideUpdatedAt,
-    };
+    return parsePresentResume(value);
 }
 
 function stringArray(value: unknown): string[] | null {
