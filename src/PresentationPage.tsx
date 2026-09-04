@@ -312,9 +312,12 @@ export default function PresentationPage() {
     useEffect(() => {
         lastPdfPageRef.current = 0;
     }, [slide.updatedAt]);
-    const persistPresentResume = useCallback((view: PresentView, pdfPage = slide.mode === 'pdf' ? Math.max(lastPdfPageRef.current, 1) : 1) => {
+    // Before the first page renders (a slow deck load, or a reload followed by
+    // a view switch) the ref is still 0; fall back to the page being restored,
+    // or the mount-time write would replace a valid resume with page 1.
+    const persistPresentResume = useCallback((view: PresentView, pdfPage = slide.mode === 'pdf' ? (lastPdfPageRef.current || resumed.pdfPage) : 1) => {
         setSetting('presentResume', { view, pdfPage, slideUpdatedAt: slide.updatedAt });
-    }, [slide.mode, slide.updatedAt]);
+    }, [slide.mode, slide.updatedAt, resumed.pdfPage]);
     const glossaryOnPageText = useCallback((page: number, text: string, imageDataUrl?: string) => {
         lastPdfPageRef.current = page;
         glossaryReportPage(page);
@@ -617,6 +620,10 @@ export default function PresentationPage() {
     useEffect(() => {
         if (mainView === 'index') setIndexIframeMounted(true);
         if (mainView === 'heatmap') setHeatmapIframeMounted(true);
+        // A kept-mounted iframe is no longer blurred by unmounting; a clicker
+        // keydown would otherwise land in the hidden embed instead of window.
+        const active = document.activeElement;
+        if (active instanceof HTMLIFrameElement) active.blur();
     }, [mainView]);
 
     useEffect(() => {

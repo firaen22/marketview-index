@@ -33,7 +33,9 @@ export function useWakeLock(enabled: boolean): void {
                 }
                 sentinelRef.current = lock;
                 lock.addEventListener('release', () => {
-                    sentinelRef.current = null;
+                    // release() queues the event, so an old lock's event can
+                    // arrive after a newer lock was stored; only drop our own.
+                    if (sentinelRef.current === lock) sentinelRef.current = null;
                 });
             } catch {
                 // NotAllowedError (insecure context, permission denied), AbortError, etc.

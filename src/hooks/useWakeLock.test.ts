@@ -93,6 +93,36 @@ it('re-acquires after release event followed by visibilitychange', async () => {
     expect(request).toHaveBeenCalledTimes(2);
 });
 
+it('a late release event from a superseded lock does not drop the live one', async () => {
+    const handlers: Array<() => void> = [];
+    const makeSentinel = () => ({
+        release: vi.fn().mockResolvedValue(undefined),
+        addEventListener: vi.fn().mockImplementation((_: string, cb: () => void) => { handlers.push(cb); }),
+    });
+    const request = vi.fn().mockResolvedValueOnce(makeSentinel()).mockResolvedValueOnce(makeSentinel());
+    (navigator as any).wakeLock = { request };
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+    await act(async () => {
+        root.render(createElement(Wrapper));
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+
+    // Browser releases lock A; the page comes back and lock B is acquired.
+    await act(async () => {
+        handlers[0]();
+        document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+
+    // Lock A's queued release event fires again after B is stored.
+    await act(async () => {
+        handlers[0]();
+        document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+});
+
 it('releases the sentinel on unmount', async () => {
     const release = vi.fn().mockResolvedValue(undefined);
     const sentinel = { release, addEventListener: vi.fn() };
