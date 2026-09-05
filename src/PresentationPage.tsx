@@ -5,6 +5,7 @@ import { SlideRenderer } from './components/SlideRenderer';
 import { SlideErrorBoundary } from './components/SlideErrorBoundary';
 import { getSettings, normalizePresentCycle, normalizePresentResume, setSetting, type PresentCycle, type PresentView } from './settings';
 import { resolvePresentResume } from './presentResume';
+import { nextPresentView, type CycleDirection } from './presentViewCycle';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
@@ -36,7 +37,7 @@ import { getAllMarketStatuses } from './marketHours';
 import { MarketStatusChip } from './components/MarketStatusChip';
 import { DataFreshness } from './components/DataFreshness';
 import { usePresentCommand } from './hooks/usePresentCommand';
-import { useTrackpadGestures } from './hooks/useTrackpadGestures';
+import { forwardTrackpadEvents, useTrackpadGestures } from './hooks/useTrackpadGestures';
 import type { ProjectorState } from './hooks/usePresentCommand';
 import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentRange } from '../lib/presentCommand';
 import { buildGlossaryLookup, JARGON_GLOSSARY, lookupExplanation, normalizeTerm } from '../lib/jargonGlossary';
@@ -101,6 +102,34 @@ export function handlePdfPageChangeWithDeps(
 ): void {
     if (deps.lastPage > 0 && deps.lastPage !== page) deps.clearRemoteJargon();
     deps.onJargonPageChange();
+}
+
+// Pinching past 25/200 snaps to 100 so the presenter can recover to fit
+// without hunting for the reset button. Out-of-range / non-finite state
+// does the same rather than stepping from garbage. Buttons still clamp.
+// True when a deck is actually rendered — SlideRenderer shows a placeholder
+// for empty or whitespace-only content, so gestures must treat that as "no
+// deck" and cycle views instead of poking an absent viewer.
+export function pdfDeckOnScreen(mainView: PresentView, slide: { mode: string; content: string }): boolean {
+    return mainView === 'slide' && slide.mode === 'pdf' && slide.content.trim().length > 0;
+}
+
+// The pinch stream latches (ignores the rest of the gesture) once a step
+// snaps to 100 from a clamp or from garbage, AND once it lands on a clamp:
+// a long pinch to 200% must stop there, so the reset always takes a fresh
+// gesture after the idle gap rather than 40 more pixels of the same one.
+export function pinchShouldLatch(current: number, next: number): boolean {
+    return Math.abs(next - current) !== 25 || next === 25 || next === 200;
+}
+
+export function nextPdfZoom(current: number, direction: 'in' | 'out'): number {
+    if (!Number.isFinite(current) || current < 25 || current > 200) return 100;
+    if (direction === 'in') {
+        if (current >= 200) return 100;
+        return Math.min(200, current + 25);
+    }
+    if (current <= 25) return 100;
+    return Math.max(25, current - 25);
 }
 
 export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: PresentationCommandExecutorDeps): boolean {
@@ -492,10 +521,14 @@ export default function PresentationPage() {
 
     usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
 
-    const cycleMainView = useCallback(() => {
-        setMainView(v => v === 'slide' ? 'index' : v === 'index' ? 'heatmap' : 'slide');
+    const moveMainView = useCallback((direction: CycleDirection) => {
+        setMainView(v => nextPresentView(v, direction));
         resetDwellCountdown();
     }, [resetDwellCountdown]);
+
+    const cycleMainView = useCallback(() => {
+        moveMainView('forward');
+    }, [moveMainView]);
 
     const toggleHeatmapView = useCallback(() => {
         setMainView(v => v === 'heatmap' ? 'slide' : 'heatmap');
@@ -683,10 +716,12 @@ export default function PresentationPage() {
                 win.addEventListener('keydown', onKeydown);
                 win.addEventListener('pointerdown', onPointerDown);
                 win.addEventListener('pointermove', onPointerMove);
+                const stopForwardingGestures = forwardTrackpadEvents(win, window);
                 cleanupContent = () => {
                     win.removeEventListener('keydown', onKeydown);
                     win.removeEventListener('pointerdown', onPointerDown);
                     win.removeEventListener('pointermove', onPointerMove);
+                    stopForwardingGestures();
                 };
             } catch {
                 cleanupContent = null;
@@ -719,6 +754,8 @@ export default function PresentationPage() {
     const attachIndexIframe = React.useMemo(() => attachIframeListeners('index'), [attachIframeListeners]);
     const attachHeatmapIframe = React.useMemo(() => attachIframeListeners('heatmap'), [attachIframeListeners]);
 
+    const toggleHints = useCallback(() => setShowHints(s => !s), []);
+
     useKeyboardShortcuts({
         onEdit: useCallback(() => setEditorOpen(o => !o), []),
         onFullscreen: toggleFullscreen,
@@ -732,7 +769,7 @@ export default function PresentationPage() {
             qp.openSearch();
         }, [qp, briefItems]),
         onToggleJargon: toggleJargon,
-        onToggleHints: useCallback(() => setShowHints(s => !s), []),
+        onToggleHints: toggleHints,
         // Escape closes the topmost overlay only. IndexChartModal owns its own
         // Escape (it layers an internal compare-picker we can't see from here).
         onEscape: useCallback(() => {
@@ -778,17 +815,42 @@ export default function PresentationPage() {
         }, [mainView, slide.mode]),
     });
 
-    // Trackpad swipes and pinches act on the PDF only, like a clicker: no
-    // spotlight cycling, so an accidental brush never changes the quote card.
-    const pdfOnScreen = mainView === 'slide' && slide.mode === 'pdf';
+    // Trackpad swipes turn PDF pages when a deck is actually on screen; with
+    // no deck the same swipe cycles the view, because the hook has already
+    // swallowed the scroll stream and doing nothing would feel broken.
+    // Known limit (accepted 2026-09-05): html/url slides render in iframes we
+    // cannot bridge (opaque-origin sandbox / cross-origin), so a gesture over
+    // that slide body is a no-op; the surrounding chrome still works.
+    const pdfOnScreen = pdfDeckOnScreen(mainView, slide);
+    // Mirror of pdfZoom for the pinch callback: the hook needs the snap
+    // decision synchronously, which a setState updater cannot hand back.
+    const pdfZoomRef = useRef(pdfZoom);
+    pdfZoomRef.current = pdfZoom;
     useTrackpadGestures({
         enabled: true,
-        onSwipeLeft: useCallback(() => { if (pdfOnScreen) pdfRef.current?.nextPage(); }, [pdfOnScreen]),
-        onSwipeRight: useCallback(() => { if (pdfOnScreen) pdfRef.current?.prevPage(); }, [pdfOnScreen]),
+        onSwipeLeft: useCallback(() => {
+            if (pdfOnScreen) {
+                pdfRef.current?.nextPage();
+                return;
+            }
+            moveMainView('forward');
+        }, [pdfOnScreen, moveMainView]),
+        onSwipeRight: useCallback(() => {
+            if (pdfOnScreen) {
+                pdfRef.current?.prevPage();
+                return;
+            }
+            moveMainView('back');
+        }, [pdfOnScreen, moveMainView]),
         onPinch: useCallback((direction: 'in' | 'out') => {
             if (!pdfOnScreen) return;
-            setPdfZoom(z => direction === 'in' ? Math.min(200, z + 25) : Math.max(25, z - 25));
+            const current = pdfZoomRef.current;
+            const next = nextPdfZoom(current, direction);
+            pdfZoomRef.current = next;
+            setPdfZoom(next);
+            return pinchShouldLatch(current, next) ? 'latch' : undefined;
         }, [pdfOnScreen]),
+        onTwoFingerTap: toggleHints,
     });
 
     const pinnedRaw = tickerSymbols !== null
