@@ -5,6 +5,32 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 export const CACHE_KEY = 'global_market_cache_yfinance_v1';
 
+// The record carry-forward falls back on once the hourly cache is gone. That
+// hourly key was the ONLY thing carry-forward merged against, so a symbol that
+// kept failing survived exactly one TTL: the key expires overnight, every
+// night (nobody refreshes at 01:00), the 01:30 cron then fetches with nothing
+// to carry from, and the morning presentation opened one tile short — no
+// tile, so no Delayed badge either. This key holds the last complete payload
+// for a week; the tile keeps its badge the whole time. A week, not forever:
+// past that a "Delayed" badge understates the age too much to be honest.
+export const LAST_GOOD_KEY = 'global_market_last_good_v1';
+export const LAST_GOOD_TTL_SECONDS = 7 * 24 * 3600;
+
+export function parseCachePayload(payload: any) {
+  if (!payload) return null;
+  if (typeof payload !== 'string') return payload;
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
+export async function readLastGood(range: string) {
+  if (!redis) return null;
+  return parseCachePayload(await redis.get(`${LAST_GOOD_KEY}_${range}`));
+}
+
 const INDICES_TO_FETCH = [
   { symbol: '^GSPC', category: 'US', subCategory: 'Large Cap', name: 'S&P 500' },
   { symbol: '^IXIC', category: 'US', subCategory: 'Tech', name: 'Nasdaq Composite' },
@@ -99,16 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 1. 嘗試從 Redis 讀取全球快取資料
     let cachedPayload: any = redis ? await redis.get(RANGE_CACHE_KEY) : null;
-    const parseCache = (payload: any) => {
-      if (!payload) return null;
-      if (typeof payload !== 'string') return payload;
-      try {
-        return JSON.parse(payload);
-      } catch {
-        return null;
-      }
-    };
-    const parsedCache = parseCache(cachedPayload);
+    const parsedCache = parseCachePayload(cachedPayload);
     const returnCachedPayload = (resultPayload: any) => {
       if (resultPayload) {
         resultPayload.source = 'server_cache';
@@ -131,9 +148,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 2. 如果是 Cron 時段 (早上 9 點)、強制更新、或 Redis 內完全沒資料，就拉取新資料並寫入 Redis
     if (isCron || forceRefresh || !parsedCache) {
       console.log(`Fetching fresh data for range ${range} from Yahoo Finance...`);
-      const freshData = await fetchAllIndices(range, Boolean(parsedCache));
-      const mergedData = Array.isArray(parsedCache?.data)
-        ? mergeCarriedForward(freshData, parsedCache.data)
+      // Carry from the hourly cache first (freshest), then last_good, which
+      // outlives it — see LAST_GOOD_KEY. Both are consulted rather than one
+      // or the other: mergeCarriedForward takes the first match per symbol,
+      // so the hourly row wins wherever both hold one. Read only on this
+      // branch; the cached hot path below never pays the extra round-trip.
+      const lastGood = await readLastGood(range);
+      const carrySource = [
+        ...(Array.isArray(parsedCache?.data) ? parsedCache.data : []),
+        ...(Array.isArray(lastGood?.data) ? lastGood.data : []),
+      ];
+      const freshData = await fetchAllIndices(range, Boolean(parsedCache || lastGood));
+      const mergedData = carrySource.length > 0
+        ? mergeCarriedForward(freshData, carrySource)
         : freshData;
 
       const payload = {
@@ -155,6 +182,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (redis && !hasEstimatedData && isComplete) {
         // Cache expires in 1 hour
         await redis.set(RANGE_CACHE_KEY, JSON.stringify(payload), { ex: 3600 });
+        await redis.set(`${LAST_GOOD_KEY}_${range}`, JSON.stringify(payload), { ex: LAST_GOOD_TTL_SECONDS });
       }
       return res.status(200).json(payload);
     }
@@ -168,15 +196,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 如果拉取失敗，但 Redis 裡面有舊資料，執行 Server-Side Freeze
     if (redis) {
       try {
-        const fallbackPayload: any = await redis.get(RANGE_CACHE_KEY);
-        if (fallbackPayload) {
-          let parsed: any;
-          try {
-            parsed = typeof fallbackPayload === 'string' ? JSON.parse(fallbackPayload) : fallbackPayload;
-          } catch {
-            parsed = null;
-          }
-          if (!parsed) throw new Error('Invalid fallback cache payload');
+        // Hourly cache first, then last_good: fetchAllIndices rethrows a
+        // quote failure whenever EITHER exists (fast failover), so this catch
+        // must be able to serve either or that rethrow lands on the
+        // 'No Cache Available' branch below.
+        const parsed: any = parseCachePayload(await redis.get(RANGE_CACHE_KEY)) ?? await readLastGood(range);
+        if (parsed) {
           return res.status(200).json({
             ...parsed,
             success: false,
