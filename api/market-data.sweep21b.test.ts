@@ -45,11 +45,14 @@ function makeRes() {
     return res;
 }
 
+/** Fixed once per run so two goodRow() calls compare equal (ms-level drift made a toEqual flaky). */
+const GOOD_ROW_DATE = new Date().toISOString();
+
 /** A full-shape row, so tests can vary exactly one field. */
 function goodRow(symbol: string) {
     return {
         symbol, price: 321, change: 1, changePercent: 1, open: 320, high: 322, low: 319,
-        ytdChange: 1, ytdChangePercent: 1, history: [{ value: 321, date: new Date().toISOString() }],
+        ytdChange: 1, ytdChangePercent: 1, history: [{ value: 321, date: GOOD_ROW_DATE }],
     };
 }
 
