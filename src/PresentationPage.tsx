@@ -6,6 +6,7 @@ import { SlideErrorBoundary } from './components/SlideErrorBoundary';
 import { getSettings, normalizePresentCycle, normalizePresentResume, setSetting, type PresentCycle, type PresentView } from './settings';
 import { resolvePresentResume } from './presentResume';
 import { nextPresentView, type CycleDirection } from './presentViewCycle';
+import { nextSpotlightItem } from './quoteSpotlightCycle';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
@@ -130,6 +131,50 @@ export function nextPdfZoom(current: number, direction: 'in' | 'out'): number {
     }
     if (current <= 25) return 100;
     return Math.max(25, current - 25);
+}
+
+export function spotlightCycleList<T extends { id: string }>(
+    spotlightId: string,
+    briefItems: readonly T[],
+    pinned: readonly T[],
+): readonly T[] {
+    return briefItems.some(b => b.id === spotlightId) ? briefItems : pinned;
+}
+
+/**
+ * The card an arrow/swipe should land on. Normally the ring neighbour; when the
+ * shown card was just unpinned (so it sits in neither list) the ring has no
+ * anchor and the pure helper says null — re-enter the pinned deck at its
+ * first/last card instead of dead-ending until the presenter dismisses.
+ */
+export function spotlightNeighbour<T extends { id: string }>(
+    spotlightId: string,
+    briefItems: readonly T[],
+    pinned: readonly T[],
+    direction: 'forward' | 'back',
+): T | null {
+    const list = spotlightCycleList(spotlightId, briefItems, pinned);
+    const next = nextSpotlightItem(list, spotlightId, direction);
+    if (next) return next;
+    if (list.length === 0 || list.some(item => item.id === spotlightId)) return null;
+    return direction === 'forward' ? list[0] : list[list.length - 1];
+}
+
+export interface SpotlightOverlays {
+    isPickerOpen: boolean;
+    isSearchOpen: boolean;
+    chartOpen: boolean;
+    briefPanelOpen: boolean;
+    glossaryPanelOpen: boolean;
+    editorOpen: boolean;
+}
+
+/** The spotlight card, but only when no overlay is stacked above it. */
+export function spotlightGestureTarget<T>(spotlight: T | null, overlays: SpotlightOverlays): T | null {
+    if (!spotlight) return null;
+    const covered = overlays.isPickerOpen || overlays.isSearchOpen || overlays.chartOpen
+        || overlays.briefPanelOpen || overlays.glossaryPanelOpen || overlays.editorOpen;
+    return covered ? null : spotlight;
 }
 
 export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: PresentationCommandExecutorDeps): boolean {
@@ -789,22 +834,16 @@ export default function PresentationPage() {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.prevPage();
                 return;
             }
-            const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
-            if (cycleList.length < 2) return;
-            const i = cycleList.findIndex(p => p.id === qp.spotlight!.id);
-            if (i < 0) return;
-            qp.openSpotlight(cycleList[(i - 1 + cycleList.length) % cycleList.length]);
+            const next = spotlightNeighbour(qp.spotlight.id, briefItems, qp.pinned, 'back');
+            if (next) qp.openSpotlight(next);
         }, [qp, briefItems, mainView, slide.mode]),
         onArrowRight: useCallback(() => {
             if (!qp.spotlight) {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.nextPage();
                 return;
             }
-            const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
-            if (cycleList.length < 2) return;
-            const i = cycleList.findIndex(p => p.id === qp.spotlight!.id);
-            if (i < 0) return;
-            qp.openSpotlight(cycleList[(i + 1) % cycleList.length]);
+            const next = spotlightNeighbour(qp.spotlight.id, briefItems, qp.pinned, 'forward');
+            if (next) qp.openSpotlight(next);
         }, [qp, briefItems, mainView, slide.mode]),
         // Presentation clickers send PageUp/PageDown — always flip the PDF.
         onPageUp: useCallback(() => {
@@ -826,22 +865,44 @@ export default function PresentationPage() {
     // decision synchronously, which a setState updater cannot hand back.
     const pdfZoomRef = useRef(pdfZoom);
     pdfZoomRef.current = pdfZoom;
+    // The card only owns the gestures while it is the topmost layer. Opening the
+    // picker/search/chart/brief/glossary/editor does not dismiss it (z-40 under
+    // z-50), and a two-finger tap on a modal backdrop must not pin/unpin a card
+    // nobody can see — fall through to the old PDF/view/hints routing instead.
+    const spotlightInFront = spotlightGestureTarget(qp.spotlight, {
+        isPickerOpen: qp.isPickerOpen,
+        isSearchOpen: qp.isSearchOpen,
+        chartOpen: !!qp.chartItem,
+        briefPanelOpen,
+        glossaryPanelOpen,
+        editorOpen,
+    });
     useTrackpadGestures({
         enabled: true,
         onSwipeLeft: useCallback(() => {
+            if (spotlightInFront) {
+                const next = spotlightNeighbour(spotlightInFront.id, briefItems, qp.pinned, 'forward');
+                if (next) qp.openSpotlight(next);
+                return;
+            }
             if (pdfOnScreen) {
                 pdfRef.current?.nextPage();
                 return;
             }
             moveMainView('forward');
-        }, [pdfOnScreen, moveMainView]),
+        }, [qp, spotlightInFront, briefItems, pdfOnScreen, moveMainView]),
         onSwipeRight: useCallback(() => {
+            if (spotlightInFront) {
+                const next = spotlightNeighbour(spotlightInFront.id, briefItems, qp.pinned, 'back');
+                if (next) qp.openSpotlight(next);
+                return;
+            }
             if (pdfOnScreen) {
                 pdfRef.current?.prevPage();
                 return;
             }
             moveMainView('back');
-        }, [pdfOnScreen, moveMainView]),
+        }, [qp, spotlightInFront, briefItems, pdfOnScreen, moveMainView]),
         onPinch: useCallback((direction: 'in' | 'out') => {
             if (!pdfOnScreen) return;
             const current = pdfZoomRef.current;
@@ -850,7 +911,10 @@ export default function PresentationPage() {
             setPdfZoom(next);
             return pinchShouldLatch(current, next) ? 'latch' : undefined;
         }, [pdfOnScreen]),
-        onTwoFingerTap: toggleHints,
+        onTwoFingerTap: useCallback(() => {
+            if (spotlightInFront) { qp.toggle(spotlightInFront); return; }
+            toggleHints();
+        }, [qp, spotlightInFront, toggleHints]),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -1042,7 +1106,7 @@ export default function PresentationPage() {
 
                     {/* Quote spotlight — lower-third overlay */}
                     {qp.spotlight && (() => {
-                        const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
+                        const cycleList = spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned);
                         const idx = cycleList.findIndex(p => p.id === qp.spotlight!.id);
                         const canCycle = idx >= 0 && cycleList.length > 1;
                         return (
@@ -1055,6 +1119,8 @@ export default function PresentationPage() {
                                 total={canCycle ? cycleList.length : undefined}
                                 onPrev={canCycle ? () => qp.openSpotlight(cycleList[(idx - 1 + cycleList.length) % cycleList.length]) : undefined}
                                 onNext={canCycle ? () => qp.openSpotlight(cycleList[(idx + 1) % cycleList.length]) : undefined}
+                                pinned={qp.pinnedIds.has(qp.spotlight.id)}
+                                pinnedLabel={t.present.spotlightPinned}
                             />
                         );
                     })()}
@@ -1187,6 +1253,7 @@ export default function PresentationPage() {
                         <span className="text-zinc-400">{t.present.scToggleHints}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">Esc</kbd>
                         <span className="text-zinc-400">{t.present.scClose}</span>
+                        <span className="text-zinc-500">{t.present.scTrackpadQuote}</span>
                     </div>
                 </div>
             )}

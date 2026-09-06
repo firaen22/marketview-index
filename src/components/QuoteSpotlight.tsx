@@ -14,6 +14,8 @@ interface Props {
     total?: number;
     onPrev?: () => void;
     onNext?: () => void;
+    pinned?: boolean;
+    pinnedLabel?: string;
 }
 
 function formatValue(v: number): string {
@@ -34,12 +36,13 @@ function pctColor(p: number | undefined): string {
     return 'text-zinc-300';
 }
 
-export function QuoteSpotlight({ item, lang, rangeLabel, onDismiss, index, total, onPrev, onNext }: Props) {
+export function QuoteSpotlight({ item, lang, rangeLabel, onDismiss, index, total, onPrev, onNext, pinned, pinnedLabel }: Props) {
     const hasNav = total !== undefined && total > 1 && index !== undefined;
     const isMarket = item.group === 'market';
     const secondaryLabel = isMarket ? (rangeLabel || 'YTD') : item.secondaryLabel;
     const secondaryPct = isMarket ? item.ytdPct : item.secondaryPct;
     const primaryLabel = item.changeLabel ?? 'CHG';
+    const label = pinnedLabel ?? 'Pinned';
 
     return (
         <div
@@ -61,7 +64,14 @@ export function QuoteSpotlight({ item, lang, rangeLabel, onDismiss, index, total
                 <div className="flex-1 flex items-baseline gap-6 min-w-0">
                     <div className="min-w-0">
                         <div className="text-2xl font-semibold text-zinc-50 truncate">{displayName(item, lang)}</div>
-                        <div className="text-xs font-mono text-zinc-500 tracking-widest uppercase">{item.id}</div>
+                        <div className={pinned ? 'text-xs font-mono text-zinc-500 tracking-widest uppercase flex items-center' : 'text-xs font-mono text-zinc-500 tracking-widest uppercase'}>
+                            {item.id}
+                            {pinned && (
+                                <span
+                                    className="ml-2 inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[0.625rem] font-mono uppercase tracking-widest text-emerald-300"
+                                >{label}</span>
+                            )}
+                        </div>
                     </div>
                 </div>
 

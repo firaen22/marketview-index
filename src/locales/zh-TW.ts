@@ -142,6 +142,8 @@ export default {
         scPlaylist: "輪播清單",
         scToggleHints: "切換提示",
         scClose: "關閉",
+        spotlightPinned: "已釘選",
+        scTrackpadQuote: "開啟報價卡時：滑動 = 切換 · 雙指點按 = 釘選/取消釘選",
         pdfLoading: "PDF 載入中…",
         pdfLoadError: "PDF 載入失敗",
         pdfSlow: "仍在載入 — 大型簡報可能需要數分鐘。若似乎卡住可重新載入。",
