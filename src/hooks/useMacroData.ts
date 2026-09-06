@@ -31,8 +31,22 @@ export function useMacroData({ lang, refreshMs }: Options): Result {
             if (!response.ok) return;
             const result: MacroDataResponse = await response.json();
 
-            if (seq === requestSeqRef.current && result.success) {
-                setData(result.data);
+            // Shape gate (useMarketData has usableQuotes; this hook had none):
+            // a success envelope with null/non-array data, or a row without a
+            // string symbol/name, reached useQuotePanel's .map/.toLowerCase
+            // and threw during the /present render — a blank projector. The
+            // fields are the ones MacroStatCard dereferences unguarded
+            // (value.toFixed, changePercent.toFixed, date.split).
+            if (seq === requestSeqRef.current && result.success && Array.isArray(result.data)) {
+                setData(result.data.filter((row): row is MacroData => {
+                    const r = row as Partial<MacroData> | null;
+                    return !!r && typeof r === 'object'
+                        && typeof r.symbol === 'string'
+                        && typeof r.name === 'string'
+                        && Number.isFinite(r.value)
+                        && Number.isFinite(r.changePercent)
+                        && typeof r.date === 'string';
+                }));
             }
         } catch (err) {
             if ((err as Error)?.name === 'AbortError') return;

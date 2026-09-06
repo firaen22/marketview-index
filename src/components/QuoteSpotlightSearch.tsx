@@ -42,6 +42,11 @@ export function QuoteSpotlightSearch({ items, lang, pinnedIds, onCommit, onClose
     }, [query, items]);
 
     useEffect(() => { setSelectedIdx(0); }, [query]);
+    // A refresh can shrink `results` under the highlight; clamp so Enter never
+    // targets a row that no longer exists.
+    useEffect(() => {
+        setSelectedIdx(i => Math.min(i, Math.max(0, results.length - 1)));
+    }, [results]);
     useEffect(() => {
         selectedRef.current?.scrollIntoView({ block: 'nearest' });
     }, [selectedIdx]);
@@ -114,10 +119,10 @@ export function QuoteSpotlightSearch({ items, lang, pinnedIds, onCommit, onClose
                                     <span className="font-mono text-xs text-zinc-500 w-20 truncate">{r.id}</span>
                                     <span className="flex-1 text-sm text-zinc-200 truncate">{displayName(r, lang)}</span>
                                     <span className="font-mono text-xs text-zinc-400 tabular-nums">
-                                        {r.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                        {Number.isFinite(r.value) ? r.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
                                     </span>
                                     <span className={`font-mono text-xs tabular-nums w-16 text-right ${pctColor(r.changePct)}`}>
-                                        {r.changePct > 0 ? '+' : ''}{r.changePct.toFixed(2)}%
+                                        {Number.isFinite(r.changePct) ? `${r.changePct > 0 ? '+' : ''}${r.changePct.toFixed(2)}%` : '—'}
                                     </span>
                                 </li>
                             );

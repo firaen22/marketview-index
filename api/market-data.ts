@@ -358,8 +358,13 @@ export function parseJgbCsv(text: string, tenorYears: number): Array<{ date: Dat
     if (fields.length <= tenorColumn) continue;
     const date = parseJgbDate(fields[0]);
     if (!date) continue;
-    const close = Number(fields[tenorColumn]);
-    if (!Number.isFinite(close) || close === 0) continue;
+    // Test the raw cell, not the number: `Number('')` is 0, which is why a
+    // blank used to be skipped as `close === 0` — but that also threw away a
+    // genuine 0.000% print, and Japan 10Y has closed exactly there.
+    const raw = String(fields[tenorColumn] ?? '').trim();
+    if (raw === '' || raw === '-') continue;
+    const close = Number(raw);
+    if (!Number.isFinite(close)) continue;
     points.push({ date, close });
   }
   return points;
@@ -493,6 +498,15 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
     console.warn('Yahoo Finance batch quote failed, building from charts only:', err?.message);
     quotes = [];
   }
+  // The batch is consumed by `.find` in the loop below, outside any try: a
+  // non-array result would throw there and take every symbol down. Treat it
+  // exactly like a thrown quote(): fail fast into the frozen fallback when
+  // there is one, otherwise build from charts only.
+  if (!Array.isArray(quotes)) {
+    if (hasFrozenFallback) throw new Error('Yahoo Finance batch quote returned a non-array');
+    console.warn('Yahoo Finance batch quote returned a non-array; building from charts only');
+    quotes = [];
+  }
 
   // Calculate dynamic start date based on range
   const d1 = new Date();
@@ -552,14 +566,25 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
   const results = [];
   for (let idx = 0; idx < INDICES_TO_FETCH.length; idx++) {
     const index = INDICES_TO_FETCH[idx] as any;
-    const quote = quotes.find((q: any) => q.symbol === index.symbol);
+    // `q?.` — a null/undefined entry in the batch must cost one symbol its
+    // quote, not throw out of the loop and blank all of them.
+    const quote = quotes.find((q: any) => q?.symbol === index.symbol);
+    // A yield is a rate, not a price: Japan 10Y sat below zero from 2016 to
+    // 2020, so the price-style `close > 0` filter (there to reject Yahoo's
+    // spurious zero closes) would drop those bars — and with every bar
+    // dropped, the whole tile. Same for the 20% sanity cap below: a rate
+    // near zero legitimately moves far more than 20% in a day.
+    const isRate = index.category === 'Rates';
     // A malformed date survives a close-only filter and then throws RangeError
     // at `new Date(pt.date).toISOString()` below — which escapes fetchAllIndices
     // and freezes the WHOLE payload, not just this symbol. Reject unparseable
     // dates the way fetchYahooTwFundHistory already does; an ABSENT date stays
     // allowed, since it is handled as "unknown" downstream.
-    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt
-      && Number.isFinite(pt.close) && pt.close > 0
+    // A RESOLVED malformed chart body ({ quotes: {} }) is not caught by the
+    // per-symbol .catch above; it has to fail as "no chart", not throw here.
+    const rawQuotes = rawHistories[idx]?.quotes;
+    const chartData = (Array.isArray(rawQuotes) ? rawQuotes : []).filter((pt: any) => pt
+      && Number.isFinite(pt.close) && (isRate || pt.close > 0)
       && (pt.date === undefined || pt.date === null || !Number.isNaN(new Date(pt.date).getTime())));
     // Yahoo's quote endpoint silently drops some mutual-fund symbols (0P00000EBQ
     // vanished from the batch on 2026-09-02) while its chart endpoint still
@@ -607,8 +632,12 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
       // Also when the quote is present but priceless (regularMarketPrice
       // null/0): shipping price 0 next to a valid chart blanked the tile and
       // was cached for an hour (sweep 20).
-      const priceless = !quote || !(price > 0);
-      if ((index.category === 'Fund' || priceless) && lastClose > 0) {
+      // A rate is priceless only when the quote carried no finite number: a
+      // negative live yield is a valid print, not a missing one.
+      // Test the RAW field: `price` was coalesced with `|| 0` above, and 0 is
+      // finite, so a null rate quote would otherwise print as a live 0% yield.
+      const priceless = !quote || !(isRate ? Number.isFinite(quote.regularMarketPrice) : price > 0);
+      if ((index.category === 'Fund' || priceless) && (isRate ? Number.isFinite(lastClose) : lastClose > 0)) {
         price = lastClose;
         // The quote's OHLC describes the quote's own (for funds, often
         // months-old) price, not the chart close just substituted for it —
@@ -627,7 +656,9 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
 
       // If the current price is available and looks reasonable, use it as the final point
       // Otherwise, the last historical close is the most reliable anchor
-      const finalPrice = (price > 0 && Math.abs((price - lastClose) / lastClose) < 0.2) ? price : lastClose;
+      const finalPrice = isRate
+        ? (Number.isFinite(price) ? price : lastClose)
+        : ((price > 0 && Math.abs((price - lastClose) / lastClose) < 0.2) ? price : lastClose);
 
       ytdChange = finalPrice - firstClose;
       ytdChangePercent = firstClose !== 0 ? (ytdChange / firstClose) * 100 : 0;
@@ -715,8 +746,10 @@ export function mergeCarriedForward(fresh: any[], cachedData: any[]) {
     fresh.filter((item: any) => item?.estimated !== true).map((item: any) => item?.symbol),
   );
   const carried = INDICES_TO_FETCH
-    .map(index => cachedData.find((item: any) => item && typeof item === 'object' && typeof item.symbol === 'string' && item.symbol === index.symbol))
-    .filter((item: any) => item && !freshSymbols.has(item.symbol) && isRenderable(item))
+    // First RENDERABLE row per symbol: the handler concatenates hourly and
+    // last_good rows, and a malformed hourly row must not mask a good one.
+    .map(index => cachedData.find((item: any) => item && typeof item === 'object' && item.symbol === index.symbol && isRenderable(item)))
+    .filter((item: any) => item && !freshSymbols.has(item.symbol))
     .map((item: any) => ({ ...item, stale: true }));
 
   if (carried.length === 0) return fresh;
