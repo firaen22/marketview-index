@@ -138,6 +138,8 @@ export default {
         scPlaylist: "playlist",
         scToggleHints: "toggle this",
         scClose: "close",
+        spotlightPinned: "Pinned",
+        scTrackpadQuote: "swipe = next card · 2-finger tap = pin",
         pdfLoading: "Loading PDF…",
         pdfLoadError: "Failed to load PDF",
         pdfSlow: "Still loading — a large deck can take several minutes. Reload if it looks stuck.",

@@ -1187,6 +1187,7 @@ export default function PresentationPage() {
                         <span className="text-zinc-400">{t.present.scToggleHints}</span>
                         <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded font-mono text-emerald-300">Esc</kbd>
                         <span className="text-zinc-400">{t.present.scClose}</span>
+                        <span className="text-zinc-500">{t.present.scTrackpadQuote}</span>
                     </div>
                 </div>
             )}
