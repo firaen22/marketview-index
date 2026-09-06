@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { vi } from 'vitest';
 import { describe, expect, it } from 'vitest';
-import { spotlightCycleList } from './PresentationPage';
+import { spotlightCycleList, spotlightGestureTarget } from './PresentationPage';
 
 vi.hoisted(() => {
     (globalThis as typeof globalThis & { DOMMatrix: typeof DOMMatrix }).DOMMatrix = class {} as typeof DOMMatrix;
@@ -90,3 +90,49 @@ describe('spotlightCycleList', () => {
         expect(spotlightCycleList('', briefItems, pinned)).toBe(pinned);
     });
 });
+
+describe('spotlightGestureTarget', () => {
+    it('returns spotlight when overlays are all false', () => {
+        const item = { id: 'q1' } as any;
+        const result = spotlightGestureTarget(item, {
+            isPickerOpen: false,
+            isSearchOpen: false,
+            chartOpen: false,
+            briefPanelOpen: false,
+            glossaryPanelOpen: false,
+            editorOpen: false,
+        });
+        expect(result).toBe(item);
+    });
+
+    it('returns null when any overlay is open', () => {
+        const item = { id: 'q1' } as any;
+        const allClosed = {
+            isPickerOpen: false,
+            isSearchOpen: false,
+            chartOpen: false,
+            briefPanelOpen: false,
+            glossaryPanelOpen: false,
+            editorOpen: false,
+        };
+        expect(spotlightGestureTarget(item, { ...allClosed, isPickerOpen: true })).toBe(null);
+        expect(spotlightGestureTarget(item, { ...allClosed, isSearchOpen: true })).toBe(null);
+        expect(spotlightGestureTarget(item, { ...allClosed, chartOpen: true })).toBe(null);
+        expect(spotlightGestureTarget(item, { ...allClosed, briefPanelOpen: true })).toBe(null);
+        expect(spotlightGestureTarget(item, { ...allClosed, glossaryPanelOpen: true })).toBe(null);
+        expect(spotlightGestureTarget(item, { ...allClosed, editorOpen: true })).toBe(null);
+    });
+
+    it('returns null when spotlight is null', () => {
+        const result = spotlightGestureTarget(null, {
+            isPickerOpen: false,
+            isSearchOpen: false,
+            chartOpen: false,
+            briefPanelOpen: false,
+            glossaryPanelOpen: false,
+            editorOpen: false,
+        });
+        expect(result).toBe(null);
+    });
+});
+

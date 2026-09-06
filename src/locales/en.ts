@@ -139,7 +139,7 @@ export default {
         scToggleHints: "toggle this",
         scClose: "close",
         spotlightPinned: "Pinned",
-        scTrackpadQuote: "swipe = next card · 2-finger tap = pin",
+        scTrackpadQuote: "card open: swipe = cycle · 2-finger tap = pin/unpin",
         pdfLoading: "Loading PDF…",
         pdfLoadError: "Failed to load PDF",
         pdfSlow: "Still loading — a large deck can take several minutes. Reload if it looks stuck.",

@@ -101,3 +101,12 @@ describe('QuoteSpotlight', () => {
         expect(onDismiss).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('QuoteSpotlight gesture integration', () => {
+    it('is routed via PresentationPage onSwipe/onTap handlers, tested there', () => {
+        // The component receives the item; the handlers decide whether it owns the
+        // gesture. That routing logic is tested in PresentationPage.spotlight.test.ts
+        // (spotlightGestureTarget). Component tests verify the UI only.
+    });
+});
+

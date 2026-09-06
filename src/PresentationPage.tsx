@@ -141,6 +141,42 @@ export function spotlightCycleList<T extends { id: string }>(
     return briefItems.some(b => b.id === spotlightId) ? briefItems : pinned;
 }
 
+/**
+ * The card an arrow/swipe should land on. Normally the ring neighbour; when the
+ * shown card was just unpinned (so it sits in neither list) the ring has no
+ * anchor and the pure helper says null — re-enter the pinned deck at its
+ * first/last card instead of dead-ending until the presenter dismisses.
+ */
+export function spotlightNeighbour<T extends { id: string }>(
+    spotlightId: string,
+    briefItems: readonly T[],
+    pinned: readonly T[],
+    direction: 'forward' | 'back',
+): T | null {
+    const list = spotlightCycleList(spotlightId, briefItems, pinned);
+    const next = nextSpotlightItem(list, spotlightId, direction);
+    if (next) return next;
+    if (list.length === 0 || list.some(item => item.id === spotlightId)) return null;
+    return direction === 'forward' ? list[0] : list[list.length - 1];
+}
+
+export interface SpotlightOverlays {
+    isPickerOpen: boolean;
+    isSearchOpen: boolean;
+    chartOpen: boolean;
+    briefPanelOpen: boolean;
+    glossaryPanelOpen: boolean;
+    editorOpen: boolean;
+}
+
+/** The spotlight card, but only when no overlay is stacked above it. */
+export function spotlightGestureTarget<T>(spotlight: T | null, overlays: SpotlightOverlays): T | null {
+    if (!spotlight) return null;
+    const covered = overlays.isPickerOpen || overlays.isSearchOpen || overlays.chartOpen
+        || overlays.briefPanelOpen || overlays.glossaryPanelOpen || overlays.editorOpen;
+    return covered ? null : spotlight;
+}
+
 export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: PresentationCommandExecutorDeps): boolean {
     const {
         marketData,
@@ -798,11 +834,7 @@ export default function PresentationPage() {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.prevPage();
                 return;
             }
-            const next = nextSpotlightItem(
-                spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned),
-                qp.spotlight.id,
-                'back',
-            );
+            const next = spotlightNeighbour(qp.spotlight.id, briefItems, qp.pinned, 'back');
             if (next) qp.openSpotlight(next);
         }, [qp, briefItems, mainView, slide.mode]),
         onArrowRight: useCallback(() => {
@@ -810,11 +842,7 @@ export default function PresentationPage() {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.nextPage();
                 return;
             }
-            const next = nextSpotlightItem(
-                spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned),
-                qp.spotlight.id,
-                'forward',
-            );
+            const next = spotlightNeighbour(qp.spotlight.id, briefItems, qp.pinned, 'forward');
             if (next) qp.openSpotlight(next);
         }, [qp, briefItems, mainView, slide.mode]),
         // Presentation clickers send PageUp/PageDown — always flip the PDF.
@@ -837,15 +865,23 @@ export default function PresentationPage() {
     // decision synchronously, which a setState updater cannot hand back.
     const pdfZoomRef = useRef(pdfZoom);
     pdfZoomRef.current = pdfZoom;
+    // The card only owns the gestures while it is the topmost layer. Opening the
+    // picker/search/chart/brief/glossary/editor does not dismiss it (z-40 under
+    // z-50), and a two-finger tap on a modal backdrop must not pin/unpin a card
+    // nobody can see — fall through to the old PDF/view/hints routing instead.
+    const spotlightInFront = spotlightGestureTarget(qp.spotlight, {
+        isPickerOpen: qp.isPickerOpen,
+        isSearchOpen: qp.isSearchOpen,
+        chartOpen: !!qp.chartItem,
+        briefPanelOpen,
+        glossaryPanelOpen,
+        editorOpen,
+    });
     useTrackpadGestures({
         enabled: true,
         onSwipeLeft: useCallback(() => {
-            if (qp.spotlight) {
-                const next = nextSpotlightItem(
-                    spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned),
-                    qp.spotlight.id,
-                    'forward',
-                );
+            if (spotlightInFront) {
+                const next = spotlightNeighbour(spotlightInFront.id, briefItems, qp.pinned, 'forward');
                 if (next) qp.openSpotlight(next);
                 return;
             }
@@ -854,14 +890,10 @@ export default function PresentationPage() {
                 return;
             }
             moveMainView('forward');
-        }, [qp, briefItems, pdfOnScreen, moveMainView]),
+        }, [qp, spotlightInFront, briefItems, pdfOnScreen, moveMainView]),
         onSwipeRight: useCallback(() => {
-            if (qp.spotlight) {
-                const next = nextSpotlightItem(
-                    spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned),
-                    qp.spotlight.id,
-                    'back',
-                );
+            if (spotlightInFront) {
+                const next = spotlightNeighbour(spotlightInFront.id, briefItems, qp.pinned, 'back');
                 if (next) qp.openSpotlight(next);
                 return;
             }
@@ -870,7 +902,7 @@ export default function PresentationPage() {
                 return;
             }
             moveMainView('back');
-        }, [qp, briefItems, pdfOnScreen, moveMainView]),
+        }, [qp, spotlightInFront, briefItems, pdfOnScreen, moveMainView]),
         onPinch: useCallback((direction: 'in' | 'out') => {
             if (!pdfOnScreen) return;
             const current = pdfZoomRef.current;
@@ -880,9 +912,9 @@ export default function PresentationPage() {
             return pinchShouldLatch(current, next) ? 'latch' : undefined;
         }, [pdfOnScreen]),
         onTwoFingerTap: useCallback(() => {
-            if (qp.spotlight) { qp.toggle(qp.spotlight); return; }
+            if (spotlightInFront) { qp.toggle(spotlightInFront); return; }
             toggleHints();
-        }, [qp, toggleHints]),
+        }, [qp, spotlightInFront, toggleHints]),
     });
 
     const pinnedRaw = tickerSymbols !== null
