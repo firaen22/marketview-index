@@ -18,7 +18,10 @@ interface Props {
     pinnedLabel?: string;
 }
 
-function formatValue(v: number): string {
+function formatValue(v: number | undefined): string {
+    // Same guard as formatPct: a render throw here blanks the whole projector,
+    // and useMacroData applies no shape gate to what reaches this card.
+    if (typeof v !== 'number' || !Number.isFinite(v)) return '—';
     if (Math.abs(v) >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
     return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

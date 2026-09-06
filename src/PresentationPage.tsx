@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { MarketStatCard } from './components/MarketStatCard';
 import { MacroStatCard } from './components/MacroStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
@@ -170,11 +170,52 @@ export interface SpotlightOverlays {
 }
 
 /** The spotlight card, but only when no overlay is stacked above it. */
+export function overlayCovering(overlays: SpotlightOverlays): boolean {
+    return overlays.isPickerOpen || overlays.isSearchOpen || overlays.chartOpen
+        || overlays.briefPanelOpen || overlays.glossaryPanelOpen || overlays.editorOpen;
+}
+
 export function spotlightGestureTarget<T>(spotlight: T | null, overlays: SpotlightOverlays): T | null {
     if (!spotlight) return null;
-    const covered = overlays.isPickerOpen || overlays.isSearchOpen || overlays.chartOpen
-        || overlays.briefPanelOpen || overlays.glossaryPanelOpen || overlays.editorOpen;
-    return covered ? null : spotlight;
+    return overlayCovering(overlays) ? null : spotlight;
+}
+
+/**
+ * What an arrow key or trackpad swipe should drive. A card hidden under ANY
+ * overlay is never cycled. The deck is driven only while it is visible: the
+ * picker/search/chart/brief are full-screen (fixed inset-0 z-50) and used to
+ * let a swipe flip the PDF behind them, so the presenter closed the modal onto
+ * a different slide; the glossary and editor are z-40 side drawers that leave
+ * the deck on screen, so arrows and swipes keep working beside them.
+ * PageUp/PageDown, the clicker keys, stay always-on regardless.
+ */
+export function presentNavTarget<T>(spotlight: T | null, overlays: SpotlightOverlays): 'spotlight' | 'deck' | null {
+    if (spotlight) return overlayCovering(overlays) ? null : 'spotlight';
+    const deckHidden = overlays.isPickerOpen || overlays.isSearchOpen || overlays.chartOpen || overlays.briefPanelOpen;
+    return deckHidden ? null : 'deck';
+}
+
+export type EscapeTarget = 'search' | 'picker' | 'brief' | 'glossary' | 'editor' | 'spotlight' | 'hints' | null;
+
+/**
+ * Which layer Escape should close: the TOPMOST one. The spotlight card sits at
+ * z-40 under every z-50 overlay and is not dismissed by opening one, so it has
+ * to be checked last — checking it first closed a card nobody could see and
+ * left the modal on screen until a second Escape. The chart modal owns its own
+ * Escape (null here).
+ */
+export function presentEscapeTarget(s: SpotlightOverlays & { spotlightOpen: boolean }): EscapeTarget {
+    // Order = reverse of render order in the JSX below (later sibling paints
+    // on top): picker over search over brief, then the editor drawer over
+    // the glossary drawer. Keep the two in sync.
+    if (s.chartOpen) return null;
+    if (s.isPickerOpen) return 'picker';
+    if (s.isSearchOpen) return 'search';
+    if (s.briefPanelOpen) return 'brief';
+    if (s.editorOpen) return 'editor';
+    if (s.glossaryPanelOpen) return 'glossary';
+    if (s.spotlightOpen) return 'spotlight';
+    return 'hints';
 }
 
 export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: PresentationCommandExecutorDeps): boolean {
@@ -801,6 +842,24 @@ export default function PresentationPage() {
 
     const toggleHints = useCallback(() => setShowHints(s => !s), []);
 
+    // The card only owns arrows and gestures while it is the topmost layer.
+    // Opening the picker/search/chart/brief/glossary/editor does not dismiss
+    // it (z-40 under z-50), and a key or two-finger tap meant for a modal must
+    // not cycle or pin a card nobody can see — a two-finger tap falls through
+    // to the hints toggle; arrows/swipes fall through to the deck only while
+    // the deck is visible (presentNavTarget). Memoised on the flags so the keyboard hook does
+    // not resubscribe every render.
+    const overlays = useMemo<SpotlightOverlays>(() => ({
+        isPickerOpen: qp.isPickerOpen,
+        isSearchOpen: qp.isSearchOpen,
+        chartOpen: !!qp.chartItem,
+        briefPanelOpen,
+        glossaryPanelOpen,
+        editorOpen,
+    }), [qp.isPickerOpen, qp.isSearchOpen, qp.chartItem, briefPanelOpen, glossaryPanelOpen, editorOpen]);
+    // null while the thing a key/swipe would drive is hidden under an overlay.
+    const navTarget = presentNavTarget(qp.spotlight, overlays);
+
     useKeyboardShortcuts({
         onEdit: useCallback(() => setEditorOpen(o => !o), []),
         onFullscreen: toggleFullscreen,
@@ -818,33 +877,41 @@ export default function PresentationPage() {
         // Escape closes the topmost overlay only. IndexChartModal owns its own
         // Escape (it layers an internal compare-picker we can't see from here).
         onEscape: useCallback(() => {
-            if (qp.chartItem) return;
-            if (qp.isSearchOpen) { qp.closeSearch(); return; }
-            if (qp.spotlight) { qp.dismissSpotlight(); return; }
-            if (qp.isPickerOpen) { qp.closePicker(); return; }
-            if (briefPanelOpen) { setBriefPanelOpen(false); return; }
-            // The panel's fullscreen QR overlay owns its own Escape (capture +
-            // stopPropagation), so reaching here means only the panel is open.
-            if (glossaryPanelOpen) { setGlossaryPanelOpen(false); return; }
-            if (editorOpen) { setEditorOpen(false); return; }
-            setShowHints(false);
-        }, [qp, briefPanelOpen, glossaryPanelOpen, editorOpen]),
+            // The glossary panel's fullscreen QR overlay owns its own Escape
+            // (capture + stopPropagation), so 'glossary' here means only the
+            // panel is open.
+            switch (presentEscapeTarget({ ...overlays, spotlightOpen: !!qp.spotlight })) {
+                case 'search': qp.closeSearch(); return;
+                case 'picker': qp.closePicker(); return;
+                case 'brief': setBriefPanelOpen(false); return;
+                case 'glossary': setGlossaryPanelOpen(false); return;
+                case 'editor': setEditorOpen(false); return;
+                case 'spotlight': qp.dismissSpotlight(); return;
+                case 'hints': setShowHints(false); return;
+                default: return;
+            }
+        }, [qp, overlays]),
+        // Arrows mirror the swipe gestures: they cycle the card only while it is
+        // the topmost layer, and flip the deck only when nothing covers it —
+        // never a card or a PDF hidden under a z-50 overlay.
         onArrowLeft: useCallback(() => {
-            if (!qp.spotlight) {
+            if (navTarget === null) return;
+            if (navTarget === 'deck') {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.prevPage();
                 return;
             }
-            const next = spotlightNeighbour(qp.spotlight.id, briefItems, qp.pinned, 'back');
+            const next = spotlightNeighbour(qp.spotlight!.id, briefItems, qp.pinned, 'back');
             if (next) qp.openSpotlight(next);
-        }, [qp, briefItems, mainView, slide.mode]),
+        }, [qp, navTarget, briefItems, mainView, slide.mode]),
         onArrowRight: useCallback(() => {
-            if (!qp.spotlight) {
+            if (navTarget === null) return;
+            if (navTarget === 'deck') {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.nextPage();
                 return;
             }
-            const next = spotlightNeighbour(qp.spotlight.id, briefItems, qp.pinned, 'forward');
+            const next = spotlightNeighbour(qp.spotlight!.id, briefItems, qp.pinned, 'forward');
             if (next) qp.openSpotlight(next);
-        }, [qp, briefItems, mainView, slide.mode]),
+        }, [qp, navTarget, briefItems, mainView, slide.mode]),
         // Presentation clickers send PageUp/PageDown — always flip the PDF.
         onPageUp: useCallback(() => {
             if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.prevPage();
@@ -865,23 +932,15 @@ export default function PresentationPage() {
     // decision synchronously, which a setState updater cannot hand back.
     const pdfZoomRef = useRef(pdfZoom);
     pdfZoomRef.current = pdfZoom;
-    // The card only owns the gestures while it is the topmost layer. Opening the
-    // picker/search/chart/brief/glossary/editor does not dismiss it (z-40 under
-    // z-50), and a two-finger tap on a modal backdrop must not pin/unpin a card
-    // nobody can see — fall through to the old PDF/view/hints routing instead.
-    const spotlightInFront = spotlightGestureTarget(qp.spotlight, {
-        isPickerOpen: qp.isPickerOpen,
-        isSearchOpen: qp.isSearchOpen,
-        chartOpen: !!qp.chartItem,
-        briefPanelOpen,
-        glossaryPanelOpen,
-        editorOpen,
-    });
     useTrackpadGestures({
         enabled: true,
+        // With an overlay open the swipe is swallowed and drives nothing: the
+        // hook has already eaten the scroll stream, and flipping the deck or
+        // cycling a hidden card behind the picker is worse than a dead swipe.
         onSwipeLeft: useCallback(() => {
-            if (spotlightInFront) {
-                const next = spotlightNeighbour(spotlightInFront.id, briefItems, qp.pinned, 'forward');
+            if (navTarget === null) return;
+            if (navTarget === 'spotlight') {
+                const next = spotlightNeighbour(qp.spotlight!.id, briefItems, qp.pinned, 'forward');
                 if (next) qp.openSpotlight(next);
                 return;
             }
@@ -890,10 +949,11 @@ export default function PresentationPage() {
                 return;
             }
             moveMainView('forward');
-        }, [qp, spotlightInFront, briefItems, pdfOnScreen, moveMainView]),
+        }, [qp, navTarget, briefItems, pdfOnScreen, moveMainView]),
         onSwipeRight: useCallback(() => {
-            if (spotlightInFront) {
-                const next = spotlightNeighbour(spotlightInFront.id, briefItems, qp.pinned, 'back');
+            if (navTarget === null) return;
+            if (navTarget === 'spotlight') {
+                const next = spotlightNeighbour(qp.spotlight!.id, briefItems, qp.pinned, 'back');
                 if (next) qp.openSpotlight(next);
                 return;
             }
@@ -902,7 +962,7 @@ export default function PresentationPage() {
                 return;
             }
             moveMainView('back');
-        }, [qp, spotlightInFront, briefItems, pdfOnScreen, moveMainView]),
+        }, [qp, navTarget, briefItems, pdfOnScreen, moveMainView]),
         onPinch: useCallback((direction: 'in' | 'out') => {
             if (!pdfOnScreen) return;
             const current = pdfZoomRef.current;
@@ -912,9 +972,9 @@ export default function PresentationPage() {
             return pinchShouldLatch(current, next) ? 'latch' : undefined;
         }, [pdfOnScreen]),
         onTwoFingerTap: useCallback(() => {
-            if (spotlightInFront) { qp.toggle(spotlightInFront); return; }
+            if (navTarget === 'spotlight') { qp.toggle(qp.spotlight!); return; }
             toggleHints();
-        }, [qp, spotlightInFront, toggleHints]),
+        }, [qp, navTarget, toggleHints]),
     });
 
     const pinnedRaw = tickerSymbols !== null

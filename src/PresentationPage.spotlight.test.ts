@@ -136,3 +136,80 @@ describe('spotlightGestureTarget', () => {
     });
 });
 
+
+// sweep 22: Escape used to dismiss the z-40 spotlight BEFORE checking the z-50
+// overlays stacked above it, so with a picker/brief/glossary/editor open the
+// first Escape closed a card nobody could see and the modal stayed put.
+import { presentEscapeTarget } from './PresentationPage';
+
+describe('presentEscapeTarget', () => {
+    const none = {
+        chartOpen: false, isSearchOpen: false, isPickerOpen: false,
+        briefPanelOpen: false, glossaryPanelOpen: false, editorOpen: false, spotlightOpen: false,
+    };
+
+    it('closes the overlay stacked above the spotlight, not the spotlight', () => {
+        expect(presentEscapeTarget({ ...none, spotlightOpen: true, isPickerOpen: true })).toBe('picker');
+        expect(presentEscapeTarget({ ...none, spotlightOpen: true, briefPanelOpen: true })).toBe('brief');
+        expect(presentEscapeTarget({ ...none, spotlightOpen: true, glossaryPanelOpen: true })).toBe('glossary');
+        expect(presentEscapeTarget({ ...none, spotlightOpen: true, editorOpen: true })).toBe('editor');
+        expect(presentEscapeTarget({ ...none, spotlightOpen: true, isSearchOpen: true })).toBe('search');
+    });
+
+    it('closes overlays in render order when two coexist', () => {
+        expect(presentEscapeTarget({ ...none, isSearchOpen: true, isPickerOpen: true })).toBe('picker');
+        expect(presentEscapeTarget({ ...none, glossaryPanelOpen: true, editorOpen: true })).toBe('editor');
+        expect(presentEscapeTarget({ ...none, briefPanelOpen: true, editorOpen: true })).toBe('brief');
+    });
+
+    it('closes the spotlight when it is the topmost layer', () => {
+        expect(presentEscapeTarget({ ...none, spotlightOpen: true })).toBe('spotlight');
+    });
+
+    it('leaves the chart modal to its own Escape handler', () => {
+        expect(presentEscapeTarget({ ...none, chartOpen: true, spotlightOpen: true })).toBe(null);
+    });
+
+    it('falls through to the hints when nothing is open', () => {
+        expect(presentEscapeTarget(none)).toBe('hints');
+    });
+});
+
+// Arrows and trackpad swipes with a z-50 overlay open (picker, search, chart,
+// brief, glossary, editor) used to fall through to the PDF: the modal
+// swallowed nothing, so a swipe over the picker list flipped the live deck
+// behind it and ArrowRight on a focused picker button did the same.
+import { presentNavTarget } from './PresentationPage';
+
+describe('presentNavTarget', () => {
+    const none = {
+        chartOpen: false, isSearchOpen: false, isPickerOpen: false,
+        briefPanelOpen: false, glossaryPanelOpen: false, editorOpen: false,
+    };
+    const spot = { id: 'HSI' };
+
+    it('never cycles a spotlight hidden under any overlay', () => {
+        for (const flag of Object.keys(none) as (keyof typeof none)[]) {
+            expect(presentNavTarget(spot, { ...none, [flag]: true })).toBe(null);
+        }
+    });
+
+    it('leaves the deck alone under a full-screen overlay', () => {
+        for (const flag of ['isPickerOpen', 'isSearchOpen', 'chartOpen', 'briefPanelOpen'] as const) {
+            expect(presentNavTarget(null, { ...none, [flag]: true })).toBe(null);
+        }
+    });
+
+    it('still drives the deck beside the glossary/editor side drawers (z-40, deck visible)', () => {
+        expect(presentNavTarget(null, { ...none, glossaryPanelOpen: true })).toBe('deck');
+        expect(presentNavTarget(null, { ...none, editorOpen: true })).toBe('deck');
+    });
+
+    it('cycles the spotlight when it is the topmost layer', () => {
+        expect(presentNavTarget(spot, none)).toBe('spotlight');
+    });
+
+    it('drives the deck when nothing is on top of it', () => {
+        expect(presentNavTarget(null, none)).toBe('deck');
+    });
+});

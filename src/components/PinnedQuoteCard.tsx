@@ -46,7 +46,7 @@ export function PinnedQuoteCard({ item, lang, showDivider, onRemove, onClick }: 
             </div>
             <div className="text-[0.6875rem] text-zinc-400 leading-tight">{displayName(item, lang)}</div>
             <div className="text-xl font-bold font-mono text-white leading-none mt-1">
-                {item.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                {Number.isFinite(item.value) ? item.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
             </div>
             <div className={`text-xs font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
                 {isPositive ? '▲' : '▼'} {Number.isFinite(item.changePct) ? `${Math.abs(item.changePct).toFixed(2)}%` : '—'}{item.changeLabel ? ` ${item.changeLabel}` : ''}

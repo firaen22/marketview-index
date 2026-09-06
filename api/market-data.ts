@@ -11,8 +11,12 @@ export const CACHE_KEY = 'global_market_cache_yfinance_v1';
 // night (nobody refreshes at 01:00), the 01:30 cron then fetches with nothing
 // to carry from, and the morning presentation opened one tile short — no
 // tile, so no Delayed badge either. This key holds the last complete payload
-// for a week; the tile keeps its badge the whole time. A week, not forever:
-// past that a "Delayed" badge understates the age too much to be honest.
+// for a week of NO traffic: every complete hourly payload (carried rows
+// included) is written back here with a fresh TTL, so while the app is in use
+// a still-failing symbol stays on the board, badged Delayed, indefinitely —
+// a hole with no badge is the worse outcome under the projector invariant
+// (owner decision, sweep 22). The 7d only bounds how long an idle deployment
+// keeps a payload nobody has refreshed.
 export const LAST_GOOD_KEY = 'global_market_last_good_v1';
 export const LAST_GOOD_TTL_SECONDS = 7 * 24 * 3600;
 
@@ -358,8 +362,13 @@ export function parseJgbCsv(text: string, tenorYears: number): Array<{ date: Dat
     if (fields.length <= tenorColumn) continue;
     const date = parseJgbDate(fields[0]);
     if (!date) continue;
-    const close = Number(fields[tenorColumn]);
-    if (!Number.isFinite(close) || close === 0) continue;
+    // Test the raw cell, not the number: `Number('')` is 0, which is why a
+    // blank used to be skipped as `close === 0` — but that also threw away a
+    // genuine 0.000% print, and Japan 10Y has closed exactly there.
+    const raw = String(fields[tenorColumn] ?? '').trim();
+    if (raw === '' || raw === '-') continue;
+    const close = Number(raw);
+    if (!Number.isFinite(close)) continue;
     points.push({ date, close });
   }
   return points;
@@ -477,6 +486,8 @@ export async function fetchJgbYieldHistory(
  *   builds a full item from chart history, and `results.length === 0` still
  *   throws if even that fails.
  */
+const SANITY_CAPPED_CATEGORIES: ReadonlySet<string> = new Set(['US', 'Europe', 'Asia', 'Currency']);
+
 export async function fetchAllIndices(range: string, hasFrozenFallback = false) {
   const startedAt = Date.now();
   // JP10Y is our own label, not a Yahoo ticker — asking for it would make the
@@ -491,6 +502,15 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
   } catch (err: any) {
     if (hasFrozenFallback) throw err;
     console.warn('Yahoo Finance batch quote failed, building from charts only:', err?.message);
+    quotes = [];
+  }
+  // The batch is consumed by `.find` in the loop below, outside any try: a
+  // non-array result would throw there and take every symbol down. Treat it
+  // exactly like a thrown quote(): fail fast into the frozen fallback when
+  // there is one, otherwise build from charts only.
+  if (!Array.isArray(quotes)) {
+    if (hasFrozenFallback) throw new Error('Yahoo Finance batch quote returned a non-array');
+    console.warn('Yahoo Finance batch quote returned a non-array; building from charts only');
     quotes = [];
   }
 
@@ -552,14 +572,25 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
   const results = [];
   for (let idx = 0; idx < INDICES_TO_FETCH.length; idx++) {
     const index = INDICES_TO_FETCH[idx] as any;
-    const quote = quotes.find((q: any) => q.symbol === index.symbol);
+    // `q?.` — a null/undefined entry in the batch must cost one symbol its
+    // quote, not throw out of the loop and blank all of them.
+    const quote = quotes.find((q: any) => q?.symbol === index.symbol);
+    // A yield is a rate, not a price: Japan 10Y sat below zero from 2016 to
+    // 2020, so the price-style `close > 0` filter (there to reject Yahoo's
+    // spurious zero closes) would drop those bars — and with every bar
+    // dropped, the whole tile. Same for the 20% sanity cap below: a rate
+    // near zero legitimately moves far more than 20% in a day.
+    const isRate = index.category === 'Rates';
     // A malformed date survives a close-only filter and then throws RangeError
     // at `new Date(pt.date).toISOString()` below — which escapes fetchAllIndices
     // and freezes the WHOLE payload, not just this symbol. Reject unparseable
     // dates the way fetchYahooTwFundHistory already does; an ABSENT date stays
     // allowed, since it is handled as "unknown" downstream.
-    const chartData = (rawHistories[idx].quotes || []).filter((pt: any) => pt
-      && Number.isFinite(pt.close) && pt.close > 0
+    // A RESOLVED malformed chart body ({ quotes: {} }) is not caught by the
+    // per-symbol .catch above; it has to fail as "no chart", not throw here.
+    const rawQuotes = rawHistories[idx]?.quotes;
+    const chartData = (Array.isArray(rawQuotes) ? rawQuotes : []).filter((pt: any) => pt
+      && Number.isFinite(pt.close) && (isRate || pt.close > 0)
       && (pt.date === undefined || pt.date === null || !Number.isNaN(new Date(pt.date).getTime())));
     // Yahoo's quote endpoint silently drops some mutual-fund symbols (0P00000EBQ
     // vanished from the batch on 2026-09-02) while its chart endpoint still
@@ -607,8 +638,48 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
       // Also when the quote is present but priceless (regularMarketPrice
       // null/0): shipping price 0 next to a valid chart blanked the tile and
       // was cached for an hour (sweep 20).
-      const priceless = !quote || !(price > 0);
-      if ((index.category === 'Fund' || priceless) && lastClose > 0) {
+      // A rate is priceless only when the quote carried no finite number: a
+      // negative live yield is a valid print, not a missing one.
+      // Test the RAW field: `price` was coalesced with `|| 0` above, and 0 is
+      // finite, so a null rate quote would otherwise print as a live 0% yield.
+      const priceless = !quote || !(isRate ? Number.isFinite(quote.regularMarketPrice) : price > 0);
+      // A live price >=20% off today's close is a bad tick far more often
+      // than a real move (Yahoo has served HSI at 10x). On a real crash the
+      // quote and today's bar move together, so the cap never fires. With no
+      // fresh bar (e.g. after a holiday gap-down), the quote goes through
+      // untouched and the stale rule badges it anyway. Only for instruments
+      // where a 20% day is not a real thing (equity indices, majors): VIX,
+      // crypto, crude and a near-zero yield legitimately move that much; funds
+      // already take the chart close. MARKET_SANITY_CAP=off is the escape
+      // hatch for a genuinely wild day: it still needs a redeploy for Vercel
+      // to pick the value up, but it is a dashboard toggle, not a code change
+      // and review round. Read per call, like every other env read in api/.
+      // Coerce like every other reader of pt.date in this block: a provider
+      // shape change to ISO strings would make a bare .getTime() throw, and a
+      // throw here escapes fetchAllIndices and freezes the WHOLE payload.
+      // `barAge >= 0` so a future-dated bar (clock/period skew) does not count
+      // as today and clamp a real move against a not-yet-valid close.
+      const barAge = Number.isFinite(newestDate) ? Date.now() - newestDate : NaN;
+      const barIsToday = Number.isFinite(barAge) && barAge >= 0 && barAge < 24 * 60 * 60 * 1000;
+      // Two tiers, because the threshold is only as tight as the close is
+      // fresh. Against TODAY'S close, 20% is a bad tick. Against a week-old
+      // weekly bar (5Y), an undated bar, or a holiday gap, 20% is an ordinary
+      // multi-day move, so the bar is 50% there. Not higher: at 100% a 1.5x
+      // tick deviates only 50% and slipped BOTH the cap and the 14-day weekly
+      // stale threshold, reaching the projector unbadged (codex, sweep 22
+      // rounds 1-2 — round 1 was the <24h window that made 5Y never cap at
+      // all). 50% is above the worst weekly drawdown these categories have on
+      // record, and if it ever does fire on a real move the row is badged
+      // stale rather than silently wrong — the recoverable direction.
+      const threshold = barIsToday ? 0.2 : 0.5;
+      const implausible = process.env.MARKET_SANITY_CAP !== 'off'
+        && SANITY_CAPPED_CATEGORIES.has(index.category) && !priceless
+        && lastClose > 0 && Math.abs((price - lastClose) / lastClose) >= threshold;
+      if (implausible) {
+        console.warn(`Symbol ${index.symbol}: live price ${price} is >=20% off last close ${lastClose}; using the chart close`);
+        stale = true;
+      }
+      if ((index.category === 'Fund' || priceless || implausible) && (isRate ? Number.isFinite(lastClose) : lastClose > 0)) {
         price = lastClose;
         // The quote's OHLC describes the quote's own (for funds, often
         // months-old) price, not the chart close just substituted for it —
@@ -627,7 +698,9 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
 
       // If the current price is available and looks reasonable, use it as the final point
       // Otherwise, the last historical close is the most reliable anchor
-      const finalPrice = (price > 0 && Math.abs((price - lastClose) / lastClose) < 0.2) ? price : lastClose;
+      const finalPrice = isRate
+        ? (Number.isFinite(price) ? price : lastClose)
+        : ((price > 0 && Math.abs((price - lastClose) / lastClose) < 0.2) ? price : lastClose);
 
       ytdChange = finalPrice - firstClose;
       ytdChangePercent = firstClose !== 0 ? (ytdChange / firstClose) * 100 : 0;
@@ -715,8 +788,10 @@ export function mergeCarriedForward(fresh: any[], cachedData: any[]) {
     fresh.filter((item: any) => item?.estimated !== true).map((item: any) => item?.symbol),
   );
   const carried = INDICES_TO_FETCH
-    .map(index => cachedData.find((item: any) => item && typeof item === 'object' && typeof item.symbol === 'string' && item.symbol === index.symbol))
-    .filter((item: any) => item && !freshSymbols.has(item.symbol) && isRenderable(item))
+    // First RENDERABLE row per symbol: the handler concatenates hourly and
+    // last_good rows, and a malformed hourly row must not mask a good one.
+    .map(index => cachedData.find((item: any) => item && typeof item === 'object' && item.symbol === index.symbol && isRenderable(item)))
+    .filter((item: any) => item && !freshSymbols.has(item.symbol))
     .map((item: any) => ({ ...item, stale: true }));
 
   if (carried.length === 0) return fresh;

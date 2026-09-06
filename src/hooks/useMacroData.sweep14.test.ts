@@ -61,16 +61,16 @@ describe('useMacroData sweep-14 regression', () => {
 
         // Newer (forced) request resolves first with fresh data…
         await act(async () => {
-            calls[1].resolve({ success: true, data: [{ id: 'fresh' }] });
+            calls[1].resolve({ success: true, data: [{ symbol: 'fresh', name: 'Fresh', value: 1, changePercent: 0, date: '2026-08-01' }] });
         });
         await flush();
-        expect(latest.data).toEqual([{ id: 'fresh' }]);
+        expect(latest.data).toEqual([{ symbol: 'fresh', name: 'Fresh', value: 1, changePercent: 0, date: '2026-08-01' }]);
 
         // …then the stale initial request finally resolves. It must be discarded.
         await act(async () => {
-            calls[0].resolve({ success: true, data: [{ id: 'stale' }] });
+            calls[0].resolve({ success: true, data: [{ symbol: 'stale', name: 'Stale', value: 1, changePercent: 0, date: '2026-08-01' }] });
         });
         await flush();
-        expect(latest.data).toEqual([{ id: 'fresh' }]);
+        expect(latest.data).toEqual([{ symbol: 'fresh', name: 'Fresh', value: 1, changePercent: 0, date: '2026-08-01' }]);
     });
 });
