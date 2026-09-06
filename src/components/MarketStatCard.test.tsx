@@ -67,3 +67,51 @@ describe('MarketStatCard highlight behavior', () => {
         expect(scrollSpy).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('MarketStatCard renders bond yields as percentages', () => {
+    let container: HTMLDivElement;
+    let root: Root;
+
+    const yieldItem = {
+        ...item,
+        symbol: '^TNX',
+        name: 'US 10Y Treasury Yield',
+        nameEn: 'US 10Y Treasury Yield',
+        category: 'Rates',
+        price: 4.784,
+        low: 4.72,
+        high: 4.81,
+    };
+
+    beforeEach(() => {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+        Element.prototype.scrollIntoView = vi.fn() as unknown as Element['scrollIntoView'];
+    });
+
+    afterEach(() => {
+        act(() => root.unmount());
+        container.remove();
+    });
+
+    it('suffixes the price with % and keeps two decimals in the day range', () => {
+        act(() => {
+            root.render(<MarketStatCard item={yieldItem as any} t={t} />);
+        });
+        const text = container.textContent ?? '';
+        expect(text).toContain('4.78%');
+        // Whole-number rounding would collapse a 4.72–4.81 range to "5 — 5".
+        expect(text).toContain('4.72');
+        expect(text).toContain('4.81');
+    });
+
+    it('leaves a non-Rates index unsuffixed', () => {
+        act(() => {
+            root.render(<MarketStatCard item={item as any} t={t} />);
+        });
+        const text = container.textContent ?? '';
+        expect(text).toContain('20,000');
+        expect(text).not.toContain('20,000.00%');
+    });
+});

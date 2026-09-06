@@ -51,6 +51,7 @@ export default {
         Commodity: "大宗商品",
         Crypto: "加密貨幣",
         Currency: "全球匯率",
+        Rates: "債券利率",
         Volatility: "波動率",
         Fund: "熱門基金"
     },
@@ -76,7 +77,10 @@ export default {
         "Bitcoin": "比特幣",
         "Ethereum": "乙太幣",
         "Crude Oil": "原油期貨",
-        "Gold": "黃金期貨"
+        "Gold": "黃金期貨",
+        "US 10Y Treasury Yield": "美國十年期債息",
+        "US 30Y Treasury Yield": "美國三十年期債息",
+        "Japan 10Y JGB Yield": "日本十年期債息"
     },
     funds: "基金持倉",
     nominal: "數值模式",

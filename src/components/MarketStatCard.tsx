@@ -1,6 +1,6 @@
 import React from 'react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
-import { cn, displayName, formatPrice } from '../utils';
+import { cn, displayName, formatPrice, formatValue, isRateItem } from '../utils';
 import { Card } from './ui';
 import type { IndexData, HistoryPoint } from '../types';
 import type { TDict } from '../locales';
@@ -85,7 +85,7 @@ export const MarketStatCard: React.FC<{
                 </div>
                 <div className="text-right flex flex-col items-end">
                     <div className={cn("text-base font-mono font-bold leading-none", isPositive ? "text-emerald-400" : "text-rose-400")}>
-                        {formatPrice(item.price)}
+                        {formatValue(item.price, item)}
                     </div>
                     <div className={cn("text-[0.625rem] font-mono flex items-center justify-end mt-1 px-1.5 py-0.5 rounded bg-zinc-950/50", isPositive ? "text-emerald-400" : "text-rose-400")}>
                         {isPositive ? '+' : ''}{item.changePercent.toFixed(2)}%
@@ -136,9 +136,9 @@ export const MarketStatCard: React.FC<{
                 <div className="text-right flex flex-col">
                     <span className="text-zinc-500 mb-0.5 uppercase tracking-tighter font-semibold">{t.range}</span>
                     <span className="font-mono text-zinc-100 text-[0.6875rem] leading-tight">
-                        {item.low.toLocaleString(undefined, { maximumFractionDigits: 0 })}<br />
+                        {item.low.toLocaleString(undefined, { maximumFractionDigits: isRateItem(item) ? 2 : 0, minimumFractionDigits: isRateItem(item) ? 2 : 0 })}<br />
                         <span className="text-zinc-500 opacity-50">—</span><br />
-                        {item.high.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        {item.high.toLocaleString(undefined, { maximumFractionDigits: isRateItem(item) ? 2 : 0, minimumFractionDigits: isRateItem(item) ? 2 : 0 })}
                     </span>
                 </div>
             </div>

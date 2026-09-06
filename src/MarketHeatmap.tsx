@@ -78,6 +78,20 @@ interface TreemapContentProps {
     scale?: number;
 }
 
+/**
+ * Tile labels are the first word of the name, which is enough for "Nikkei 225"
+ * or "Crude Oil" but collapses "US 10Y Treasury Yield" and "US 30Y Treasury
+ * Yield" to the same "US". When that first word is a short prefix (3 characters
+ * or fewer) the following word is kept too, as long as it carries a digit —
+ * the part that tells the two rows apart. Longer first words are left alone so
+ * existing tiles keep the label width they already fit.
+ */
+export function heatmapTileLabel(name: string): string {
+    const words = name.trim().split(/\s+/);
+    if (words.length < 2 || words[0].length > 3) return words[0] ?? '';
+    return /\d/.test(words[1]) ? `${words[0]} ${words[1]}` : words[0];
+}
+
 const CustomizedContent = (props: TreemapContentProps) => {
     const { x = 0, y = 0, width = 0, height = 0, name = '', change = 0, scale = 1 } = props;
     // Cell geometry arrives in real rendered pixels, which already grow with the
@@ -111,7 +125,7 @@ const CustomizedContent = (props: TreemapContentProps) => {
             {width > px(60) && height > px(40) && (
                 <text x={x + width / 2} y={y + height / 2} textAnchor="middle" fill="white" className="select-none">
                     <tspan x={x + width / 2} dy="-0.2em" fontSize={width > px(120) ? px(16) : px(12)} fontWeight="900">
-                        {name.split(' ')[0]}
+                        {heatmapTileLabel(name)}
                     </tspan>
                     <tspan x={x + width / 2} dy="1.4em" fontSize={px(10)} fontWeight="600" fillOpacity={0.9}>
                         {change > 0 ? '+' : ''}{change?.toFixed(2)}%

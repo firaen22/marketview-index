@@ -1,6 +1,6 @@
 import React from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
-import { cn, formatPrice, formatSigned } from '../utils';
+import { cn, formatSigned, formatValue } from '../utils';
 import type { IndexData } from '../types';
 import type { TDict } from '../locales';
 
@@ -30,7 +30,7 @@ export const TickerItem: React.FC<{ item: IndexData; t: TDict }> = React.memo(({
                 </span>
             </div>
             <div className="flex flex-col items-end">
-                <span className="text-sm font-mono font-medium text-zinc-100">{formatPrice(item.price)}</span>
+                <span className="text-sm font-mono font-medium text-zinc-100">{formatValue(item.price, item)}</span>
                 <div className={cn("flex items-center text-xs font-mono", isPositive ? "text-emerald-400" : "text-rose-400")}>
                     {isPositive ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
                     <span>{formatSigned(item.change)} ({formatSigned(item.changePercent)}%)</span>

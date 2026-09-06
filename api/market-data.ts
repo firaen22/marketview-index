@@ -49,6 +49,13 @@ const INDICES_TO_FETCH = [
   { symbol: 'ETH-USD', category: 'Crypto', subCategory: 'Currency', name: 'Ethereum' },
   { symbol: 'CL=F', category: 'Commodity', subCategory: 'Energy', name: 'Crude Oil' },
   { symbol: 'GC=F', category: 'Commodity', subCategory: 'Metals', name: 'Gold' },
+  { symbol: '^TNX', category: 'Rates', subCategory: 'US Treasury', name: 'US 10Y Treasury Yield' },
+  { symbol: '^TYX', category: 'Rates', subCategory: 'US Treasury', name: 'US 30Y Treasury Yield' },
+  // Japan has no Yahoo Finance yield ticker (^JP10Y, JP10Y-JGB and JGB10Y=RR
+  // all answer with an empty quote), so this row is served from the Japanese
+  // Ministry of Finance CSV instead — see fetchJgbYieldHistory. `jgbTenor` is
+  // the tenor in years to read from that CSV; the symbol is our own label.
+  { symbol: 'JP10Y', category: 'Rates', subCategory: 'JGB', name: 'Japan 10Y JGB Yield', jgbTenor: 10 },
   {
     symbol: '0P00000EBQ',
     category: 'Fund',
@@ -277,6 +284,185 @@ export async function fetchYahooTwFundHistory(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Japanese Government Bond yields (Ministry of Finance)
+//
+// Yahoo Finance has no JGB yield ticker, so the 10Y row is built from the MOF's
+// own daily reference rates. Two files are needed: the all-history file lags by
+// roughly a month, and the current-month file carries the newest days.
+// Both are Shift-JIS, but every data row is ASCII (`R8.9.1,1.527,...`), so the
+// bytes are read as latin1 and only ASCII rows are parsed — no decoder needed.
+// Dates use Japanese era years: S=Shōwa (1925+n), H=Heisei (1988+n),
+// R=Reiwa (2018+n). A missing rate is written as "-".
+const JGB_ALL_URL = 'https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv';
+const JGB_CURRENT_URL = 'https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv';
+const JGB_CACHE_KEY = 'jgb_yield_series_v1';
+const JGB_CACHE_TTL_SECONDS = 12 * 3600;
+// Six years covers the longest range the UI offers (5Y) with room to spare.
+const JGB_HISTORY_YEARS = 6;
+
+const ERA_BASE_YEAR: Record<string, number> = { S: 1925, H: 1988, R: 2018 };
+
+/** "R8.9.1" -> Date(2026-09-01T00:00:00Z); null when unparseable. */
+export function parseJgbDate(raw: string): Date | null {
+  const match = /^([SHR])(\d+)\.(\d+)\.(\d+)$/.exec(raw.trim());
+  if (!match) return null;
+  const base = ERA_BASE_YEAR[match[1]];
+  const eraYear = Number(match[2]);
+  const month = Number(match[3]);
+  const day = Number(match[4]);
+  if (!base || !(eraYear > 0) || !(month >= 1 && month <= 12) || !(day >= 1 && day <= 31)) return null;
+  const date = new Date(Date.UTC(base + eraYear, month - 1, day));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Column index of a tenor in the MOF header row, or -1.
+ *
+ * Headers read `基準日,1年,2年,…,10年,…` — matched on the leading digits alone,
+ * never on the "年", because the file is Shift-JIS and is read as latin1: the
+ * ASCII digits survive that, the kanji does not.
+ */
+export function findJgbTenorColumn(headerLine: string, tenorYears: number): number {
+  const columns = headerLine.split(',');
+  for (let i = 1; i < columns.length; i++) {
+    const digits = /^\s*(\d+)\D*$/.exec(columns[i]);
+    if (digits && Number(digits[1]) === tenorYears) return i;
+  }
+  return -1;
+}
+
+/**
+ * Parse one MOF CSV into { date, close } points for a tenor given in years.
+ * Rows whose rate is "-" (no reference that day) are dropped.
+ */
+export function parseJgbCsv(text: string, tenorYears: number): Array<{ date: Date; close: number }> {
+  const lines = text.split(/\r?\n/);
+  let tenorColumn = -1;
+  let headerIndex = -1;
+  for (let i = 0; i < lines.length && i < 20; i++) {
+    const column = findJgbTenorColumn(lines[i], tenorYears);
+    // The header is the first row that names the tenor AND is not itself a
+    // data row (data rows start with an era date such as R8.9.1).
+    if (column > 0 && !parseJgbDate(lines[i].split(',')[0])) {
+      tenorColumn = column;
+      headerIndex = i;
+      break;
+    }
+  }
+  if (tenorColumn < 1) return [];
+
+  const points: Array<{ date: Date; close: number }> = [];
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const fields = lines[i].split(',');
+    if (fields.length <= tenorColumn) continue;
+    const date = parseJgbDate(fields[0]);
+    if (!date) continue;
+    const close = Number(fields[tenorColumn]);
+    if (!Number.isFinite(close) || close === 0) continue;
+    points.push({ date, close });
+  }
+  return points;
+}
+
+/** Read a MOF CSV as text; the payload is Shift-JIS but its data rows are ASCII. */
+async function fetchJgbCsv(url: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetch(url, {
+    signal: signal ?? AbortSignal.timeout(5000),
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MarketView/1.0)' },
+  });
+  if (!response.ok) throw new Error(`MOF ${url} responded ${response.status}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return buffer.toString('latin1');
+}
+
+// Warm-instance memo, so several ranges served by the same lambda share one fetch.
+let jgbMemo: { tenor: number; fetchedAt: number; points: Array<{ date: string; close: number }> } | null = null;
+
+/**
+ * The full JGB series for one tenor, oldest first, trimmed to JGB_HISTORY_YEARS.
+ * Cached in Redis for 12h (the MOF publishes once per business day) so a cold
+ * lambda does not re-download the ~1.1MB history file on every range.
+ */
+export async function fetchJgbSeries(tenorYears: number, signal?: AbortSignal): Promise<Array<{ date: Date; close: number }>> {
+  const hydrate = (points: Array<{ date: string; close: number }>) =>
+    points
+      .map(p => ({ date: new Date(p.date), close: p.close }))
+      .filter(p => !Number.isNaN(p.date.getTime()) && Number.isFinite(p.close));
+
+  if (jgbMemo && jgbMemo.tenor === tenorYears && Date.now() - jgbMemo.fetchedAt < JGB_CACHE_TTL_SECONDS * 1000) {
+    return hydrate(jgbMemo.points);
+  }
+
+  const cacheKey = `${JGB_CACHE_KEY}_${tenorYears}y`;
+  if (redis) {
+    try {
+      const cached = parseCachePayload(await redis.get(cacheKey));
+      if (Array.isArray(cached) && cached.length > 0) {
+        jgbMemo = { tenor: tenorYears, fetchedAt: Date.now(), points: cached };
+        return hydrate(cached);
+      }
+    } catch (error) {
+      console.warn('JGB cache read failed:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  // The current-month file alone still renders 1W/1M if the big file fails.
+  const [allText, currentText] = await Promise.all([
+    fetchJgbCsv(JGB_ALL_URL, signal).catch(() => ''),
+    fetchJgbCsv(JGB_CURRENT_URL, signal).catch(() => ''),
+  ]);
+
+  const cutoff = Date.now() - JGB_HISTORY_YEARS * 365.25 * 24 * 3600 * 1000;
+  const byDate = new Map<number, number>();
+  for (const point of [...parseJgbCsv(allText, tenorYears), ...parseJgbCsv(currentText, tenorYears)]) {
+    const time = point.date.getTime();
+    if (time < cutoff) continue;
+    byDate.set(time, point.close); // current-month file wins on overlap
+  }
+  const merged = [...byDate.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([time, close]) => ({ date: new Date(time).toISOString(), close }));
+
+  if (merged.length === 0) return [];
+
+  jgbMemo = { tenor: tenorYears, fetchedAt: Date.now(), points: merged };
+  if (redis) {
+    try {
+      await redis.set(cacheKey, JSON.stringify(merged), { ex: JGB_CACHE_TTL_SECONDS });
+    } catch (error) {
+      console.warn('JGB cache write failed:', error instanceof Error ? error.message : error);
+    }
+  }
+  return hydrate(merged);
+}
+
+/** The chart-shaped slice fetchAllIndices needs, matching fetchYahooTwFundHistory. */
+export async function fetchJgbYieldHistory(
+  tenorYears: number,
+  period1: string,
+  period2: string,
+  interval: '1d' | '1wk',
+  signal?: AbortSignal,
+): Promise<Array<{ date: Date; close: number }>> {
+  try {
+    const series = await fetchJgbSeries(tenorYears, signal);
+    const from = new Date(`${period1}T00:00:00Z`).getTime();
+    const to = new Date(`${period2}T23:59:59Z`).getTime();
+    const points = series.filter(p => {
+      const time = p.date.getTime();
+      return (!Number.isFinite(from) || time >= from) && (!Number.isFinite(to) || time <= to);
+    });
+    if (interval === '1wk') {
+      return points.filter((_, i) => i % 5 === 0 || i === points.length - 1);
+    }
+    return points;
+  } catch (error) {
+    console.warn(`JGB history failed for ${tenorYears}Y:`, error instanceof Error ? error.message : error);
+    return [];
+  }
+}
+
 /**
  * `hasFrozenFallback` says whether the caller holds a cached payload it can
  * serve if this throws. It decides what a batch-quote failure means:
@@ -293,7 +479,10 @@ export async function fetchYahooTwFundHistory(
  */
 export async function fetchAllIndices(range: string, hasFrozenFallback = false) {
   const startedAt = Date.now();
-  const symbols = INDICES_TO_FETCH.map(i => i.symbol);
+  // JP10Y is our own label, not a Yahoo ticker — asking for it would make the
+  // whole batch quote fail or return a hollow row. Its price comes from the
+  // MOF history below, via the same `priceless` path funds already use.
+  const symbols = INDICES_TO_FETCH.filter((i: any) => !i.jgbTenor).map(i => i.symbol);
   let quotes: any[] = [];
   try {
     quotes = await yahooFinance.quote(symbols, undefined, {
@@ -347,6 +536,9 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
   const chartBudgetMs = Math.max(1500, 8000 - (Date.now() - startedAt));
   const chartSignal = AbortSignal.timeout(chartBudgetMs);
   const rawHistories = await Promise.all(INDICES_TO_FETCH.map(async (index: any) => {
+    if (index.jgbTenor) {
+      return { quotes: await fetchJgbYieldHistory(index.jgbTenor, period1, period2, interval, chartSignal) };
+    }
     if (index.twFundId) {
       const tw = await fetchYahooTwFundHistory(index.twFundId, period1, period2, interval, chartSignal);
       if (tw.length > 0) return { quotes: tw };

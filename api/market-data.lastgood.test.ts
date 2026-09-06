@@ -36,6 +36,25 @@ vi.mock('yahoo-finance2', () => ({
 
 const { default: handler, LAST_GOOD_KEY, LAST_GOOD_TTL_SECONDS } = await import('./market-data');
 
+
+// The JP10Y row is served from the Japanese Ministry of Finance CSV, not
+// Yahoo, so a bare 503 stub leaves the payload one symbol short and the
+// "never cache an incomplete payload" rule then (correctly) skips the cache
+// write these tests assert. Answer MOF with a two-row CSV; everything else
+// keeps the failure the test is actually about.
+const JGB_CSV = [
+    'header,,,,,,,,,,,,,,,',
+    'date,1,2,3,4,5,6,7,8,9,10,15,20,25,30,40',
+    'R8.9.1,1.5,1.8,1.9,2.1,2.2,2.4,2.5,2.7,2.8,2.98,3.5,3.8,4.1,4.1,4.1',
+    'R8.9.2,1.5,1.8,1.9,2.1,2.3,2.4,2.5,2.7,2.8,3.00,3.5,3.8,4.1,4.1,4.1',
+].join('\n');
+
+function stubFetchDownExceptJgb() {
+    vi.stubGlobal('fetch', vi.fn((input: any) => String(input).includes('mof.go.jp')
+        ? Promise.resolve(new Response(JGB_CSV, { status: 200 }))
+        : Promise.resolve(new Response('down', { status: 503 }))));
+}
+
 const HOURLY_KEY = 'global_market_cache_yfinance_v1_YTD';
 const LAST_GOOD_YTD = `${LAST_GOOD_KEY}_YTD`;
 
@@ -64,7 +83,7 @@ describe('carry-forward outlives the hourly cache', () => {
         // A keyed store, so the hourly key and last_good can differ.
         state.redis.get.mockReset().mockImplementation(async (key: string) => state.store[key] ?? null);
         state.redis.set.mockReset().mockResolvedValue('OK');
-        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('down', { status: 503 }))));
+        stubFetchDownExceptJgb();
     });
 
     it('carries a still-failing symbol from last_good after the hourly cache has expired', async () => {
