@@ -31,9 +31,53 @@ const AXIS_DATE_OPTS: Record<string, Intl.DateTimeFormatOptions> = {
     default: { month: 'short', day: 'numeric' },
 };
 
+// Merge key for the compare rows. history[].date is a full ISO timestamp whose
+// time-of-day is per-source (verified live 2026-09-06: ^GSPC 13:30Z, ^HSI
+// 01:30Z, ^N225 and TW fund NAV 00:00Z, FX pairs 23:00Z = midnight London under
+// BST, with the in-progress FX bar stamped at its last trade, e.g. 20:59Z), so
+// keying on the raw string never puts a fund and an index on the same row.
+// Every served range is >= 1d, so the key is the calendar day of the bar in
+// Europe/London: the only zone in which every one of those stamps falls on the
+// trading day Yahoo labels it with. UTC would put a 23:00Z FX bar a day early;
+// Asia/Hong_Kong would put the 20:59Z in-progress FX bar a day late. 5Y is
+// served as weekly bars whose weekday is also per-source (^GSPC Mon, ^HSI Sun,
+// TW fund Thu), so that range buckets to the Sun–Sat week of that day.
+const KEY_DAY_FMT = new Intl.DateTimeFormat('en-u-ca-gregory-nu-latn', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+// Assembled from formatToParts, not from format(): ECMA-402 leaves the joined
+// string's shape to locale data, the parts' values are guaranteed digits.
+function londonDay(d: Date): { y: number; m: number; d: number } {
+    const parts = KEY_DAY_FMT.formatToParts(d);
+    const num = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+    return { y: num('year'), m: num('month'), d: num('day') };
+}
+export function chartDateKey(v: string, range: TimeRange): string {
+    const t = new Date(v);
+    if (isNaN(t.getTime())) return v;
+    const { y, m, d } = londonDay(t);
+    const wk = new Date(Date.UTC(y, m - 1, d));
+    if (range === '5Y') wk.setUTCDate(wk.getUTCDate() - wk.getUTCDay());
+    return wk.toISOString().slice(0, 10);
+}
+
+// A bare YYYY-MM-DD (a chartDateKey) is a LOCAL day; `new Date('YYYY-MM-DD')`
+// would read it as UTC midnight and shift the label a day west of Greenwich.
+// An impossible day (2026-13-40) must stay invalid rather than overflow into
+// a real date, so the parts are round-tripped.
+const LOCAL_DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+function parseChartDate(v: string): Date {
+    const m = LOCAL_DAY_RE.exec(v);
+    if (!m) return new Date(v);
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    const local = new Date(y, mo - 1, d);
+    const ok = local.getFullYear() === y && local.getMonth() === mo - 1 && local.getDate() === d;
+    return ok ? local : new Date(NaN);
+}
+
 function formatDate(v: unknown, opts: Intl.DateTimeFormatOptions): string {
     if (typeof v !== 'string' || !v) return '';
-    const d = new Date(v);
+    const d = parseChartDate(v);
     return isNaN(d.getTime()) ? v : d.toLocaleDateString(undefined, opts);
 }
 
@@ -198,7 +242,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
             if (hist.length === 0) continue;
             const base = hist[0].value;
             hist.forEach((pt, idx) => {
-                const key = pt.date || String(idx).padStart(4, '0');
+                const key = pt.date ? chartDateKey(pt.date, range) : String(idx).padStart(4, '0');
                 if (!dateMap.has(key)) dateMap.set(key, { date: key });
                 const row = dateMap.get(key)!;
                 const val =
@@ -214,7 +258,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
             const db = typeof b.date === 'string' ? b.date : '';
             return da.localeCompare(db);
         });
-    }, [series, effectiveMode, historyFor]);
+    }, [series, effectiveMode, historyFor, range]);
 
     const primaryHasHistory = historyFor(series[0]).length > 0;
 
