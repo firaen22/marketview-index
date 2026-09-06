@@ -24,6 +24,7 @@ vi.mock('recharts', () => ({
 }));
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+process.env.TZ = 'Asia/Hong_Kong';
 
 function index(symbol: string, history: Array<{ date: string; value: number }>): IndexData {
     return {
@@ -81,7 +82,10 @@ describe('IndexChartModal page-range switch', () => {
 
         const rows = JSON.parse(container.querySelector('[data-testid="chart"]')!.getAttribute('data-rows')!);
         expect(rows).toHaveLength(FIVE_YEAR_HISTORY.length);
-        expect(rows[0].date).toBe('2021-07-19');
+        // 5Y rows are keyed by the Sunday that starts the bar's week (chartDateKey),
+        // so the Monday 2021-07-19 bar lands on 2021-07-18. The assertion is about
+        // WHICH period got plotted (2021, not 2026), not the exact key.
+        expect(rows[0].date).toBe('2021-07-18');
     });
 
     it('puts a year on the axis for long ranges and keeps the day for short ones', () => {
