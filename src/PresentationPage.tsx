@@ -1088,6 +1088,7 @@ export default function PresentationPage() {
                                 onPrev={canCycle ? () => qp.openSpotlight(cycleList[(idx - 1 + cycleList.length) % cycleList.length]) : undefined}
                                 onNext={canCycle ? () => qp.openSpotlight(cycleList[(idx + 1) % cycleList.length]) : undefined}
                                 pinned={qp.pinnedIds.has(qp.spotlight.id)}
+                                pinnedLabel={t.present.spotlightPinned}
                             />
                         );
                     })()}
