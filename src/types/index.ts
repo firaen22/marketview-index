@@ -1,6 +1,6 @@
 export type TimeRange = '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '5Y';
 
-export type IndexCategory = 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Volatility' | 'Fund';
+export type IndexCategory = 'US' | 'Europe' | 'Asia' | 'Commodity' | 'Crypto' | 'Currency' | 'Rates' | 'Volatility' | 'Fund';
 
 export interface HistoryPoint {
     value: number;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Search } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import type { IndexData, MarketDataResponse, TimeRange } from '../types';
-import { displayName, formatPrice, formatSigned, formatWhole } from '../utils';
+import { displayName, formatPrice, formatSigned, formatValue, formatWhole } from '../utils';
 import { TimeRangeSelector } from './TimeRangeSelector';
 import { useRootScale } from '../hooks/useViewportScale';
 
@@ -276,7 +276,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                         </div>
                         <div className="flex items-baseline gap-3 mt-1">
                             <span className="text-2xl font-mono font-bold text-white">
-                                {formatPrice(item.price)}
+                                {formatValue(item.price, item)}
                             </span>
                             <span className={`text-sm font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {formatSigned(item.changePercent)}%

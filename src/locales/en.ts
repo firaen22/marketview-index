@@ -51,6 +51,7 @@ export default {
         Commodity: "Commodities",
         Crypto: "Crypto",
         Currency: "Currencies",
+        Rates: "Rates",
         Volatility: "Volatility",
         Fund: "Funds"
     },
@@ -76,7 +77,10 @@ export default {
         "Bitcoin": "Bitcoin",
         "Ethereum": "Ethereum",
         "Crude Oil": "Crude Oil",
-        "Gold": "Gold"
+        "Gold": "Gold",
+        "US 10Y Treasury Yield": "US 10Y Yield",
+        "US 30Y Treasury Yield": "US 30Y Yield",
+        "Japan 10Y JGB Yield": "Japan 10Y Yield"
     },
     funds: "My Funds",
     nominal: "Nominal",

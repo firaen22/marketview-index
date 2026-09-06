@@ -23,6 +23,21 @@ export function formatPrice(n: number): string {
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * Bond-yield rows carry a percentage, not an index level: 4.78 means 4.78%.
+ * Printing it bare next to the S&P's 6,500 reads as a price, so the Rates
+ * category gets a % suffix wherever a value is shown.
+ */
+export function isRateItem(item: Pick<IndexData, 'category'> | undefined | null): boolean {
+    return item?.category === 'Rates';
+}
+
+/** formatPrice, plus the "%" suffix a Rates row needs. */
+export function formatValue(n: number, item?: Pick<IndexData, 'category'> | null): string {
+    const text = formatPrice(n);
+    return isRateItem(item) && text !== '—' ? `${text}%` : text;
+}
+
 export function formatWhole(n: number): string {
     if (!Number.isFinite(n)) return '—';
     return n.toLocaleString(undefined, { maximumFractionDigits: 0 });

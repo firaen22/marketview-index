@@ -52,6 +52,25 @@ function stubTwFund(fundDates = ['2026-08-02', oldDate]) {
     }))));
 }
 
+
+// The JP10Y row is served from the Japanese Ministry of Finance CSV, not
+// Yahoo, so a bare 503 stub leaves the payload one symbol short and the
+// "never cache an incomplete payload" rule then (correctly) skips the cache
+// write these tests assert. Answer MOF with a two-row CSV; everything else
+// keeps the failure the test is actually about.
+const JGB_CSV = [
+    'header,,,,,,,,,,,,,,,',
+    'date,1,2,3,4,5,6,7,8,9,10,15,20,25,30,40',
+    'R8.9.1,1.5,1.8,1.9,2.1,2.2,2.4,2.5,2.7,2.8,2.98,3.5,3.8,4.1,4.1,4.1',
+    'R8.9.2,1.5,1.8,1.9,2.1,2.3,2.4,2.5,2.7,2.8,3.00,3.5,3.8,4.1,4.1,4.1',
+].join('\n');
+
+function stubFetchDownExceptJgb() {
+    vi.stubGlobal('fetch', vi.fn((input: any) => String(input).includes('mof.go.jp')
+        ? Promise.resolve(new Response(JGB_CSV, { status: 200 }))
+        : Promise.resolve(new Response('down', { status: 503 }))));
+}
+
 function makeReq(url: string) {
     return { url, headers: {}, method: 'GET' } as any;
 }
@@ -113,7 +132,7 @@ describe('market-data sweep 20 hardening', () => {
         expect(twFund.stale).toBe(true);
 
         state.emptyChartSymbol = '^HSI';
-        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('down', { status: 503 }))));
+        stubFetchDownExceptJgb();
         const estimated = (await fetchAllIndices('YTD')).find((item) => item.symbol === '^HSI')!;
         expect(estimated.estimated).toBe(true);
         // Reversed in sweep 21 round 2. This asserted an estimated fallback is
@@ -135,7 +154,7 @@ describe('market-data sweep 20 hardening', () => {
             const age = symbol === '^GSPC' ? 9 * day : symbol === '^HSI' ? 20 * day : 0;
             return { quotes: [{ date: new Date(Date.now() - age - 7 * day), close: 90 }, { date: new Date(Date.now() - age), close: 100 }] };
         };
-        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('down', { status: 503 }))));
+        stubFetchDownExceptJgb();
         try {
             const weekly = await fetchAllIndices('5Y');
             expect(weekly.find((i) => i.symbol === '^GSPC')).not.toHaveProperty('stale');
@@ -181,7 +200,7 @@ describe('market-data sweep 20 hardening', () => {
                 low: 320, high: 322, history: [],
             }],
         }));
-        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('down', { status: 503 }))));
+        stubFetchDownExceptJgb();
 
         const res = makeRes();
         await handler(makeReq('http://localhost/api/market-data?refresh=true'), res);
