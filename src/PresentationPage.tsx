@@ -6,6 +6,7 @@ import { SlideErrorBoundary } from './components/SlideErrorBoundary';
 import { getSettings, normalizePresentCycle, normalizePresentResume, setSetting, type PresentCycle, type PresentView } from './settings';
 import { resolvePresentResume } from './presentResume';
 import { nextPresentView, type CycleDirection } from './presentViewCycle';
+import { nextSpotlightItem } from './quoteSpotlightCycle';
 import { useSlideSync } from './hooks/useSlideSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { useClock } from './hooks/useClock';
@@ -130,6 +131,14 @@ export function nextPdfZoom(current: number, direction: 'in' | 'out'): number {
     }
     if (current <= 25) return 100;
     return Math.max(25, current - 25);
+}
+
+export function spotlightCycleList<T extends { id: string }>(
+    spotlightId: string,
+    briefItems: readonly T[],
+    pinned: readonly T[],
+): readonly T[] {
+    return briefItems.some(b => b.id === spotlightId) ? briefItems : pinned;
 }
 
 export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: PresentationCommandExecutorDeps): boolean {
@@ -789,22 +798,24 @@ export default function PresentationPage() {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.prevPage();
                 return;
             }
-            const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
-            if (cycleList.length < 2) return;
-            const i = cycleList.findIndex(p => p.id === qp.spotlight!.id);
-            if (i < 0) return;
-            qp.openSpotlight(cycleList[(i - 1 + cycleList.length) % cycleList.length]);
+            const next = nextSpotlightItem(
+                spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned),
+                qp.spotlight.id,
+                'back',
+            );
+            if (next) qp.openSpotlight(next);
         }, [qp, briefItems, mainView, slide.mode]),
         onArrowRight: useCallback(() => {
             if (!qp.spotlight) {
                 if (mainView === 'slide' && slide.mode === 'pdf') pdfRef.current?.nextPage();
                 return;
             }
-            const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
-            if (cycleList.length < 2) return;
-            const i = cycleList.findIndex(p => p.id === qp.spotlight!.id);
-            if (i < 0) return;
-            qp.openSpotlight(cycleList[(i + 1) % cycleList.length]);
+            const next = nextSpotlightItem(
+                spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned),
+                qp.spotlight.id,
+                'forward',
+            );
+            if (next) qp.openSpotlight(next);
         }, [qp, briefItems, mainView, slide.mode]),
         // Presentation clickers send PageUp/PageDown — always flip the PDF.
         onPageUp: useCallback(() => {
@@ -829,19 +840,37 @@ export default function PresentationPage() {
     useTrackpadGestures({
         enabled: true,
         onSwipeLeft: useCallback(() => {
+            if (qp.spotlight) {
+                const next = nextSpotlightItem(
+                    spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned),
+                    qp.spotlight.id,
+                    'forward',
+                );
+                if (next) qp.openSpotlight(next);
+                return;
+            }
             if (pdfOnScreen) {
                 pdfRef.current?.nextPage();
                 return;
             }
             moveMainView('forward');
-        }, [pdfOnScreen, moveMainView]),
+        }, [qp, briefItems, pdfOnScreen, moveMainView]),
         onSwipeRight: useCallback(() => {
+            if (qp.spotlight) {
+                const next = nextSpotlightItem(
+                    spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned),
+                    qp.spotlight.id,
+                    'back',
+                );
+                if (next) qp.openSpotlight(next);
+                return;
+            }
             if (pdfOnScreen) {
                 pdfRef.current?.prevPage();
                 return;
             }
             moveMainView('back');
-        }, [pdfOnScreen, moveMainView]),
+        }, [qp, briefItems, pdfOnScreen, moveMainView]),
         onPinch: useCallback((direction: 'in' | 'out') => {
             if (!pdfOnScreen) return;
             const current = pdfZoomRef.current;
@@ -850,7 +879,10 @@ export default function PresentationPage() {
             setPdfZoom(next);
             return pinchShouldLatch(current, next) ? 'latch' : undefined;
         }, [pdfOnScreen]),
-        onTwoFingerTap: toggleHints,
+        onTwoFingerTap: useCallback(() => {
+            if (qp.spotlight) { qp.toggle(qp.spotlight); return; }
+            toggleHints();
+        }, [qp, toggleHints]),
     });
 
     const pinnedRaw = tickerSymbols !== null
@@ -1042,7 +1074,7 @@ export default function PresentationPage() {
 
                     {/* Quote spotlight — lower-third overlay */}
                     {qp.spotlight && (() => {
-                        const cycleList = briefItems.some(b => b.id === qp.spotlight!.id) ? briefItems : qp.pinned;
+                        const cycleList = spotlightCycleList(qp.spotlight.id, briefItems, qp.pinned);
                         const idx = cycleList.findIndex(p => p.id === qp.spotlight!.id);
                         const canCycle = idx >= 0 && cycleList.length > 1;
                         return (
@@ -1055,6 +1087,7 @@ export default function PresentationPage() {
                                 total={canCycle ? cycleList.length : undefined}
                                 onPrev={canCycle ? () => qp.openSpotlight(cycleList[(idx - 1 + cycleList.length) % cycleList.length]) : undefined}
                                 onNext={canCycle ? () => qp.openSpotlight(cycleList[(idx + 1) % cycleList.length]) : undefined}
+                                pinned={qp.pinnedIds.has(qp.spotlight.id)}
                             />
                         );
                     })()}
