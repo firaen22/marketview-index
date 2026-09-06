@@ -11,8 +11,12 @@ export const CACHE_KEY = 'global_market_cache_yfinance_v1';
 // night (nobody refreshes at 01:00), the 01:30 cron then fetches with nothing
 // to carry from, and the morning presentation opened one tile short — no
 // tile, so no Delayed badge either. This key holds the last complete payload
-// for a week; the tile keeps its badge the whole time. A week, not forever:
-// past that a "Delayed" badge understates the age too much to be honest.
+// for a week of NO traffic: every complete hourly payload (carried rows
+// included) is written back here with a fresh TTL, so while the app is in use
+// a still-failing symbol stays on the board, badged Delayed, indefinitely —
+// a hole with no badge is the worse outcome under the projector invariant
+// (owner decision, sweep 22). The 7d only bounds how long an idle deployment
+// keeps a payload nobody has refreshed.
 export const LAST_GOOD_KEY = 'global_market_last_good_v1';
 export const LAST_GOOD_TTL_SECONDS = 7 * 24 * 3600;
 
@@ -482,6 +486,8 @@ export async function fetchJgbYieldHistory(
  *   builds a full item from chart history, and `results.length === 0` still
  *   throws if even that fails.
  */
+const SANITY_CAPPED_CATEGORIES: ReadonlySet<string> = new Set(['US', 'Europe', 'Asia', 'Currency']);
+
 export async function fetchAllIndices(range: string, hasFrozenFallback = false) {
   const startedAt = Date.now();
   // JP10Y is our own label, not a Yahoo ticker — asking for it would make the
@@ -637,7 +643,43 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
       // Test the RAW field: `price` was coalesced with `|| 0` above, and 0 is
       // finite, so a null rate quote would otherwise print as a live 0% yield.
       const priceless = !quote || !(isRate ? Number.isFinite(quote.regularMarketPrice) : price > 0);
-      if ((index.category === 'Fund' || priceless) && (isRate ? Number.isFinite(lastClose) : lastClose > 0)) {
+      // A live price >=20% off today's close is a bad tick far more often
+      // than a real move (Yahoo has served HSI at 10x). On a real crash the
+      // quote and today's bar move together, so the cap never fires. With no
+      // fresh bar (e.g. after a holiday gap-down), the quote goes through
+      // untouched and the stale rule badges it anyway. Only for instruments
+      // where a 20% day is not a real thing (equity indices, majors): VIX,
+      // crypto, crude and a near-zero yield legitimately move that much; funds
+      // already take the chart close. MARKET_SANITY_CAP=off is the escape
+      // hatch for a genuinely wild day: it still needs a redeploy for Vercel
+      // to pick the value up, but it is a dashboard toggle, not a code change
+      // and review round. Read per call, like every other env read in api/.
+      // Coerce like every other reader of pt.date in this block: a provider
+      // shape change to ISO strings would make a bare .getTime() throw, and a
+      // throw here escapes fetchAllIndices and freezes the WHOLE payload.
+      // `barAge >= 0` so a future-dated bar (clock/period skew) does not count
+      // as today and clamp a real move against a not-yet-valid close.
+      const barAge = Number.isFinite(newestDate) ? Date.now() - newestDate : NaN;
+      const barIsToday = Number.isFinite(barAge) && barAge >= 0 && barAge < 24 * 60 * 60 * 1000;
+      // Two tiers, because the threshold is only as tight as the close is
+      // fresh. Against TODAY'S close, 20% is a bad tick. Against a week-old
+      // weekly bar (5Y), an undated bar, or a holiday gap, 20% is an ordinary
+      // multi-day move, so the bar is 50% there. Not higher: at 100% a 1.5x
+      // tick deviates only 50% and slipped BOTH the cap and the 14-day weekly
+      // stale threshold, reaching the projector unbadged (codex, sweep 22
+      // rounds 1-2 — round 1 was the <24h window that made 5Y never cap at
+      // all). 50% is above the worst weekly drawdown these categories have on
+      // record, and if it ever does fire on a real move the row is badged
+      // stale rather than silently wrong — the recoverable direction.
+      const threshold = barIsToday ? 0.2 : 0.5;
+      const implausible = process.env.MARKET_SANITY_CAP !== 'off'
+        && SANITY_CAPPED_CATEGORIES.has(index.category) && !priceless
+        && lastClose > 0 && Math.abs((price - lastClose) / lastClose) >= threshold;
+      if (implausible) {
+        console.warn(`Symbol ${index.symbol}: live price ${price} is >=20% off last close ${lastClose}; using the chart close`);
+        stale = true;
+      }
+      if ((index.category === 'Fund' || priceless || implausible) && (isRate ? Number.isFinite(lastClose) : lastClose > 0)) {
         price = lastClose;
         // The quote's OHLC describes the quote's own (for funds, often
         // months-old) price, not the chart close just substituted for it —

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
     quoteResult: null as any,
     chartBySymbol: {} as Record<string, number[]>,
+    chartEndOffsetDays: {} as Record<string, number>,
     chartRawBySymbol: {} as Record<string, any>,
     chartCalls: 0,
     redis: { get: vi.fn(), set: vi.fn() },
@@ -24,7 +25,12 @@ vi.mock('yahoo-finance2', () => ({
             state.chartCalls++;
             if (state.chartRawBySymbol[args[0] as string] !== undefined) return state.chartRawBySymbol[args[0] as string];
             const closes = state.chartBySymbol[args[0] as string];
-            if (closes) return { quotes: closes.map((close, i) => ({ date: new Date(Date.now() - (closes.length - 1 - i) * 86400000), close })) };
+            if (closes) {
+                const endOffset = state.chartEndOffsetDays[args[0] as string] ?? 0;
+                return { quotes: closes.map((close, i) => ({
+                    date: new Date(Date.now() - (endOffset + closes.length - 1 - i) * 86400000), close,
+                })) };
+            }
             return { quotes: [
                 { date: new Date(Date.now() - 24 * 60 * 60 * 1000), close: 90 },
                 { date: new Date(), close: 100 },
@@ -51,6 +57,7 @@ describe('sweep 22 — quote batch shape', () => {
     beforeEach(() => {
         state.quoteResult = null;
         state.chartBySymbol = {};
+        state.chartEndOffsetDays = {};
         state.chartRawBySymbol = {};
         state.chartCalls = 0;
         state.redis.get.mockReset().mockResolvedValue(null);
@@ -114,4 +121,149 @@ describe('sweep 22 — quote batch shape', () => {
         };
         expect(mergeCarriedForward([], [bad, good])).toEqual([{ ...good, stale: true }]);
     });
+
+    it('still catches an order-of-magnitude tick when the newest bar is a WEEK old (5Y)', async () => {
+        // codex review: 5Y uses weekly bars, dated at the week's START, so the
+        // newest bar is up to 7 days old by construction. A <24h corroboration
+        // window meant the cap NEVER fired on 5Y and the 14-day weekly stale
+        // threshold left it unbadged too — a 10x outlier as the headline price.
+        state.chartBySymbol['^HSI'] = [17700, 17800];
+        state.chartEndOffsetDays['^HSI'] = 5;
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 178000, regularMarketChange: 160200, regularMarketChangePercent: 900 }];
+        const hsi = (await fetchAllIndices('5Y')).find((i: any) => i.symbol === '^HSI')!;
+        expect(hsi.price).toBe(17800);
+        expect(hsi.stale).toBe(true);
+    });
+
+    it('catches a 1.5x tick against a week-old bar, which 100% would have missed', async () => {
+        // codex round 2: at a 100% non-fresh threshold a 1.5x tick deviates
+        // only 50%, so the cap missed it AND the 14-day weekly stale threshold
+        // left it unbadged. 50% is above the worst weekly drawdown these
+        // categories have ever recorded, so a real move never reaches it.
+        state.chartBySymbol['^HSI'] = [17700, 17800];
+        state.chartEndOffsetDays['^HSI'] = 5;
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 26700, regularMarketChange: 8900, regularMarketChangePercent: 50 }];
+        const hsi = (await fetchAllIndices('5Y')).find((i: any) => i.symbol === '^HSI')!;
+        expect(hsi.price).toBe(17800);
+        expect(hsi.stale).toBe(true);
+    });
+
+    it('catches an order-of-magnitude tick when the newest bar carries NO date', async () => {
+        // codex review: the chart filter deliberately admits undated points, and
+        // an undated newest bar left BOTH the cap and the stale flag off.
+        state.chartRawBySymbol['^HSI'] = { quotes: [{ date: undefined, close: 17800 }] };
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 178000, regularMarketChange: 160200, regularMarketChangePercent: 900 }];
+        const hsi = (await fetchAllIndices('1M')).find((i: any) => i.symbol === '^HSI')!;
+        expect(hsi.price).toBe(17800);
+    });
+
+    it('does not throw when a chart point dates as an ISO STRING rather than a Date', async () => {
+        // Every other reader in this block coerces with `new Date(pt.date)`;
+        // the cap's recency check must too, or a provider shape change turns
+        // one symbol into a TypeError that freezes the WHOLE payload.
+        state.chartRawBySymbol['^HSI'] = { quotes: [
+            { date: new Date(Date.now() - 86400000).toISOString(), close: 17700 },
+            { date: new Date().toISOString(), close: 17800 },
+        ] };
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 178000, regularMarketChange: 160200, regularMarketChangePercent: 900 }];
+        const hsi = (await fetchAllIndices('1M')).find((i: any) => i.symbol === '^HSI')!;
+        expect(hsi.price).toBe(17800);
+    });
+
+    it('does not treat a FUTURE-dated bar as today for the tight 20% threshold', async () => {
+        // codex review: Math.abs() made a bar dated ahead of us read as recent,
+        // so a real move could be clamped against a not-yet-valid close.
+        state.chartRawBySymbol['^HSI'] = { quotes: [
+            { date: new Date(Date.now() + 2 * 3600_000), close: 17800 },
+        ] };
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 23140, regularMarketChange: 5340, regularMarketChangePercent: 30 }];
+        const hsi = (await fetchAllIndices('1M')).find((i: any) => i.symbol === '^HSI')!;
+        expect(hsi.price).toBe(23140);
+    });
+
+    it('honours MARKET_SANITY_CAP=off as an operator escape hatch', async () => {
+        // A genuinely wild day: flip the var in the Vercel dashboard and
+        // redeploy, no code change or review round. Read per call, so the
+        // value is picked up by the next invocation.
+        state.chartBySymbol['^HSI'] = [17700, 17800];
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 178000, regularMarketChange: 160200, regularMarketChangePercent: 900 }];
+        process.env.MARKET_SANITY_CAP = 'off';
+        try {
+            const hsi = (await fetchAllIndices('1M')).find((i: any) => i.symbol === '^HSI')!;
+            expect(hsi.price).toBe(178000);
+            expect(hsi.stale).toBeUndefined();
+        } finally {
+            delete process.env.MARKET_SANITY_CAP;
+        }
+    });
+
+    it('collapses an implausible equity quote (>=20% off last close) to the chart close, badged stale', async () => {
+        // A bad tick (HSI 178,000 for 17,800) used to keep the outlier as the
+        // headline price while only the sparkline end point was clamped — the
+        // wrong number, unbadged, cached for an hour.
+        state.chartBySymbol['^HSI'] = [17700, 17800];
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 178000, regularMarketChange: 160200, regularMarketChangePercent: 900,
+            regularMarketOpen: 178000, regularMarketDayHigh: 178100, regularMarketDayLow: 177900 }];
+        const hsi = (await fetchAllIndices('1M')).find((i: any) => i.symbol === '^HSI')!;
+        expect(hsi.price).toBe(17800);
+        expect(hsi.high).toBe(17800);
+        expect(hsi.low).toBe(17800);
+        expect(hsi.changePercent).toBeCloseTo(100 / 177, 3);
+        expect(hsi.stale).toBe(true);
+        expect(hsi.history[hsi.history.length - 1].value).toBe(17800);
+    });
+
+    it('leaves a plausible equity quote (<20% off last close) untouched', async () => {
+        state.chartBySymbol['^HSI'] = [17700, 17800];
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 21000, regularMarketChange: 3200, regularMarketChangePercent: 18 }];
+        const hsi = (await fetchAllIndices('1M')).find((i: any) => i.symbol === '^HSI')!;
+        expect(hsi.price).toBe(21000);
+        expect(hsi).not.toHaveProperty('stale');
+    });
+
+    it('does not cap categories where a 20% day is real (Volatility, Crypto, Commodity)', async () => {
+        state.chartBySymbol['^VIX'] = [15, 16];
+        state.chartBySymbol['BTC-USD'] = [50000, 52000];
+        state.quoteResult = [
+            { symbol: '^VIX', regularMarketPrice: 24, regularMarketChange: 8, regularMarketChangePercent: 50 },
+            { symbol: 'BTC-USD', regularMarketPrice: 40000, regularMarketChange: -12000, regularMarketChangePercent: -23 },
+        ];
+        const data = await fetchAllIndices('1M');
+        expect(data.find((i: any) => i.symbol === '^VIX')!.price).toBe(24);
+        expect(data.find((i: any) => i.symbol === 'BTC-USD')!.price).toBe(40000);
+        expect(data.find((i: any) => i.symbol === '^VIX')).not.toHaveProperty('stale');
+    });
+
+    it('does not cap categories where a 20% day is real (Volatility, Crypto, Commodity)', async () => {
+        // VIX doubling, bitcoin dropping a quarter and crude spiking are all
+        // things that actually happen; only an index or an FX major moving
+        // 20% in a day is more likely a bad tick than a market.
+        state.chartBySymbol['^VIX'] = [15, 16];
+        state.chartBySymbol['BTC-USD'] = [50000, 52000];
+        state.chartBySymbol['CL=F'] = [70, 71];
+        state.quoteResult = [
+            { symbol: '^VIX', regularMarketPrice: 24, regularMarketChange: 8, regularMarketChangePercent: 50 },
+            { symbol: 'BTC-USD', regularMarketPrice: 40000, regularMarketChange: -12000, regularMarketChangePercent: -23 },
+            { symbol: 'CL=F', regularMarketPrice: 90, regularMarketChange: 19, regularMarketChangePercent: 27 },
+        ];
+        const data = await fetchAllIndices('1M');
+        expect(data.find((i: any) => i.symbol === '^VIX')!.price).toBe(24);
+        expect(data.find((i: any) => i.symbol === 'BTC-USD')!.price).toBe(40000);
+        expect(data.find((i: any) => i.symbol === 'CL=F')!.price).toBe(90);
+        expect(data.find((i: any) => i.symbol === '^VIX')).not.toHaveProperty('stale');
+    });
+
+    it('keeps the live price when the chart is too old to corroborate it', async () => {
+        // The cap compares the quote against TODAY'S bar. On a real crash the
+        // live quote and today's bar move together, so the cap never fires.
+        // With no fresh bar there is nothing to check against — a genuine
+        // gap-down after a long holiday must not be rewritten to a week-old
+        // close. The tile is badged stale by the age rule either way.
+        state.chartBySymbol['^HSI'] = [17700, 17800];
+        state.chartEndOffsetDays['^HSI'] = 5;
+        state.quoteResult = [{ symbol: '^HSI', regularMarketPrice: 12000, regularMarketChange: -5800, regularMarketChangePercent: -32 }];
+        const hsi = (await fetchAllIndices('1M')).find((i: any) => i.symbol === '^HSI')!;
+        expect(hsi.price).toBe(12000);
+    });
+
 });
