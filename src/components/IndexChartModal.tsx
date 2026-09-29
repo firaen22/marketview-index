@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Search } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import type { IndexData, MarketDataResponse, TimeRange } from '../types';
-import { displayName, formatPrice, formatSigned, formatValue, formatWhole } from '../utils';
+import { displayName, formatSigned, formatValue, formatWhole, isRateItem } from '../utils';
 import { TimeRangeSelector } from './TimeRangeSelector';
 import { useRootScale } from '../hooks/useViewportScale';
 
@@ -138,7 +138,11 @@ function useRangeOverride(range: TimeRange, pageRange: TimeRange, lang: 'en' | '
                 const res = await fetch(`/api/market-data?${params.toString()}`, { signal: controller.signal });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const json: MarketDataResponse = await res.json();
-                if (!json.success || !Array.isArray(json.data)) throw new Error('malformed payload');
+                // A server_stale_cache body is success:false but carries the frozen
+                // snapshot the page itself shows during an outage; only a body with
+                // nothing to draw is a failure.
+                const usable = json?.success === true || json?.source === 'server_stale_cache';
+                if (!usable || !Array.isArray(json.data) || json.data.length === 0) throw new Error('malformed payload');
                 setLoaded({ range, data: json.data });
             } catch (err) {
                 if ((err as Error)?.name === 'AbortError') return;
@@ -153,7 +157,9 @@ function useRangeOverride(range: TimeRange, pageRange: TimeRange, lang: 'en' | '
     }, [range, pageRange, lang]);
 
     return {
-        data: loaded && loaded.range === range ? loaded.data : null,
+        // Once the page itself is on this range, its allData is the fresher copy;
+        // an earlier modal fetch of the same period must not keep shadowing it.
+        data: range !== pageRange && loaded && loaded.range === range ? loaded.data : null,
         isLoading,
         failed,
     };
@@ -173,7 +179,10 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
     // modal is mounted; follow it rather than stranding the chart on the period
     // that was current when it opened.
     useEffect(() => { setRange(pageRange); }, [pageRange]);
-    const [compareSymbols, setCompareSymbols] = useState<string[]>(() => initialCompareSymbols.slice(0, MAX_COMPARE));
+    const [compareSymbols, setCompareSymbols] = useState<string[]>(() =>
+        // A copilot `compare` can name the charted symbol or repeat one; either
+        // would draw a duplicate line under a duplicate React key.
+        [...new Set(initialCompareSymbols)].filter(s => s !== item.symbol).slice(0, MAX_COMPARE));
     const [pickerOpen, setPickerOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [chartMode, setChartMode] = useState<'percent' | 'nominal'>('nominal');
@@ -192,8 +201,6 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
             .filter((s): s is Series => s !== null);
     }, [allData, compareSymbols]);
 
-    const hasCompare = comparedSeries.length > 0;
-    const effectiveMode: 'percent' | 'nominal' = hasCompare ? 'percent' : chartMode;
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -232,26 +239,61 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
     // too, so a blank chart is consistent with the rest of the page, not an anomaly.
     const historyFor = useMemo(() => {
         const source = override.data ?? allData;
-        return (s: Series) => source.find(d => d.symbol === s.item.symbol)?.history ?? [];
+        return (s: Series) => {
+            const h = source.find(d => d.symbol === s.item.symbol)?.history;
+            return Array.isArray(h) ? h : [];
+        };
     }, [override.data, allData]);
+
+    // Percent mode is forced only by a comparison that actually draws: a chip whose
+    // symbol has no history in the plotted period would otherwise pin a lone line
+    // to % with the Nominal toggle disabled.
+    const hasCompare = comparedSeries.some(s => historyFor(s).some(pt => pt != null && Number.isFinite(pt.value)));
+    const effectiveMode: 'percent' | 'nominal' = hasCompare ? 'percent' : chartMode;
 
     const chartData = useMemo(() => {
         const dateMap = new Map<string, Record<string, number | string>>();
-        for (const s of series) {
-            const hist = historyFor(s);
-            if (hist.length === 0) continue;
-            const base = hist[0].value;
-            hist.forEach((pt, idx) => {
-                const key = pt.date ? chartDateKey(pt.date, range) : String(idx).padStart(4, '0');
-                if (!dateMap.has(key)) dateMap.set(key, { date: key });
-                const row = dateMap.get(key)!;
-                const val =
-                    // Finite-base check: NaN/undefined base (stale cached data) must not poison the row
-                    effectiveMode === 'percent' && Number.isFinite(base) && base !== 0
-                        ? ((pt.value - base) / base) * 100
-                        : pt.value;
-                row[s.item.symbol] = val;
+        // A non-finite point (null/NaN from a bad upstream bar) is dropped rather
+        // than plotted: in percent mode `null - base` would draw a -100% spike.
+        const keyed = series.map(s => {
+            // Two bars in one bucket (5Y week, same London day): the later one is
+            // what the row shows, so it is also what a base must be read from.
+            const byKey = new Map<string, number>();
+            historyFor(s).forEach((pt, idx) => {
+                if (pt == null || !Number.isFinite(pt.value)) return;
+                byKey.set(pt.date ? chartDateKey(pt.date, range) : String(idx).padStart(4, '0'), pt.value);
             });
+            const pts = [...byKey].map(([key, value]) => ({ key, value }))
+                .sort((a, b) => a.key.localeCompare(b.key));
+            return { s, pts };
+        });
+        // Percent mode rebases every line at the latest first-day among them, so
+        // all lines read 0% on the same day; a series that starts a day later
+        // (a holiday, a newer fund) would otherwise be measured over a shorter
+        // period than the rest.
+        // Only series that will draw count: an all-zero one is skipped below and
+        // must not push the start past the lines that are drawn.
+        const commonStart = keyed
+            .filter(k => effectiveMode === 'percent' ? k.pts.some(p => p.value !== 0) : k.pts.length > 0)
+            .map(k => k.pts[0].key)
+            .reduce((a, b) => (b > a ? b : a), '');
+        for (const { s, pts } of keyed) {
+            if (pts.length === 0) continue;
+            let base: number | undefined;
+            if (effectiveMode === 'percent') {
+                const usable = (p: { value: number }) => p.value !== 0;
+                base = (pts.find(p => p.key >= commonStart && usable(p)) ?? pts.find(usable))?.value;
+                // No usable base (all zero): no honest % line exists, so none is drawn
+                // rather than raw values on a percent axis.
+                if (base === undefined) continue;
+            }
+            for (const { key, value } of pts) {
+                if (!dateMap.has(key)) dateMap.set(key, { date: key });
+                // |base| keeps the direction right for a negative base (e.g. a sub-zero yield).
+                const v = base === undefined ? value : ((value - base) / Math.abs(base)) * 100;
+                // An overflowing ratio is dropped rather than drawn as Infinity%.
+                if (Number.isFinite(v)) dateMap.get(key)![s.item.symbol] = v;
+            }
         }
         return Array.from(dateMap.values()).sort((a, b) => {
             const da = typeof a.date === 'string' ? a.date : '';
@@ -300,7 +342,21 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
         setCompareSymbols(prev => prev.filter(s => s !== symbol));
     };
 
-    const isPositive = item.change >= 0;
+    // Header reads the page's current quote like the chart does; `item` is the
+    // snapshot taken when the modal opened. Empty allData (mid-refetch) keeps it.
+    const liveItem = allData.find(d => d.symbol === item.symbol) ?? item;
+    const isPositive = liveItem.change >= 0;
+
+    // Nominal mode charts one series. Whole numbers suit an index level, but an
+    // FX pair (1.08–1.09) or a yield (4.2–4.6) would print the same integer on
+    // every tick, and a yield needs its % unit.
+    const nominalTick = (v: number) => {
+        if (!Number.isFinite(v)) return '—';
+        const abs = Math.abs(v);
+        const text = abs >= 100 ? formatWhole(v)
+            : v.toLocaleString(undefined, { maximumFractionDigits: abs >= 10 ? 2 : 3 });
+        return isRateItem(item) ? `${text}%` : text;
+    };
 
     return (
         <div
@@ -320,10 +376,10 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                         </div>
                         <div className="flex items-baseline gap-3 mt-1">
                             <span className="text-2xl font-mono font-bold text-white">
-                                {formatValue(item.price, item)}
+                                {formatValue(liveItem.price, liveItem)}
                             </span>
                             <span className={`text-sm font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {formatSigned(item.changePercent)}%
+                                {formatSigned(liveItem.changePercent)}%
                             </span>
                         </div>
                     </div>
@@ -380,7 +436,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                         tickFormatter={(v: number) =>
                                             effectiveMode === 'percent'
                                                 ? `${v > 0 ? '+' : ''}${v.toFixed(1)}%`
-                                                : formatWhole(v)
+                                                : nominalTick(v)
                                         }
                                         domain={['auto', 'auto']}
                                         width={px(60)}
@@ -396,7 +452,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                         formatter={(val: number, name: string) => [
                                             effectiveMode === 'percent'
                                                 ? `${val > 0 ? '+' : ''}${val.toFixed(2)}%`
-                                                : formatPrice(val),
+                                                : formatValue(val, item),
                                             name,
                                         ]}
                                         labelFormatter={(v) => formatDate(v, { year: 'numeric', month: 'short', day: 'numeric' })}

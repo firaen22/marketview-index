@@ -206,9 +206,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // A partial fetch (some FRED series failed) must not sit in the 24h
         // cache as if complete — a single flaky series would hide its tile for
         // a day. Cache only a full set; a partial response still serves live.
+        // A cache-write failure must not turn the fresh payload into a 500.
         if (redis && results.length === allFetched.length) {
-            await redis.set(CACHE_KEY, JSON.stringify(payload), { ex: CACHE_TTL });
-            console.log('Macro data cached in Redis.');
+            try {
+                await redis.set(CACHE_KEY, JSON.stringify(payload), { ex: CACHE_TTL });
+                console.log('Macro data cached in Redis.');
+            } catch (e) {
+                console.error('Macro cache write failed:', e);
+            }
         }
 
         return res.status(200).json(payload);

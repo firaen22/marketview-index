@@ -91,7 +91,14 @@ export async function callNim(
                     console.warn(`NIM call returned no choices (model ${model})`);
                     continue;
                 }
-                return extractNimText(message);
+                const text = extractNimText(message);
+                // An empty answer is a failed attempt: returning it would skip the
+                // fallback model and hand the caller JSON.parse('') territory.
+                if (!text) {
+                    console.warn(`NIM call returned empty text (model ${model})`);
+                    continue;
+                }
+                return text;
             } catch (error) {
                 console.warn(`NIM call failed (model ${model}):`, error);
             }

@@ -95,12 +95,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // 2. Fetch Fresh News from Yahoo Finance
         console.log('Fetching fresh news from multi-source search...');
 
-        const searchTasks = [
-            yahooFinance.search('SPY', { newsCount: 5, quotesCount: 0 }),
-            yahooFinance.search('QQQ', { newsCount: 5, quotesCount: 0 }),
-            yahooFinance.search('Reuters Bloomberg', { newsCount: 5, quotesCount: 0 }),
-            yahooFinance.search('Seeking Alpha Investing.com', { newsCount: 5, quotesCount: 0 })
-        ];
+        // Each search gets its own deadline (same 5s as api/market-data.ts): one
+        // hung socket must not hold the three that already answered until the
+        // platform kills the function.
+        const searchTasks = ['SPY', 'QQQ', 'Reuters Bloomberg', 'Seeking Alpha Investing.com'].map(q =>
+            yahooFinance.search(q, { newsCount: 5, quotesCount: 0 }, {
+                fetchOptions: { signal: AbortSignal.timeout(5000) },
+            }));
 
         const settledResults = await Promise.allSettled(searchTasks);
         let allNews: any[] = [];
@@ -112,11 +113,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
         });
         if (allRejected) throw new Error('All news searches failed');
+        // Like macro-data's full-set gate: a fetch that lost some searches is
+        // served, but must not displace a full list for the whole cache TTL.
+        const partialFetch = settledResults.some(r => r.status === 'rejected');
 
         // Deduplicate by UUID
         const seen = new Set();
         const newsItems = allNews.filter(n => {
-            if (!n.uuid || seen.has(n.uuid)) return false;
+            // One null entry in a fulfilled search must not throw away the rest.
+            if (!n || typeof n !== 'object' || !n.uuid || seen.has(n.uuid)) return false;
             seen.add(n.uuid);
             return true;
         }).sort((a, b) => {
@@ -201,6 +206,11 @@ OUTPUT FORMAT (Valid JSON only):
 
                 // Map results back to articles (positional; length-gated).
                 processedNews = applyAiArticleData(processedNews, aiResponse.articles);
+                // A 200 whose articles failed the gate left every headline
+                // untranslated: don't label it translated or cache it for 15 min.
+                if (!Array.isArray(aiResponse.articles) || aiResponse.articles.length !== processedNews.length) {
+                    aiFailed = true;
+                }
             } catch (err) {
                 console.error('Consolidated AI processing failed:', err);
                 aiFailed = true;
@@ -221,11 +231,16 @@ OUTPUT FORMAT (Valid JSON only):
         if (hasAi && !aiFailed) console.log(`Processed ${processedNews.length} news items with NIM. Lang: ${lang}`);
         else console.log(`Returning ${processedNews.length} news items WITHOUT NIM processing (no key or AI failed).`);
 
-        // 4. Save to Redis Cache (15 minutes; a failed AI result only for 60s so a
-        // transient outage isn't served for the full TTL)
+        // 4. Save to Redis Cache (15 minutes; a failed AI result or a partial fetch
+        // only for 60s so a transient outage isn't served for the full TTL)
+        // A cache-write failure must not turn the fresh payload into a 500.
         if (redis) {
-            await redis.set(CURRENT_CACHE_KEY, JSON.stringify(responsePayload), { ex: aiFailed ? 60 : NEWS_CACHE_TTL });
-            console.log('Cache updated in Redis.');
+            try {
+                await redis.set(CURRENT_CACHE_KEY, JSON.stringify(responsePayload), { ex: aiFailed || partialFetch ? 60 : NEWS_CACHE_TTL });
+                console.log('Cache updated in Redis.');
+            } catch (e) {
+                console.error('News cache write failed:', e);
+            }
         }
 
         return res.status(200).json(responsePayload);
