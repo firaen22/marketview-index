@@ -84,7 +84,8 @@ describe('macro-data partial-result caching', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.body.data).toHaveLength(6);
-        expect(redisState.set).toHaveBeenCalledTimes(1);
+        // Hot copy plus the 7-day last-good copy.
+        expect(redisState.set.mock.calls.map((c: unknown[]) => c[0])).toEqual(['global_macro_data_v3', 'global_macro_last_good_v3']);
     });
 
     it('serves a partial result live but does not cache it', async () => {

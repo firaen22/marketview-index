@@ -3,6 +3,7 @@ import { redis } from '../lib/redis.js';
 
 const CACHE_KEY = 'global_macro_data_v3';
 const CACHE_TTL = 3600 * 24; // Cache for 24 hours, macro data updates monthly
+const LAST_GOOD_KEY = 'global_macro_last_good_v3';
 
 const MACRO_SERIES = [
     { symbol: 'CPIAUCSL', name: '消費者物價指數 (CPI)', nameEn: 'Consumer Price Index (CPI)', category: 'Inflation' },
@@ -23,6 +24,12 @@ const parseCache = (cached: any): any | null => {
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+    let acquiredThrottleKey: string | null = null;
+    const releaseThrottle = async () => {
+        if (!acquiredThrottleKey || !redis) return;
+        try { await redis.del(acquiredThrottleKey); } catch (e) { console.error('Failed to release refresh throttle:', e); }
+        acquiredThrottleKey = null;
+    };
     try {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
         res.setHeader('Pragma', 'no-cache');
@@ -42,6 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             // not both observe "no throttle" and double-fetch FRED (same
             // pattern as api/market-data.ts).
             const lock = await redis.set(throttleKey, '1', { ex: 60, nx: true });
+            if (lock) acquiredThrottleKey = throttleKey;
             if (!lock && parsedCache) {
                 return returnCachedPayload(parsedCache);
             }
@@ -58,6 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const apiKey = process.env.FRED_API_KEY;
         if (!apiKey) {
+            await releaseThrottle();
             return res.status(500).json({
                 success: false,
                 error: 'Missing FRED_API_KEY',
@@ -188,8 +197,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (results.length === 0) {
             if (parsedCache) {
+                await releaseThrottle();
                 return res.status(200).json({ ...parsedCache, source: 'server_stale_cache', stale: true });
             }
+            if (redis) {
+                let lastGood: any = null;
+                try { lastGood = parseCache(await redis.get(LAST_GOOD_KEY)); } catch (e) { console.error('Failed to read macro last-good cache:', e); }
+                if (lastGood) {
+                    await releaseThrottle();
+                    return res.status(200).json({ ...lastGood, source: 'server_stale_cache', stale: true });
+                }
+            }
+            await releaseThrottle();
             return res.status(503).json({
                 success: false,
                 error: 'No valid macro data available',
@@ -214,6 +233,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             } catch (e) {
                 console.error('Macro cache write failed:', e);
             }
+            // Outlives the 24h hot copy so an outage after expiry still has data
+            // to serve (same idea as api/market-data.ts's LAST_GOOD_KEY).
+            try {
+                await redis.set(LAST_GOOD_KEY, JSON.stringify(payload), { ex: 7 * 24 * 3600 });
+            } catch (e) {
+                console.error('Macro last-good cache write failed:', e);
+            }
         }
 
         return res.status(200).json(payload);
@@ -222,19 +248,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // Attempt to serve stale cache if possible
         if (redis) {
             try {
-                const stale = await redis.get(CACHE_KEY);
-                const parsed = parseCache(stale);
+                // A failed hot read must still fall through to last-good.
+                let parsed = parseCache(await redis.get(CACHE_KEY).catch(() => null));
+                if (!parsed) parsed = parseCache(await redis.get(LAST_GOOD_KEY));
                 if (parsed) {
                     // Same shape as the results-empty stale path above: the data
                     // is valid (just stale), and useMacroData discards any
                     // payload with success: false — stamping failure here threw
                     // away the rescue on the client.
+                    await releaseThrottle();
                     return res.status(200).json({ ...parsed, source: 'server_stale_cache', stale: true });
                 }
             } catch (_) {
                 // ignore fallback errors
             }
         }
+        await releaseThrottle();
         return res.status(500).json({
             success: false,
             error: 'Failed to fetch macroeconomic data',

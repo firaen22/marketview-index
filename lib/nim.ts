@@ -55,13 +55,19 @@ export async function callNim(
     models: string[],
     messages: unknown[],
     maxTokens: number,
-    opts?: { reasoningEffort?: 'low'; timeoutMs?: number }
+    opts?: { reasoningEffort?: 'low'; timeoutMs?: number; deadlineMs?: number }
 ): Promise<string> {
     if (models.length === 0) {
         throw new Error('No NIM models configured');
     }
+    const deadlineMs = typeof opts?.deadlineMs === 'number' && Number.isFinite(opts.deadlineMs) && opts.deadlineMs > 0
+        ? opts.deadlineMs
+        : undefined;
+    const startedAt = Date.now();
     for (const apiKey of apiKeys) {
         for (const model of models) {
+            const remaining = deadlineMs === undefined ? undefined : deadlineMs - (Date.now() - startedAt);
+            if (remaining !== undefined && remaining <= 0) throw new Error('NIM deadline exceeded');
             try {
                 const body: Record<string, unknown> = {
                     model,
@@ -72,6 +78,9 @@ export async function callNim(
                 if (opts?.reasoningEffort && model.startsWith('openai/gpt-oss')) {
                     body.reasoning_effort = opts.reasoningEffort;
                 }
+                const timeoutMs = remaining === undefined
+                    ? opts?.timeoutMs ?? 25_000
+                    : Math.min(opts?.timeoutMs ?? 25_000, Math.ceil(remaining)); // AbortSignal.timeout needs an integer
                 const response = await fetch(NIM_CHAT_URL, {
                     method: 'POST',
                     headers: {
@@ -79,7 +88,7 @@ export async function callNim(
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify(body),
-                    signal: AbortSignal.timeout(opts?.timeoutMs ?? 25_000),
+                    signal: AbortSignal.timeout(timeoutMs),
                 });
                 if (!response.ok) {
                     console.warn(`NIM call failed (model ${model}): HTTP ${response.status}`);

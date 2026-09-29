@@ -249,7 +249,9 @@ describe('IndexChartModal sweep 23 (gate findings)', () => {
     it('does not move the common start for a compare series that draws no % line', () => {
         const a = index('A', 'US', [{ date: D1, value: 100 }, { date: D2, value: 120 }]);
         const b = index('B', 'US', [{ date: D2, value: 0 }]);
-        const r = draw(a, [a, b], ['B']);
+        // C keeps % mode on; B (all zero) draws nothing and must not set the start.
+        const c = index('C', 'US', [{ date: D1, value: 10 }, { date: D2, value: 11 }]);
+        const r = draw(a, [a, b, c], ['B', 'C']);
         expect(r[0].A).toBe(0);
         expect(r[1].A).toBe(20);
     });

@@ -49,7 +49,7 @@ describe('market-news sweep 23', () => {
 
     it('still labels a fully applied AI result as translated', async () => {
         h.keys.mockReturnValue(['k']);
-        h.callNim.mockResolvedValue(JSON.stringify({ pulse: { overview: 'o', highlights: [] }, articles: [{ title: '聯儲局按兵不動', summary: 's', sentiment: 'NEUTRAL' }] }));
+        h.callNim.mockResolvedValue(JSON.stringify({ pulse: { overview: 'o', highlights: [] }, articles: [{ id: 1, title: '聯儲局按兵不動', summary: 's', sentiment: 'NEUTRAL' }] }));
         const res = await call();
         expect(res.body.isAiTranslated).toBe(true);
         expect(res.body.data[0].title).toBe('聯儲局按兵不動');

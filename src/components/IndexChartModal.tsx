@@ -248,7 +248,7 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
     // Percent mode is forced only by a comparison that actually draws: a chip whose
     // symbol has no history in the plotted period would otherwise pin a lone line
     // to % with the Nominal toggle disabled.
-    const hasCompare = comparedSeries.some(s => historyFor(s).some(pt => pt != null && Number.isFinite(pt.value)));
+    const hasCompare = comparedSeries.some(s => historyFor(s).some(pt => pt != null && Number.isFinite(pt.value) && pt.value !== 0));
     const effectiveMode: 'percent' | 'nominal' = hasCompare ? 'percent' : chartMode;
 
     const chartData = useMemo(() => {

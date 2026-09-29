@@ -7,18 +7,28 @@ const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 const CACHE_KEY = 'global_market_news_v1';
 const NEWS_CACHE_TTL = 60 * 15; // 15 minutes in seconds
 
-// Overlays AI summaries/sentiment onto the fetched headlines. The join is
-// positional, so it is only safe when the model echoed exactly one entry per
-// article — a dropped or merged item would shift every later summary onto the
-// wrong headline on the projector. On any length mismatch, keep the originals.
+// Overlays AI summaries/sentiment onto the fetched headlines, joined by the id
+// the prompt gave each article (1-based) — never by position, so a reordered
+// response can't put a summary under the wrong headline on the projector.
+// `matched` counts the articles that received an entry.
 export function applyAiArticleData<T extends { title: string; summary: string; sentiment: 'Bullish' | 'Bearish' | 'Neutral' }>(
     articles: T[],
     aiArticles: unknown,
-): T[] {
-    if (!Array.isArray(aiArticles) || aiArticles.length !== articles.length) return articles;
-    return articles.map((article, i) => {
-        const aiData: any = aiArticles[i];
-        if (!aiData || typeof aiData !== 'object') return article;
+): { articles: T[]; matched: number } {
+    if (!Array.isArray(aiArticles)) return { articles, matched: 0 };
+    // id -> entry; an id claimed by two entries is ambiguous and maps to null.
+    const byId = new Map<string, unknown>();
+    for (const entry of aiArticles) {
+        const id = entry && typeof entry === 'object' ? (entry as any).id : undefined;
+        if (typeof id !== 'number' && typeof id !== 'string') continue;
+        const key = String(id).trim();
+        byId.set(key, byId.has(key) ? null : entry);
+    }
+    let matched = 0;
+    const updated = articles.map((article, i) => {
+        const aiData: any = byId.get(String(i + 1));
+        if (!aiData) return article;
+        matched++;
 
         // Only an explicit string sentiment overrides; a missing/malformed
         // field keeps the article's existing sentiment.
@@ -35,11 +45,19 @@ export function applyAiArticleData<T extends { title: string; summary: string; s
             sentiment,
         };
     });
+    return { articles: updated, matched };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Hoisted above the try so the catch block's stale-cache fallback can see it.
     let staleCacheKey: string | null = null;
+    let lastGoodCacheKey: string | null = null;
+    let acquiredThrottleKey: string | null = null;
+    const releaseThrottle = async () => {
+        if (!acquiredThrottleKey || !redis) return;
+        try { await redis.del(acquiredThrottleKey); } catch (e) { console.error('Failed to release refresh throttle:', e); }
+        acquiredThrottleKey = null;
+    };
     try {
         // Disable Vercel Edge caching to rely on Redis
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -53,6 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const CURRENT_CACHE_KEY = lang === 'en' ? CACHE_KEY : `${CACHE_KEY}_${lang}`;
         staleCacheKey = CURRENT_CACHE_KEY;
+        lastGoodCacheKey = `${CURRENT_CACHE_KEY}_last_good`;
         const parseCache = (cachedNews: any): any | null => {
             if (!cachedNews) return null;
             if (typeof cachedNews !== 'string') return cachedNews;
@@ -78,6 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             // not both observe "no throttle" and double-fetch Yahoo + NIM
             // (same pattern as api/market-data.ts).
             const lock = await redis.set(throttleKey, '1', { ex: 60, nx: true });
+            if (lock) acquiredThrottleKey = throttleKey;
             if (!lock && parsedCache) {
                 return returnCachedPayload(parsedCache);
             }
@@ -126,6 +146,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return true;
         }).sort((a, b) => {
             const premiumSources = ['Reuters', 'Bloomberg', 'Investing.com', 'Seeking Alpha'];
+            // null would become 1970 via new Date(null); treat it as missing.
+            const aTime = a.providerPublishTime == null ? NaN : new Date(a.providerPublishTime).getTime();
+            const bTime = b.providerPublishTime == null ? NaN : new Date(b.providerPublishTime).getTime();
+            const aValid = Number.isFinite(aTime);
+            const bValid = Number.isFinite(bTime);
+            if (aValid && !bValid) return -1;
+            if (!aValid && bValid) return 1;
+            if (aValid && bValid && aTime !== bTime) return bTime - aTime;
             const aIsPremium = premiumSources.some(s => a.publisher?.includes(s));
             const bIsPremium = premiumSources.some(s => b.publisher?.includes(s));
             if (aIsPremium && !bIsPremium) return -1;
@@ -135,8 +163,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (newsItems.length === 0) {
             if (parsedCache) {
+                await releaseThrottle();
                 return res.status(200).json({ ...parsedCache, source: 'server_stale_cache', stale: true });
             }
+            let lastGood: any = null;
+            if (redis && lastGoodCacheKey) {
+                try { lastGood = parseCache(await redis.get(lastGoodCacheKey)); } catch (e) { console.error('Failed to read news last-good cache:', e); }
+            }
+            if (lastGood) {
+                await releaseThrottle();
+                return res.status(200).json({ ...lastGood, source: 'server_stale_cache', stale: true });
+            }
+            await releaseThrottle();
             return res.status(503).json({
                 success: false,
                 error: 'No market news available',
@@ -169,7 +207,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 Analyze the following financial news headlines and provide a consolidated response.
 
 ARTICLE LIST:
-${newsItems.map((n: any, i: number) => `${i + 1}. [${n.publisher}] ${n.title}`).join('\n')}
+${newsItems.map((n: any, i: number) => `${i + 1}. [id=${i + 1}] [${n.publisher}] ${n.title}`).join('\n')}
 
 TASK:
 1. Provide a 2-sentence market overview in ${isChinese ? 'Traditional Chinese (繁體中文)' : 'English'}.
@@ -186,15 +224,16 @@ OUTPUT FORMAT (Valid JSON only):
     "highlights": ["...", "...", "..."]
   },
   "articles": [
-    { "title": "...", "summary": "...", "sentiment": "..." },
+    { "id": 1, "title": "...", "summary": "...", "sentiment": "..." },
     ...
   ]
 }
+Return exactly one entry per article and copy its id unchanged.
 `;
 
             try {
                 const raw = await callNim(apiKeys, NIM_TEXT_MODELS,
-                    [{ role: 'user', content: combinedPrompt }], 3000);
+                    [{ role: 'user', content: combinedPrompt }], 3000, { deadlineMs: 25_000 });
                 const aiResponse = JSON.parse(raw || "{}");
 
                 // Parse Market Pulse
@@ -204,11 +243,11 @@ OUTPUT FORMAT (Valid JSON only):
                     marketSummary = `[OVERVIEW]\n${overview}\n[HIGHLIGHTS]\n${highlights.map((h: string) => `- ${h}`).join('\n')}`;
                 }
 
-                // Map results back to articles (positional; length-gated).
-                processedNews = applyAiArticleData(processedNews, aiResponse.articles);
+                const aiResult = applyAiArticleData(processedNews, aiResponse.articles);
+                processedNews = aiResult.articles;
                 // A 200 whose articles failed the gate left every headline
                 // untranslated: don't label it translated or cache it for 15 min.
-                if (!Array.isArray(aiResponse.articles) || aiResponse.articles.length !== processedNews.length) {
+                if (aiResult.matched !== processedNews.length) {
                     aiFailed = true;
                 }
             } catch (err) {
@@ -241,6 +280,13 @@ OUTPUT FORMAT (Valid JSON only):
             } catch (e) {
                 console.error('News cache write failed:', e);
             }
+            if (!partialFetch && !(hasAi && aiFailed)) {
+                try {
+                    await redis.set(lastGoodCacheKey!, JSON.stringify(responsePayload), { ex: 7 * 24 * 3600 });
+                } catch (e) {
+                    console.error('News last-good cache write failed:', e);
+                }
+            }
         }
 
         return res.status(200).json(responsePayload);
@@ -251,17 +297,20 @@ OUTPUT FORMAT (Valid JSON only):
         // Fallback: serve stale cache if available
         if (redis && staleCacheKey) {
             try {
-                const fallbackPayload: any = await redis.get(staleCacheKey);
-                if (fallbackPayload) {
-                    let parsed: any;
-                    try {
-                        parsed = typeof fallbackPayload === 'string' ? JSON.parse(fallbackPayload) : fallbackPayload;
-                    } catch {
-                        parsed = null;
-                    }
-                    if (!parsed) throw new Error('Invalid fallback cache payload');
+                let parsed: any = null;
+                // A failed hot read must still fall through to last-good.
+                try {
+                    const fallbackPayload: any = await redis.get(staleCacheKey);
+                    parsed = typeof fallbackPayload === 'string' ? JSON.parse(fallbackPayload) : fallbackPayload;
+                } catch { parsed = null; }
+                if (!parsed && lastGoodCacheKey) {
+                    const lastGood = await redis.get(lastGoodCacheKey);
+                    try { parsed = typeof lastGood === 'string' ? JSON.parse(lastGood) : lastGood; } catch { parsed = null; }
+                }
+                if (parsed) {
                     // Keep the cached payload's success flag: the data is
                     // valid, just stale (matches api/macro-data.ts's fallback).
+                    await releaseThrottle();
                     return res.status(200).json({
                         ...parsed,
                         source: 'server_stale_cache',
@@ -272,6 +321,8 @@ OUTPUT FORMAT (Valid JSON only):
                 console.error('Failed to read fallback from redis:', e);
             }
         }
+
+        await releaseThrottle();
 
         return res.status(500).json({
             success: false,
