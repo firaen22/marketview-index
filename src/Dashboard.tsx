@@ -298,7 +298,12 @@ export default function Dashboard() {
                       <MarketStatCard
                         key={index.symbol}
                         item={index}
-                        chartHeight={(isPresentationMode || isEmbed) ? "h-32" : "h-16"}
+                        // Shorter sparklines on boxes under the 991px /present gives the
+                        // embed at 1080p, so a 720p projector (~631px box) fits two full
+                        // rows without shrinking any text; 1080p and up are unchanged.
+                        chartHeight={(isPresentationMode || isEmbed)
+                          ? "h-32 [@media(660px<height<991px)]:h-18 [@media(height<=660px)]:h-12"
+                          : "h-16"}
                         t={t}
                         chartMode={chartMode}
                         highlighted={isEmbed && index.symbol === highlightSymbol}
