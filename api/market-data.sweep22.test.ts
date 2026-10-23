@@ -41,9 +41,20 @@ vi.mock('yahoo-finance2', () => ({
 
 const { fetchAllIndices, mergeCarriedForward } = await import('./market-data');
 
+/** MOF Reiwa date for UTC calendar day `daysAgo` before today (0 = today). */
+function jgbEraDate(daysAgo: number): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - daysAgo);
+    return `R${d.getUTCFullYear() - 2018}.${d.getUTCMonth() + 1}.${d.getUTCDate()}`;
+}
+
 // Two header rows, then era-dated rows; the 10Y yield is the 10th value.
+// Relative dates keep points inside fetchAllIndices' 1W/1M period filter.
 function jgbCsv(tenYear: number[]) {
-    const rows = tenYear.map((y, i) => `R8.9.${i + 1},1.5,1.8,1.9,2.1,2.2,2.4,2.5,2.7,2.8,${y},3.5,3.8,4.1,4.1,4.1`);
+    const rows = tenYear.map((y, i) => {
+        const daysAgo = tenYear.length - 1 - i;
+        return `${jgbEraDate(daysAgo)},1.5,1.8,1.9,2.1,2.2,2.4,2.5,2.7,2.8,${y},3.5,3.8,4.1,4.1,4.1`;
+    });
     return ['header,,,,,,,,,,,,,,,', 'date,1,2,3,4,5,6,7,8,9,10,15,20,25,30,40', ...rows].join('\n');
 }
 
