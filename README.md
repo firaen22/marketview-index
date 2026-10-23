@@ -106,7 +106,7 @@ curl -s -X POST "$ORIGIN/api/present-command" \
   -d '{"action":"compare","symbols":["0P00000EBQ","^IXIC"],"range":"YTD","highlightFrom":"2026-05-01","highlightTo":"2026-08-31"}'
 ```
 
-`symbols` are quote symbols, not spoken nicknames. `0P00000EBQ` is 駿利亨德森遠見基金 - 環球科技領先基金 (voice “H01”, including the misheard 俊利亨德森). `QQQ` is Invesco QQQ (voice “QQ”). `^IXIC` is Nasdaq Composite — use it only when you mean the composite, not the ETF. Spoken `H01` / `QQ` resolve on `action: "send"` when those rows are in the catalog the control page already sends. Pass `catalog` on `action: "compare"` to reject a symbol that is not on that list. The date band is a `ReferenceArea` on the open compare modal. It ships with this frontend; production cannot draw it until this build is deployed. After that, a new compare POST changes the window without another deploy. `highlightFrom` / `highlightTo` are inclusive `YYYY-MM-DD`. If the selected period (1W…5Y chips still work) does not overlap the window, the chart says so and draws no band.
+`symbols` are quote symbols, not spoken nicknames. `0P00000EBQ` is 駿利亨德森遠見基金 - 環球科技領先基金 (voice “H01”, including the misheard 俊利亨德森). `QQQ` is Invesco QQQ (voice “QQ”). `^IXIC` is Nasdaq Composite — use it only when you mean the composite, not the ETF. Spoken `H01` / `QQ` resolve on `action: "send"` when those rows are in the catalog the control page already sends. Pass `catalog` on `action: "compare"` to reject a symbol that is not on that list. The date band is a `ReferenceArea` on the open compare modal. The 2026-10-23 dry-run after PR #83 applied compare bands on production (the projector ack matched the command id); a later compare POST changes the window without another deploy. `highlightFrom` / `highlightTo` are inclusive `YYYY-MM-DD`. On `action: "send"`, the same window is a trailing suffix `highlight YYYY-MM-DD YYYY-MM-DD` (no word “to”). If the selected period (1W…5Y chips still work) does not overlap the window, the chart says so and draws no band.
 
 **Overlay (image or SVG on the PDF, without leaving PDF mode).** This is the replacement for the HTML-slide workaround. Do not nest a PDF iframe in an HTML slide: that iframe does not paint inside the sandboxed `srcdoc` frame and the projector goes gray. Clearing the overlay does not change the saved slide.
 
@@ -124,6 +124,20 @@ curl -s -X POST "$ORIGIN/api/present-command" \
 ```
 
 `src` is `https://…` or a `data:image/(png|jpeg|webp|svg+xml);base64,…` URL, capped so the command stays under the API body limit. The image is centered at about 65% of the viewport. `{"action":"clear"}` also removes it, and closes the compare modal and other overlays, and returns the projector to the slide view. It does not upload a new deck.
+
+**Speed (measured 2026-10-23, after PR #83).** External bot box, Asia/Hong_Kong, against `https://marketindex.pmd-hk.com`.
+
+- `GET /api/market-data` ≈ 346 ms.
+- `GET /api/present-command` poll ≈ 260–360 ms (average ≈ 321 ms over 5).
+- `POST` structured compare or overlay clear ≈ 160–190 ms, HTTP 200.
+- `POST` send with a highlight date suffix ≈ 368 ms, HTTP 200.
+- Projector ack (wall time until `projector.lid` equals `command.id`): one-shot compare+YTD ≈ 2.8 s, structured compare with a May–Aug band ≈ 3.6 s, send+highlight ≈ 2.1 s, overlay clear ≈ 2.2 s (about 2.1–3.6 s).
+
+Parse time is the POST. The ack wait is the projector poll in `src/hooks/usePresentCommand.ts`. Idle `POLL_MS` is 2500 (about 24/min). The poll that runs the command does not yet send the new id; `lid` goes out on the next poll, which is `FAST_POLL_MS` 1000 for 60 s after that delivery. Each of those polls is one ~300 ms GET. That wait is the 2.1–3.6 s operators feel.
+
+Leave both intervals. `RATE_LIMIT_MAX` is 90/min per IP (`api/present-command.ts`), budgeted as this projector poll plus the control page’s ~15/min assist poll (`usePresentAssist`, 4000 ms) on one office NAT. The ack check in `CopilotBar` adds a separate 1500 ms loop (at most 8 tries) only while it waits for `lid`. A shorter idle poll is a product call: the number lives only in the client, and the ~24/min figure is 60/2.5.
+
+Same session, these checks passed: QQQ is in market-data; H01 and QQ aliases resolve; one-shot compare+YTD works; the highlight window works via the text suffix and via `action:"compare"`; an overlay action stays in PDF mode. A bare send with no catalog returns `invalid_catalog`.
 
 `GET` or `POST /api/present-slide` returns `{ "success": true, "slide": { "mode", "content", "updatedAt" } }` — the slide is nested under `slide`. PDF object keys must be passed through exactly as issued (`/api/pdf-proxy?key=` plus the literal key). Underscores in that key are part of the string; rewriting or “normalizing” it fails the allowlist.
 
