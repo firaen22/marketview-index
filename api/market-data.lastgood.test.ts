@@ -55,7 +55,7 @@ function stubFetchDownExceptJgb() {
         : Promise.resolve(new Response('down', { status: 503 }))));
 }
 
-const HOURLY_KEY = 'global_market_cache_yfinance_v1_YTD';
+const HOURLY_KEY = 'global_market_cache_yfinance_v2_YTD';
 const LAST_GOOD_YTD = `${LAST_GOOD_KEY}_YTD`;
 
 function makeReq(url: string) {

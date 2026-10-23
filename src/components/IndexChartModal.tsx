@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Search } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid, ReferenceArea } from 'recharts';
+import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid, ReferenceArea, ReferenceLine } from 'recharts';
 import type { IndexData, MarketDataResponse, TimeRange } from '../types';
 import { displayName, formatPrice, formatSigned, formatValue, formatWhole } from '../utils';
 import { TimeRangeSelector } from './TimeRangeSelector';
@@ -431,15 +431,22 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                                 <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                                     <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
                                     {highlightBand && (
-                                        <ReferenceArea
-                                            x1={highlightBand.x1}
-                                            x2={highlightBand.x2}
-                                            fill="#fbbf24"
-                                            fillOpacity={0.18}
-                                            stroke="#fbbf24"
-                                            strokeOpacity={0.4}
-                                            ifOverflow="hidden"
-                                        />
+                                        highlightBand.x1 === highlightBand.x2
+                                            ? <ReferenceLine
+                                                x={highlightBand.x1}
+                                                stroke="#fbbf24"
+                                                strokeWidth={2}
+                                                ifOverflow="hidden"
+                                            />
+                                            : <ReferenceArea
+                                                x1={highlightBand.x1}
+                                                x2={highlightBand.x2}
+                                                fill="#fbbf24"
+                                                fillOpacity={0.18}
+                                                stroke="#fbbf24"
+                                                strokeOpacity={0.4}
+                                                ifOverflow="hidden"
+                                            />
                                     )}
                                     <XAxis
                                         dataKey="date"

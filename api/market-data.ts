@@ -3,7 +3,7 @@ import YahooFinance from 'yahoo-finance2';
 import { redis } from '../lib/redis.js';
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
-export const CACHE_KEY = 'global_market_cache_yfinance_v1';
+export const CACHE_KEY = 'global_market_cache_yfinance_v2';
 
 // The record carry-forward falls back on once the hourly cache is gone. That
 // hourly key was the ONLY thing carry-forward merged against, so a symbol that
@@ -17,7 +17,7 @@ export const CACHE_KEY = 'global_market_cache_yfinance_v1';
 // a hole with no badge is the worse outcome under the projector invariant
 // (owner decision, sweep 22). The 7d only bounds how long an idle deployment
 // keeps a payload nobody has refreshed.
-export const LAST_GOOD_KEY = 'global_market_last_good_v1';
+export const LAST_GOOD_KEY = 'global_market_last_good_v2';
 export const LAST_GOOD_TTL_SECONDS = 7 * 24 * 3600;
 
 export function parseCachePayload(payload: any) {

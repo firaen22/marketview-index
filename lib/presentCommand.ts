@@ -165,10 +165,14 @@ function peelHighlightWindow(text: string): { text: string; highlight?: { highli
     return { text: rest, highlight: window.highlight };
 }
 
-function highlightOnChart(intent: PresentIntent, highlight?: { highlightFrom: string; highlightTo: string }): PresentIntent {
+function highlightOnChart(intent: PresentIntent, highlight?: { highlightFrom: string; highlightTo: string }): PresentIntent | null {
     if (!highlight) return intent;
-    if (intent.kind !== 'chart' && intent.kind !== 'compare') return intent;
+    if (intent.kind !== 'chart' && intent.kind !== 'compare') return null;
     return { ...intent, ...highlight };
+}
+
+export function containsPeeledHighlightWindow(text: string): boolean {
+    return !!peelHighlightWindow(normalizeText(stripCourtesy(text))).highlight;
 }
 
 function normalizeRange(value: unknown): PresentRange | null {

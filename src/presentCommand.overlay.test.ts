@@ -81,6 +81,12 @@ describe('H01 and QQQ aliases', () => {
 });
 
 describe('highlight window and overlay commands', () => {
+    it('rejects a date highlight on a macro quote instead of dropping the dates', () => {
+        expect(parseCommandDeterministic('CPI highlight 2026-01-01 2026-02-01', [
+            { symbol: 'CPIYOY', name: 'CPI', nameEn: 'CPI', group: 'macro' },
+        ])).toBeNull();
+    });
+
     it('rejects impossible days and reversed windows', () => {
         expect(isHighlightDay('2026-02-31')).toBe(false);
         expect(isHighlightDay('2026-05-01')).toBe(true);

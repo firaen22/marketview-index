@@ -14,8 +14,8 @@ vi.mock('../../lib/redis.js', () => ({
     },
 }));
 vi.mock('../market-data.js', () => ({
-    CACHE_KEY: 'global_market_cache_yfinance_v1',
-    LAST_GOOD_KEY: 'global_market_last_good_v1',
+    CACHE_KEY: 'global_market_cache_yfinance_v2',
+    LAST_GOOD_KEY: 'global_market_last_good_v2',
     LAST_GOOD_TTL_SECONDS: 7 * 24 * 3600,
     fetchAllIndices: marketState.fetchAllIndices,
     readLastGood: marketState.readLastGood,
@@ -28,7 +28,7 @@ vi.mock('../market-data.js', () => ({
     ],
 }));
 
-const hourlyWrites = () => redisState.set.mock.calls.filter((c) => String(c[0]).startsWith('global_market_cache_yfinance_v1'));
+const hourlyWrites = () => redisState.set.mock.calls.filter((c) => String(c[0]).startsWith('global_market_cache_yfinance_v2'));
 
 const { default: handler } = await import('./update-market-data');
 
@@ -103,7 +103,7 @@ describe('update-market-data cron', () => {
         expect(res.body.results['1M']).toMatchObject({ success: false });
         expect(hourlyWrites()).toHaveLength(3);
         expect(redisState.set).not.toHaveBeenCalledWith(
-            'global_market_cache_yfinance_v1_1M',
+            'global_market_cache_yfinance_v2_1M',
             expect.anything(),
             expect.anything(),
         );
@@ -120,10 +120,10 @@ describe('update-market-data cron', () => {
         const res = await call('Bearer cron-secret');
 
         expect(res.body.results['1M']).toEqual({ success: true, count: 2 });
-        const hourly = hourlyWrites().find((c) => c[0] === 'global_market_cache_yfinance_v1_1M')!;
+        const hourly = hourlyWrites().find((c) => c[0] === 'global_market_cache_yfinance_v2_1M')!;
         expect(JSON.parse(hourly[1]).data).toContainEqual({ symbol: 'B', price: 7, stale: true });
         expect(redisState.set).toHaveBeenCalledWith(
-            'global_market_last_good_v1_1M',
+            'global_market_last_good_v2_1M',
             expect.stringContaining('"symbol":"B"'),
             { ex: 7 * 24 * 3600 },
         );
@@ -143,7 +143,7 @@ describe('update-market-data cron', () => {
         expect(res.body.results['1M']).toEqual({ success: true, count: 1 });
         expect(hourlyWrites()).toHaveLength(3);
         expect(redisState.set).not.toHaveBeenCalledWith(
-            'global_market_cache_yfinance_v1_3M',
+            'global_market_cache_yfinance_v2_3M',
             expect.anything(),
             expect.anything(),
         );

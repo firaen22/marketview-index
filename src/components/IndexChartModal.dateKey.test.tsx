@@ -20,6 +20,8 @@ vi.mock('recharts', () => ({
     YAxis: () => null,
     ReferenceArea: ({ x1, x2 }: { x1?: string; x2?: string }) =>
         <div data-testid="highlight-band" data-x1={x1} data-x2={x2} />,
+    ReferenceLine: ({ x }: { x?: string }) =>
+        <div data-testid="highlight-line" data-x={x} />,
 }));
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -209,6 +211,20 @@ describe('IndexChartModal compare rows share a date key across sources', () => {
         expect(container.textContent).toContain('Highlight: 2026-05-01 – 2026-08-31');
         expect(container.textContent).toContain('YTD');
         expect(container.querySelector('[data-testid="highlight-band"]')).not.toBeNull();
+        expect(container.querySelector('[data-testid="highlight-line"]')).toBeNull();
+    });
+
+    it('draws a single plotted day as a reference line', () => {
+        const onlyDay = index('^GSPC', 'US', [{ date: '2026-05-15T13:30:00.000Z', value: 100 }]);
+        rows({
+            item: onlyDay,
+            allData: [onlyDay],
+            pageRange: 'YTD',
+            highlightFrom: '2026-05-15',
+            highlightTo: '2026-05-15',
+        });
+        expect(container.querySelector('[data-testid="highlight-line"]')?.getAttribute('data-x')).toBe('2026-05-15');
+        expect(container.querySelector('[data-testid="highlight-band"]')).toBeNull();
     });
 });
 
