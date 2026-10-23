@@ -32,6 +32,7 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
         showExplainTerm: vi.fn(),
         clearRemoteJargon: vi.fn(),
         postToIndexIframe: vi.fn(() => true),
+        setFloatOverlay: vi.fn(),
         ...overrides,
     } as any;
 }
@@ -128,6 +129,75 @@ describe('executePresentationCommandWithDeps', () => {
 
         expect(executePresentationCommandWithDeps(command, deps)).toBe(true);
         expect(deps.clearRemoteJargon).toHaveBeenCalledTimes(1);
+        expect(deps.setFloatOverlay).toHaveBeenCalledWith(null);
+        expect(deps.pdfRef.current.goToPage).not.toHaveBeenCalled();
+    });
+
+    it('retries compare until the symbols are in market data', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'cmp-wait',
+            kind: 'compare',
+            symbols: ['0P00000EBQ', '^IXIC'],
+            issuedAt: 1000,
+        };
+        const waiting = baseDeps({ mainView: 'slide', marketData: [] });
+        expect(executePresentationCommandWithDeps(command, waiting)).toBe(false);
+        expect(waiting.qp.openChart).not.toHaveBeenCalled();
+    });
+
+    it('opens compare with a date band and does not turn the PDF page', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'cmp-1',
+            kind: 'compare',
+            symbols: ['0P00000EBQ', '^IXIC'],
+            range: 'YTD',
+            highlightFrom: '2026-05-01',
+            highlightTo: '2026-08-31',
+            issuedAt: 1000,
+        };
+        const deps = baseDeps({
+            mainView: 'slide',
+            marketData: [{ symbol: '0P00000EBQ' }, { symbol: '^IXIC' }],
+        });
+
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(true);
+        expect(deps.setDataRange).toHaveBeenCalledWith('YTD');
+        expect(deps.setRemoteCompare).toHaveBeenCalledWith({
+            id: 'cmp-1',
+            symbols: ['^IXIC'],
+            highlightFrom: '2026-05-01',
+            highlightTo: '2026-08-31',
+        });
+        expect(deps.qp.openChart).toHaveBeenCalledTimes(1);
+        expect(deps.setFloatOverlay).toHaveBeenCalledWith(null);
+        expect(deps.pdfRef.current.nextPage).not.toHaveBeenCalled();
+        expect(deps.pdfRef.current.goToPage).not.toHaveBeenCalled();
+    });
+
+    it('floats an image over the deck and clears it without paging', () => {
+        const show: PresentCommand = {
+            v: 1,
+            id: 'ov-1',
+            kind: 'overlay',
+            symbols: [],
+            overlay: { type: 'image', src: 'https://cdn.example/chart.png', caption: 'band' },
+            issuedAt: 1000,
+        };
+        const deps = baseDeps({ mainView: 'heatmap' });
+
+        expect(executePresentationCommandWithDeps(show, deps)).toBe(true);
+        expect(deps.setMainView).toHaveBeenCalledWith('slide');
+        expect(deps.setFloatOverlay).toHaveBeenCalledWith({ src: 'https://cdn.example/chart.png', caption: 'band' });
+        expect(deps.pdfRef.current.goToPage).not.toHaveBeenCalled();
+
+        const clear: PresentCommand = {
+            v: 1, id: 'ov-2', kind: 'overlay', symbols: [], overlay: { type: 'clear' }, issuedAt: 1000,
+        };
+        expect(executePresentationCommandWithDeps(clear, deps)).toBe(true);
+        expect(deps.setFloatOverlay).toHaveBeenLastCalledWith(null);
+        expect(deps.setMainView).toHaveBeenCalledTimes(1);
     });
 });
 

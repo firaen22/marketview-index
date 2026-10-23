@@ -38,6 +38,9 @@ export async function readLastGood(range: string) {
 const INDICES_TO_FETCH = [
   { symbol: '^GSPC', category: 'US', subCategory: 'Large Cap', name: 'S&P 500' },
   { symbol: '^IXIC', category: 'US', subCategory: 'Tech', name: 'Nasdaq Composite' },
+  // Voice "QQ"/"QQQ" on 2026-10-23 had no row, so the compare fell back to
+  // Nasdaq Composite. QQQ is the Nasdaq-100 ETF presenters actually asked for.
+  { symbol: 'QQQ', category: 'US', subCategory: 'Tech', name: 'Invesco QQQ' },
   { symbol: '^DJI', category: 'US', subCategory: 'Blue Chip', name: 'Dow Jones' },
   { symbol: '^VIX', category: 'Volatility', subCategory: 'Index', name: 'VIX' },
   { symbol: 'DX-Y.NYB', category: 'Currency', subCategory: 'Index', name: 'US Dollar Index' },

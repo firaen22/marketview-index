@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Search } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
+import { LineChart, Line, ResponsiveContainer, YAxis, XAxis, Tooltip, Legend, CartesianGrid, ReferenceArea } from 'recharts';
 import type { IndexData, MarketDataResponse, TimeRange } from '../types';
 import { displayName, formatPrice, formatSigned, formatValue, formatWhole } from '../utils';
 import { TimeRangeSelector } from './TimeRangeSelector';
@@ -17,6 +17,10 @@ interface Props {
     /** True while the page's own market-data fetch is in flight. Distinguishes
      *  "allData is empty because we're mid-refetch" from "empty because it failed". */
     pageLoading?: boolean;
+    /** Inclusive calendar days. Snapped onto the plotted history; omitted when
+     *  the current period does not overlap the window. */
+    highlightFrom?: string;
+    highlightTo?: string;
 }
 
 const PALETTE = ['#4a57f2', '#0d9488', '#db2777', '#ea580c', '#7c3aed'];
@@ -52,6 +56,46 @@ function londonDay(d: Date): { y: number; m: number; d: number } {
     const num = (t: string) => Number(parts.find((p) => p.type === t)?.value);
     return { y: num('year'), m: num('month'), d: num('day') };
 }
+const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function addIsoDays(iso: string, days: number): string | null {
+    const match = ISO_DAY.exec(iso);
+    if (!match) return null;
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    if (Number.isNaN(date.getTime())) return null;
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+}
+
+function isIsoDay(value: string): boolean {
+    const match = ISO_DAY.exec(value);
+    if (!match) return false;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/** First and last plotted keys that overlap [from, to]. 5Y keys are week
+ *  starts (Sunday), so a week counts when any of its seven days is inside. */
+export function resolveHighlightBand(
+    dates: readonly string[],
+    from: string | undefined,
+    to: string | undefined,
+    range: TimeRange,
+): { x1: string; x2: string } | null {
+    if (!from || !to || !isIsoDay(from) || !isIsoDay(to) || from > to) return null;
+    const keys = dates.filter(date => isIsoDay(date)).slice().sort();
+    const inside = keys.filter(key => {
+        if (range !== '5Y') return key >= from && key <= to;
+        const saturday = addIsoDays(key, 6);
+        return !!saturday && key <= to && saturday >= from;
+    });
+    if (inside.length === 0) return null;
+    return { x1: inside[0], x2: inside[inside.length - 1] };
+}
+
 export function chartDateKey(v: string, range: TimeRange): string {
     const t = new Date(v);
     if (isNaN(t.getTime())) return v;
@@ -92,6 +136,8 @@ const LABELS = {
         noHistory: 'No history data available for this index.',
         limit: `Max ${MAX_COMPARE} comparisons`,
         period: 'Period',
+        highlight: 'Highlight',
+        highlightOutside: 'not in this period',
         loading: 'Loading…',
         rangeFailed: (want: string) => `Couldn't load ${want} data. Pick another period or try again.`,
     },
@@ -105,6 +151,8 @@ const LABELS = {
         noHistory: '此指數暫無歷史數據。',
         limit: `最多 ${MAX_COMPARE} 個比較`,
         period: '期間',
+        highlight: '標示區間',
+        highlightOutside: '不在此期間',
         loading: '載入中…',
         rangeFailed: (want: string) => `無法載入 ${want} 數據，請選擇其他期間或重試。`,
     },
@@ -159,7 +207,7 @@ function useRangeOverride(range: TimeRange, pageRange: TimeRange, lang: 'en' | '
     };
 }
 
-export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCompareSymbols = [], pageRange = 'YTD', pageLoading = false }: Props) {
+export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCompareSymbols = [], pageRange = 'YTD', pageLoading = false, highlightFrom, highlightTo }: Props) {
     const L = LABELS[lang];
     // Recharts sizes axis text, strokes and dots in SVG user units, which ignore
     // the root font — without this the chart's furniture would stay at its 1080p
@@ -261,6 +309,15 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
     }, [series, effectiveMode, historyFor, range]);
 
     const primaryHasHistory = historyFor(series[0]).length > 0;
+    const highlightBand = useMemo(
+        () => resolveHighlightBand(
+            chartData.map(row => (typeof row.date === 'string' ? row.date : '')),
+            highlightFrom,
+            highlightTo,
+            range,
+        ),
+        [chartData, highlightFrom, highlightTo, range],
+    );
 
     // A selected period whose data hasn't landed yet: the page-range history is
     // still in hand, but drawing it under a highlighted "5Y" would misreport the
@@ -346,6 +403,12 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                         onChange={(r) => setRange(r as TimeRange)}
                         variant="subtle"
                     />
+                    {highlightFrom && highlightTo && (
+                        <span className="text-[0.625rem] font-mono text-amber-200/90">
+                            {L.highlight}: {highlightFrom} – {highlightTo}
+                            {highlightBand ? '' : ` (${L.highlightOutside})`}
+                        </span>
+                    )}
                 </div>
 
                 {/* Chart */}
@@ -367,6 +430,17 @@ export function IndexChartModal({ item, allData, onClose, lang = 'en', initialCo
                             <ResponsiveContainer width="100%" height="100%">
                                 <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                                     <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
+                                    {highlightBand && (
+                                        <ReferenceArea
+                                            x1={highlightBand.x1}
+                                            x2={highlightBand.x2}
+                                            fill="#fbbf24"
+                                            fillOpacity={0.18}
+                                            stroke="#fbbf24"
+                                            strokeOpacity={0.4}
+                                            ifOverflow="hidden"
+                                        />
+                                    )}
                                     <XAxis
                                         dataKey="date"
                                         stroke="#52525b"

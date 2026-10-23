@@ -94,6 +94,34 @@ export async function clearPresentCommand(signal?: AbortSignal): Promise<Present
     return toCommand(payload);
 }
 
+export async function sendPresentCompare(
+    body: {
+        symbols: string[];
+        range?: string;
+        highlightFrom?: string;
+        highlightTo?: string;
+        catalog?: CatalogItem[];
+    },
+    signal?: AbortSignal,
+): Promise<PresentCommand> {
+    const payload = await postPresentCommand({ action: 'compare', ...body }, signal);
+    return toCommand(payload);
+}
+
+export async function sendPresentOverlay(src: string, caption?: string, signal?: AbortSignal): Promise<PresentCommand> {
+    const payload = await postPresentCommand({
+        action: 'overlay',
+        src,
+        ...(caption ? { caption } : {}),
+    }, signal);
+    return toCommand(payload);
+}
+
+export async function clearPresentOverlay(signal?: AbortSignal): Promise<PresentCommand> {
+    const payload = await postPresentCommand({ action: 'overlay', clear: true }, signal);
+    return toCommand(payload);
+}
+
 export async function sendPresentPageCommand(direction: PageDirection, signal?: AbortSignal): Promise<PresentCommand> {
     const payload = await postPresentCommand({ action: 'page', direction }, signal);
     return toCommand(payload);

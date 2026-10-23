@@ -21,6 +21,7 @@ vi.mock('recharts', () => ({
     XAxis: ({ tickFormatter }: { tickFormatter?: (v: string) => string }) =>
         <div data-testid="xtick">{tickFormatter?.('2021-07-19T00:00:00.000Z')}</div>,
     YAxis: () => null,
+    ReferenceArea: () => null,
 }));
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;

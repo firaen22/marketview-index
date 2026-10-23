@@ -26,6 +26,7 @@ import { QuotePickerModal } from './components/QuotePickerModal';
 import { QuoteSpotlight } from './components/QuoteSpotlight';
 import { QuoteSpotlightSearch } from './components/QuoteSpotlightSearch';
 import { MorningBriefPanel } from './components/MorningBriefPanel';
+import { FloatOverlay } from './components/FloatOverlay';
 import { IndexChartModal } from './components/IndexChartModal';
 import { SlideEditorPanel } from './components/SlideEditorPanel';
 import { GlossarySessionPanel } from './components/GlossarySessionPanel';
@@ -69,6 +70,7 @@ interface PresentationCommandExecutorDeps {
     showExplainTerm: (term: string, commandId: string) => void;
     clearRemoteJargon: () => void;
     postToIndexIframe: (msg: unknown) => boolean;
+    setFloatOverlay: (next: { src: string; caption?: string } | null) => void;
 }
 
 export async function fetchExplainTerm(
@@ -167,12 +169,15 @@ export interface SpotlightOverlays {
     briefPanelOpen: boolean;
     glossaryPanelOpen: boolean;
     editorOpen: boolean;
+    /** Image sitting on the deck. The PDF stays mounted underneath. */
+    floatOpen?: boolean;
 }
 
 /** The spotlight card, but only when no overlay is stacked above it. */
 export function overlayCovering(overlays: SpotlightOverlays): boolean {
     return overlays.isPickerOpen || overlays.isSearchOpen || overlays.chartOpen
-        || overlays.briefPanelOpen || overlays.glossaryPanelOpen || overlays.editorOpen;
+        || overlays.briefPanelOpen || overlays.glossaryPanelOpen || overlays.editorOpen
+        || !!overlays.floatOpen;
 }
 
 export function spotlightGestureTarget<T>(spotlight: T | null, overlays: SpotlightOverlays): T | null {
@@ -195,7 +200,7 @@ export function presentNavTarget<T>(spotlight: T | null, overlays: SpotlightOver
     return deckHidden ? null : 'deck';
 }
 
-export type EscapeTarget = 'search' | 'picker' | 'brief' | 'glossary' | 'editor' | 'spotlight' | 'hints' | null;
+export type EscapeTarget = 'search' | 'picker' | 'brief' | 'glossary' | 'editor' | 'float' | 'spotlight' | 'hints' | null;
 
 /**
  * Which layer Escape should close: the TOPMOST one. The spotlight card sits at
@@ -212,6 +217,7 @@ export function presentEscapeTarget(s: SpotlightOverlays & { spotlightOpen: bool
     if (s.isPickerOpen) return 'picker';
     if (s.isSearchOpen) return 'search';
     if (s.briefPanelOpen) return 'brief';
+    if (s.floatOpen) return 'float';
     if (s.editorOpen) return 'editor';
     if (s.glossaryPanelOpen) return 'glossary';
     if (s.spotlightOpen) return 'spotlight';
@@ -235,15 +241,34 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
         showExplainTerm,
         clearRemoteJargon,
         postToIndexIframe,
+        setFloatOverlay,
     } = deps;
 
     if (cmd.kind === 'clear') {
         qp.closeChart();
         qp.dismissSpotlight();
         setRemoteCompare(null);
+        setFloatOverlay(null);
         clearRemoteJargon();
         setMainView('slide');
         resetDwellCountdown();
+        return true;
+    }
+
+    if (cmd.kind === 'overlay') {
+        if (cmd.overlay?.type === 'clear') {
+            setFloatOverlay(null);
+            return true;
+        }
+        if (cmd.overlay?.type !== 'image') return false;
+        // Reveal the deck. Do not touch slide content or the PDF page.
+        if (mainView !== 'slide') {
+            setMainView('slide');
+            resetDwellCountdown();
+        }
+        qp.closeChart();
+        setRemoteCompare(null);
+        setFloatOverlay({ src: cmd.overlay.src, ...(cmd.overlay.caption ? { caption: cmd.overlay.caption } : {}) });
         return true;
     }
 
@@ -322,9 +347,13 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
         const found = marketData.find(d => d.symbol === cmd.symbols[0]);
         if (!found) return false;
         qp.dismissSpotlight();
+        setFloatOverlay(null);
         setRemoteCompare({
             id: cmd.id,
             symbols: cmd.kind === 'compare' ? cmd.symbols.slice(1) : [],
+            ...(cmd.highlightFrom && cmd.highlightTo
+                ? { highlightFrom: cmd.highlightFrom, highlightTo: cmd.highlightTo }
+                : {}),
         });
         qp.openChart(indexToQuoteItem(found));
         return true;
@@ -334,6 +363,7 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
     if (!item) return false;
     qp.closeChart();
     setRemoteCompare(null);
+    setFloatOverlay(null);
     qp.openSpotlight(item);
     return true;
 }
@@ -372,7 +402,8 @@ export default function PresentationPage() {
     const [morningBrief, setMorningBrief] = useState<string[]>(initialSettings.morningBrief);
     const [briefPanelOpen, setBriefPanelOpen] = useState(false);
     const [glossaryPanelOpen, setGlossaryPanelOpen] = useState(false);
-    const [remoteCompare, setRemoteCompare] = useState<{ id: string; symbols: string[] } | null>(null);
+    const [remoteCompare, setRemoteCompare] = useState<{ id: string; symbols: string[]; highlightFrom?: string; highlightTo?: string } | null>(null);
+    const [floatOverlay, setFloatOverlay] = useState<{ src: string; caption?: string } | null>(null);
     const [remoteJargon, setRemoteJargon] = useState<{ id: string; terms: JargonTerm[] } | null>(null);
     const hintsTimerRef = useRef<number | null>(null);
     const kioskTimerRef = useRef<number | null>(null);
@@ -413,7 +444,7 @@ export default function PresentationPage() {
     const qp = useQuotePanel({ marketData, macroData });
     const jargon = useJargon({ enabled: jargonEnabled && mainView === 'slide' && slide.mode === 'pdf', pdfUrl: slide.mode === 'pdf' ? slide.content : '', lang, geminiKey, slideVersion: slide.mode === 'pdf' ? slide.updatedAt : undefined });
     const glossary = useGlossarySession();
-    const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || glossaryPanelOpen || !!qp.chartItem;
+    const cyclePaused = editorOpen || !!qp.spotlight || qp.isPickerOpen || qp.isSearchOpen || briefPanelOpen || glossaryPanelOpen || !!qp.chartItem || !!floatOverlay;
 
     // Session-glossary attribution: useJargon clears its terms synchronously on
     // page flip and drops stale in-flight responses, so jargon.terms is only
@@ -603,6 +634,7 @@ export default function PresentationPage() {
         showExplainTerm,
         clearRemoteJargon,
         postToIndexIframe,
+        setFloatOverlay,
     }), [marketData, qp, resetDwellCountdown, mainView, slide.mode, persistPresentCycle, normalizedPresentCycle, setDataRange, showExplainTerm, clearRemoteJargon, postToIndexIframe]);
 
     usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
@@ -856,7 +888,8 @@ export default function PresentationPage() {
         briefPanelOpen,
         glossaryPanelOpen,
         editorOpen,
-    }), [qp.isPickerOpen, qp.isSearchOpen, qp.chartItem, briefPanelOpen, glossaryPanelOpen, editorOpen]);
+        floatOpen: !!floatOverlay,
+    }), [qp.isPickerOpen, qp.isSearchOpen, qp.chartItem, briefPanelOpen, glossaryPanelOpen, editorOpen, floatOverlay]);
     // null while the thing a key/swipe would drive is hidden under an overlay.
     const navTarget = presentNavTarget(qp.spotlight, overlays);
 
@@ -884,6 +917,7 @@ export default function PresentationPage() {
                 case 'search': qp.closeSearch(); return;
                 case 'picker': qp.closePicker(); return;
                 case 'brief': setBriefPanelOpen(false); return;
+                case 'float': setFloatOverlay(null); return;
                 case 'glossary': setGlossaryPanelOpen(false); return;
                 case 'editor': setEditorOpen(false); return;
                 case 'spotlight': qp.dismissSpotlight(); return;
@@ -1185,6 +1219,15 @@ export default function PresentationPage() {
                         );
                     })()}
 
+                    {floatOverlay && mainView === 'slide' && (
+                        <FloatOverlay
+                            src={floatOverlay.src}
+                            caption={floatOverlay.caption}
+                            label={t.present.overlayLabel}
+                            onClose={() => setFloatOverlay(null)}
+                        />
+                    )}
+
                     {/* Zoom controls — shown for pdf and html modes */}
                     {mainView === 'slide' && (slide.mode === 'pdf' || slide.mode === 'html') && (
                         <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-zinc-900/90 backdrop-blur border border-zinc-800 rounded-full px-3 py-1.5 z-30">
@@ -1253,6 +1296,8 @@ export default function PresentationPage() {
                     initialCompareSymbols={remoteCompare?.symbols ?? []}
                     pageRange={dataRange}
                     pageLoading={marketLoading}
+                    highlightFrom={remoteCompare?.highlightFrom}
+                    highlightTo={remoteCompare?.highlightTo}
                 />
             )}
 

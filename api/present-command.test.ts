@@ -717,4 +717,79 @@ describe('present-command API handler', () => {
         expect(deckA).toMatch(/^present:assist:v1:img:[a-f0-9]{64}$/);
         expect(deckA).not.toBe(deckB);
     });
+
+    it('stores a structured compare with YTD and a May–August highlight', async () => {
+        const res = await call(authPost({
+            action: 'compare',
+            symbols: ['0P00000EBQ', '^IXIC'],
+            range: 'ytd',
+            highlightFrom: '2026-05-01',
+            highlightTo: '2026-08-31',
+        }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({
+            kind: 'compare',
+            symbols: ['0P00000EBQ', '^IXIC'],
+            range: 'YTD',
+            highlightFrom: '2026-05-01',
+            highlightTo: '2026-08-31',
+        });
+        expect(redisState.current.set).toHaveBeenCalledWith('present:cmd:v1', expect.any(String), { ex: 120 });
+    });
+
+    it('rejects a compare whose symbols are not in the supplied catalog', async () => {
+        const res = await call(authPost({
+            action: 'compare',
+            symbols: ['QQ', '^IXIC'],
+            range: 'YTD',
+            catalog,
+        }));
+        expect(res.statusCode).toBe(422);
+        expect(res.body).toEqual({ error: 'invalid_symbols' });
+    });
+
+    it('rejects a reversed highlight and a bad range', async () => {
+        let res = await call(authPost({
+            action: 'compare',
+            symbols: ['^HSI', '^IXIC'],
+            highlightFrom: '2026-08-31',
+            highlightTo: '2026-05-01',
+        }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_highlight' });
+
+        res = await call(authPost({
+            action: 'compare',
+            symbols: ['^HSI', '^IXIC'],
+            range: '1D',
+        }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_range' });
+    });
+
+    it('stores an image overlay and a clear that does not use slide mode', async () => {
+        let res = await call(authPost({
+            action: 'overlay',
+            src: 'https://cdn.example/chart.png',
+            caption: 'QQQ vs HSI',
+        }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({
+            kind: 'overlay',
+            symbols: [],
+            overlay: { type: 'image', src: 'https://cdn.example/chart.png', caption: 'QQQ vs HSI' },
+        });
+
+        res = await call(authPost({ action: 'overlay', clear: true }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command.overlay).toEqual({ type: 'clear' });
+        expect(res.body.command.kind).toBe('overlay');
+
+        res = await call(authPost({ action: 'overlay', src: 'javascript:alert(1)' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_overlay' });
+
+        res = await call(makeReq({ method: 'POST', body: { action: 'overlay', src: 'https://cdn.example/a.png' } }));
+        expect(res.statusCode).toBe(401);
+    });
 });

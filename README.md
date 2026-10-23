@@ -91,6 +91,42 @@ npm test        # vitest — 623 tests across 70 files
 npm run lint    # tsc --noEmit
 ```
 
+## Presenter remote (agents)
+
+`/present` is the projector. `/present-control` is a preview and editor on another screen — commands that “did nothing” were often applied on the projector while the control preview stayed on the PDF. The projector is a client that polls `GET /api/present-command` (and the slide GET); a newly opened or backgrounded tab is blank until JavaScript loads and can lag a command until the next poll. `highlight` emphasizes one market card on the index view. It is not a date band on a chart.
+
+Writes send `x-api-key: $PRESENT_API_KEY`. Do not put the key in the repo.
+
+**Compare (native Index chart, preferred for quotes).** One POST sets symbols, period, and an optional date band. `action: "send"` with text `Hang Seng vs Nasdaq YTD` also parses as compare + `YTD` (that utterance used to return 422, so the workaround was a `range` POST and then a `compare` POST — the range must not be the later command).
+
+```bash
+curl -s -X POST "$ORIGIN/api/present-command" \
+  -H "content-type: application/json" \
+  -H "x-api-key: $PRESENT_API_KEY" \
+  -d '{"action":"compare","symbols":["0P00000EBQ","^IXIC"],"range":"YTD","highlightFrom":"2026-05-01","highlightTo":"2026-08-31"}'
+```
+
+`symbols` are quote symbols, not spoken nicknames. `0P00000EBQ` is 駿利亨德森遠見基金 - 環球科技領先基金 (voice “H01”, including the misheard 俊利亨德森). `QQQ` is Invesco QQQ (voice “QQ”). `^IXIC` is Nasdaq Composite — use it only when you mean the composite, not the ETF. Spoken `H01` / `QQ` resolve on `action: "send"` when those rows are in the catalog the control page already sends. Pass `catalog` on `action: "compare"` to reject a symbol that is not on that list. The date band is a `ReferenceArea` on the open compare modal. It ships with this frontend; production cannot draw it until this build is deployed. After that, a new compare POST changes the window without another deploy. `highlightFrom` / `highlightTo` are inclusive `YYYY-MM-DD`. If the selected period (1W…5Y chips still work) does not overlap the window, the chart says so and draws no band.
+
+**Overlay (image or SVG on the PDF, without leaving PDF mode).** This is the replacement for the HTML-slide workaround. Do not nest a PDF iframe in an HTML slide: that iframe does not paint inside the sandboxed `srcdoc` frame and the projector goes gray. Clearing the overlay does not change the saved slide.
+
+```bash
+curl -s -X POST "$ORIGIN/api/present-command" \
+  -H "content-type: application/json" \
+  -H "x-api-key: $PRESENT_API_KEY" \
+  -d '{"action":"overlay","src":"https://cdn.example/chart.png","caption":"optional"}'
+
+# remove only the image; the deck stays
+curl -s -X POST "$ORIGIN/api/present-command" \
+  -H "content-type: application/json" \
+  -H "x-api-key: $PRESENT_API_KEY" \
+  -d '{"action":"overlay","clear":true}'
+```
+
+`src` is `https://…` or a `data:image/(png|jpeg|webp|svg+xml);base64,…` URL, capped so the command stays under the API body limit. The image is centered at about 65% of the viewport. `{"action":"clear"}` also removes it, and closes the compare modal and other overlays, and returns the projector to the slide view. It does not upload a new deck.
+
+`GET` or `POST /api/present-slide` returns `{ "success": true, "slide": { "mode", "content", "updatedAt" } }` — the slide is nested under `slide`. PDF object keys must be passed through exactly as issued (`/api/pdf-proxy?key=` plus the literal key). Underscores in that key are part of the string; rewriting or “normalizing” it fails the allowlist.
+
 ## Repo layout
 
 ```

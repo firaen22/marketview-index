@@ -16,13 +16,17 @@ import {
 import {
     buildParsePrompt,
     buildPresentCommand,
+    buildStructuredCompareCommand,
     type CatalogItem,
     isExecutablePresentCommand,
     PAGE_COMMAND_FRESH_MS,
     parseCommandDeterministic,
+    PRESENT_RANGES,
     type PresentCommand,
+    readHighlightWindow,
     validatePresentIntent,
 } from '../lib/presentCommand.js';
+import { isOverlayCaption, isOverlayImageSrc } from '../lib/presentOverlay.js';
 
 const COMMAND_KEY = 'present:cmd:v1';
 // Page turns are RELATIVE commands: unlike chart/view/clear (absolute, safe to
@@ -469,6 +473,78 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
             await writeAssistCache(cacheKey, assist);
             return json(res, 200, { success: true, assist });
+        }
+
+        if (parsed.body.action === 'compare' || parsed.body.action === 'overlay') {
+            const receivedAt = Date.now();
+            let command: PresentCommand | null = null;
+            if (parsed.body.action === 'overlay') {
+                if (parsed.body.clear === true) {
+                    command = {
+                        v: 1,
+                        id: crypto.randomUUID(),
+                        kind: 'overlay',
+                        symbols: [],
+                        overlay: { type: 'clear' },
+                        issuedAt: Date.now(),
+                    };
+                } else {
+                    if (!isOverlayImageSrc(parsed.body.src)) return json(res, 400, { error: 'invalid_overlay' });
+                    let caption: string | undefined;
+                    if (parsed.body.caption !== undefined && parsed.body.caption !== '') {
+                        if (!isOverlayCaption(parsed.body.caption)) return json(res, 400, { error: 'invalid_overlay' });
+                        caption = parsed.body.caption;
+                    }
+                    command = {
+                        v: 1,
+                        id: crypto.randomUUID(),
+                        kind: 'overlay',
+                        symbols: [],
+                        overlay: { type: 'image', src: parsed.body.src, ...(caption ? { caption } : {}) },
+                        issuedAt: Date.now(),
+                    };
+                }
+            } else {
+                const highlight = readHighlightWindow(parsed.body.highlightFrom, parsed.body.highlightTo);
+                if (!highlight.ok) return json(res, 400, { error: 'invalid_highlight' });
+                if (parsed.body.range !== undefined) {
+                    const upper = typeof parsed.body.range === 'string' ? parsed.body.range.toUpperCase() : '';
+                    if (!(PRESENT_RANGES as readonly string[]).includes(upper)) {
+                        return json(res, 400, { error: 'invalid_range' });
+                    }
+                }
+                if (parsed.body.catalog !== undefined) {
+                    if (!validCatalog(parsed.body.catalog)) return json(res, 400, { error: 'invalid_catalog' });
+                    const validation = validatePresentIntent({
+                        kind: 'compare',
+                        symbols: parsed.body.symbols,
+                        ...(parsed.body.range !== undefined ? { range: parsed.body.range } : {}),
+                        ...(highlight.highlight ?? {}),
+                    }, canonicalCatalog(parsed.body.catalog));
+                    if (!validation.ok || (validation.intent.kind !== 'compare' && validation.intent.kind !== 'chart')) {
+                        return json(res, 422, { error: 'invalid_symbols' });
+                    }
+                    command = buildPresentCommand(validation.intent, crypto.randomUUID(), Date.now());
+                } else {
+                    command = buildStructuredCompareCommand(
+                        parsed.body.symbols,
+                        parsed.body.range,
+                        highlight.highlight,
+                        crypto.randomUUID(),
+                        Date.now(),
+                    );
+                    if (!command) return json(res, 400, { error: 'invalid_symbols' });
+                }
+            }
+            if (!command || !isExecutablePresentCommand(command)) {
+                return json(res, 400, { error: parsed.body.action === 'overlay' ? 'invalid_overlay' : 'invalid_symbols' });
+            }
+            const existing = await readCommand();
+            if (existing && existing.issuedAt > receivedAt) {
+                return json(res, 409, { error: 'superseded' });
+            }
+            await storeCommand(command);
+            return json(res, 200, { success: true, command });
         }
 
         if (parsed.body.action !== 'send') {

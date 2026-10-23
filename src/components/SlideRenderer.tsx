@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { PresentSlide } from '../settings';
+import { prepareSandboxedSlideHtml } from '../sandboxedSlideHtml';
 import { injectMarketTokens } from '../tokenInject';
 import { PdfViewer, type PdfViewerHandle } from './PdfViewer';
 
@@ -54,7 +55,7 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
     }
 
     if (slide.mode === 'html') {
-        const html = injected;
+        const html = prepareSandboxedSlideHtml(injected);
         const scale = pdfZoom / 100;
         return (
             <div className="absolute inset-0 w-full h-full overflow-auto bg-white flex items-start justify-center">
@@ -63,7 +64,8 @@ export const SlideRenderer: React.FC<Props> = ({ slide, marketData, pdfZoom = 10
                         key={slide.mode}
                         srcDoc={html}
                         sandbox="allow-scripts"
-                        className="w-full h-full border-0"
+                        className="w-full h-full border-0 bg-white"
+                        style={{ backgroundColor: '#ffffff' }}
                     />
                 </div>
             </div>

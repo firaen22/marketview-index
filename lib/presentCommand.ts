@@ -1,4 +1,6 @@
-export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range' | 'explain' | 'highlight';
+import { isPresentOverlayPayload, type PresentOverlayPayload } from './presentOverlay.js';
+
+export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range' | 'explain' | 'highlight' | 'overlay';
 export type PresentView = 'slide' | 'index' | 'heatmap';
 export type PageDirection = 'next' | 'prev';
 export type PresentRange = '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '5Y';
@@ -19,6 +21,11 @@ export interface PresentCommand {
     dwellSec?: number;
     range?: PresentRange;
     term?: string;
+    /** Inclusive YYYY-MM-DD window drawn on the compare/chart modal. */
+    highlightFrom?: string;
+    highlightTo?: string;
+    /** Image popup over the current deck. Not a slide-mode change. */
+    overlay?: PresentOverlayPayload;
     issuedAt: number;
 }
 
@@ -30,8 +37,8 @@ export interface CatalogItem {
 }
 
 export type PresentIntent =
-    | { kind: 'chart'; symbols: string[]; range?: PresentRange }
-    | { kind: 'compare'; symbols: string[]; range?: PresentRange }
+    | { kind: 'chart'; symbols: string[]; range?: PresentRange; highlightFrom?: string; highlightTo?: string }
+    | { kind: 'compare'; symbols: string[]; range?: PresentRange; highlightFrom?: string; highlightTo?: string }
     | { kind: 'quote'; symbols: string[] }
     | { kind: 'view'; symbols: []; view: PresentView }
     | { kind: 'clear'; symbols: [] }
@@ -43,7 +50,7 @@ export type PresentIntent =
     | { kind: 'explain'; symbols: []; term: string }
     | { kind: 'highlight'; symbols: string[] };
 
-const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page', 'goto', 'jargon', 'cycle', 'range', 'explain', 'highlight'] as const;
+const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page', 'goto', 'jargon', 'cycle', 'range', 'explain', 'highlight', 'overlay'] as const;
 const VIEWS = ['slide', 'index', 'heatmap'] as const;
 const CLEAR_WORDS = new Set(['clear', 'close', 'back', 'slides', 'slide', '返回', '清除', '關閉', '投影片']);
 const HEATMAP_WORDS = new Set(['heatmap', '熱圖', '熱力圖']);
@@ -77,17 +84,24 @@ type RawIntent = {
     dwellSec?: unknown;
     range?: unknown;
     term?: unknown;
+    highlightFrom?: unknown;
+    highlightTo?: unknown;
 };
 
-// Spoken/typed nicknames for the FIXED index/commodity set. The dynamic
-// catalog (funds) never gets aliases. Matching is EXACT-only (after verb/noun
-// stripping): substring alias matching was reviewed and rejected — short
-// aliases like "gold"/"oil"/"btc" collide with fund-name substrings and a
-// wrong chart on a live projector is worse than a 422.
+// Spoken/typed nicknames. Matching is EXACT-only (after verb/noun stripping):
+// substring alias matching was reviewed and rejected — short aliases like
+// "gold"/"oil"/"btc" collide with fund-name substrings and a wrong chart on a
+// live projector is worse than a 422. Dynamic/user-added funds still get no
+// aliases. Two fixed catalog rows are the exception, both exact:
+// QQQ (voice "QQ"/"QQQ" — not in the quote list before 2026-10-23, so the
+// call fell through to Nasdaq Composite) and the fixed Janus Henderson tech
+// share class 0P00000EBQ (voice "H01" / 駿利亨德森, including the misheard 俊利).
 const SYMBOL_ALIASES: Record<string, string[]> = {
     '^HSI': ['恒指', '恆指', '恒生指數', '恒生指数', '恆生指數', '大市', 'hang seng'],
     '^GSPC': ['標普', '标普', '標普500', '標普五百', '標準普爾', 'spx', 's&p', 's&p500', 'sp500'],
     '^IXIC': ['納指', '纳指', '納斯達克', '纳斯达克', 'nasdaq'],
+    'QQQ': ['qq', 'qqq', '納指100', '纳指100'],
+    '0P00000EBQ': ['h01', '駿利亨德森', '俊利亨德森', 'henderson tech', '亨德森科技'],
     '^DJI': ['道指', '杜指', '道瓊斯', '道琼斯', '道瓊', 'dow'],
     '^N225': ['日經', '日经', '日經225', '日经225', 'nikkei'],
     '^VIX': ['恐慌指數', '恐慌指数'],
@@ -121,6 +135,40 @@ function isPageDirection(value: unknown): value is PageDirection {
 
 function isPresentRange(value: unknown): value is PresentRange {
     return typeof value === 'string' && (PRESENT_RANGES as readonly string[]).includes(value);
+}
+
+const HIGHLIGHT_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const HIGHLIGHT_SUFFIX = /^(.*?)\s+(?:highlight|shade|band|標示|高亮)\s+(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})\s*$/i;
+const STRUCTURED_SYMBOL = /^[A-Za-z0-9^=._-]{1,24}$/;
+
+export function isHighlightDay(value: unknown): value is string {
+    if (typeof value !== 'string' || !HIGHLIGHT_DAY.test(value)) return false;
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+export function readHighlightWindow(from: unknown, to: unknown):
+    | { ok: true; highlight?: { highlightFrom: string; highlightTo: string } }
+    | { ok: false } {
+    if (from === undefined && to === undefined) return { ok: true };
+    if (!isHighlightDay(from) || !isHighlightDay(to) || from > to) return { ok: false };
+    return { ok: true, highlight: { highlightFrom: from, highlightTo: to } };
+}
+
+function peelHighlightWindow(text: string): { text: string; highlight?: { highlightFrom: string; highlightTo: string } } {
+    const match = HIGHLIGHT_SUFFIX.exec(text);
+    if (!match) return { text };
+    const rest = match[1].trim();
+    const window = readHighlightWindow(match[2], match[3]);
+    if (!rest || !window.ok || !window.highlight) return { text };
+    return { text: rest, highlight: window.highlight };
+}
+
+function highlightOnChart(intent: PresentIntent, highlight?: { highlightFrom: string; highlightTo: string }): PresentIntent {
+    if (!highlight) return intent;
+    if (intent.kind !== 'chart' && intent.kind !== 'compare') return intent;
+    return { ...intent, ...highlight };
 }
 
 function normalizeRange(value: unknown): PresentRange | null {
@@ -447,7 +495,30 @@ function dedupeSymbols(symbols: string[]): string[] {
     return result;
 }
 
+function peelRangeToken(text: string): { range: PresentRange | null; text: string } {
+    const trimmed = text.trim();
+    for (const [range, tokens] of RANGE_TOKEN_ENTRIES) {
+        for (const token of tokens) {
+            const pattern = rangeTokenPattern(token);
+            const boundary = /[一-鿿]/.test(token) ? '\\s*' : '\\s+';
+            const trailing = new RegExp(`^(.+?)${boundary}${pattern}$`, 'i').exec(trimmed);
+            if (trailing?.[1]?.trim()) return { range, text: trailing[1].trim() };
+            const leading = new RegExp(`^${pattern}${boundary}(.+)$`, 'i').exec(trimmed);
+            if (leading?.[1]?.trim()) return { range, text: leading[1].trim() };
+        }
+    }
+    return { range: null, text: trimmed };
+}
+
 export function parseCommandDeterministic(text: string, catalog: CatalogItem[]): PresentIntent | null {
+    const normalized = normalizeText(stripCourtesy(text));
+    if (!normalized) return null;
+    const peeled = peelHighlightWindow(normalized);
+    const intent = parseDeterministicBody(peeled.text, catalog);
+    return intent ? highlightOnChart(intent, peeled.highlight) : null;
+}
+
+function parseDeterministicBody(text: string, catalog: CatalogItem[]): PresentIntent | null {
     const normalized = normalizeText(stripCourtesy(text));
     if (!normalized) return null;
     const lower = normalized.toLowerCase();
@@ -479,9 +550,25 @@ export function parseCommandDeterministic(text: string, catalog: CatalogItem[]):
     const chartRange = parseChartRange(normalized, catalog);
     if (chartRange) return chartRange;
 
-    const compareParts = normalized.split(COMPARE_SPLIT).filter(Boolean);
+    // "Hang Seng vs Nasdaq YTD" used to 422: the split left "Nasdaq YTD",
+    // which is not a catalog row, and compare never attached range. Peel a
+    // leading/trailing range off the utterance and off each side. Two
+    // different ranges ("YTD … 1Y") fall through to the NLU instead of guessing.
+    const wholeRange = peelRangeToken(normalized);
+    let attachedRange = wholeRange.range;
+    const compareParts = wholeRange.text.split(COMPARE_SPLIT).filter(Boolean);
     if (compareParts.length >= 2) {
-        const resolved = compareParts.map(part => resolveCatalogItem(part, catalog));
+        let rangeConflict = false;
+        const cleaned = compareParts.map(part => {
+            const peeledPart = peelRangeToken(part);
+            if (peeledPart.range) {
+                if (attachedRange && attachedRange !== peeledPart.range) rangeConflict = true;
+                attachedRange = peeledPart.range;
+            }
+            return peeledPart.text;
+        });
+        if (rangeConflict) return null;
+        const resolved = cleaned.map(part => resolveCatalogItem(part, catalog));
         if (resolved.some(item => item === null)) return null;
         // Compare is market-only; a macro member (e.g. "CPI 同 GDP") must fall
         // through to the NLU instead of a guaranteed-422 deterministic intent.
@@ -489,6 +576,7 @@ export function parseCommandDeterministic(text: string, catalog: CatalogItem[]):
         return {
             kind: 'compare',
             symbols: (resolved as CatalogItem[]).map(item => item.symbol),
+            ...(attachedRange ? { range: attachedRange } : {}),
         };
     }
 
@@ -502,6 +590,13 @@ export function validatePresentIntent(
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false };
     const raw = value as RawIntent;
     if (!isKind(raw.kind)) return { ok: false };
+    // Image overlays are a structured action, not free text. A model that
+    // emits kind "overlay" must not be able to smuggle a src in.
+    if (raw.kind === 'overlay') return { ok: false };
+    if (raw.kind !== 'chart' && raw.kind !== 'compare'
+        && (raw.highlightFrom !== undefined || raw.highlightTo !== undefined)) {
+        return { ok: false };
+    }
 
     if (raw.kind === 'clear') {
         return Array.isArray(raw.symbols) && raw.symbols.length === 0
@@ -575,6 +670,8 @@ export function validatePresentIntent(
     const range = normalizeRange(raw.range);
     if (raw.range !== undefined && !range) return { ok: false };
     if (raw.kind === 'quote' && raw.range !== undefined) return { ok: false };
+    const highlight = readHighlightWindow(raw.highlightFrom, raw.highlightTo);
+    if ((raw.kind === 'chart' || raw.kind === 'compare') && !highlight.ok) return { ok: false };
 
     const canonicalSymbols = raw.symbols.map(symbol => catalog.find(item => item.symbol === symbol)?.symbol ?? null);
     if (canonicalSymbols.some(symbol => symbol === null)) return { ok: false };
@@ -585,8 +682,9 @@ export function validatePresentIntent(
         if (symbols.length < 1) return { ok: false };
         const items = symbols.map(symbol => catalog.find(item => item.symbol === symbol)!);
         if (items.some(item => item.group !== 'market')) return { ok: false };
-        if (symbols.length === 1) return { ok: true, intent: { kind: 'chart', symbols, ...(range ? { range } : {}) } };
-        return { ok: true, intent: { kind: 'compare', symbols, ...(range ? { range } : {}) } };
+        const hl = highlight.ok ? highlight.highlight : undefined;
+        if (symbols.length === 1) return { ok: true, intent: { kind: 'chart', symbols, ...(range ? { range } : {}), ...(hl ?? {}) } };
+        return { ok: true, intent: { kind: 'compare', symbols, ...(range ? { range } : {}), ...(hl ?? {}) } };
     }
 
     if (raw.kind === 'highlight') {
@@ -603,10 +701,15 @@ export function validatePresentIntent(
     if (raw.kind === 'chart') {
         // "chart" of a macro series is what a quote shows here — coerce
         // instead of 422ing a correct symbol pick ("Show US GDP chart").
-        return item.group === 'market'
-            ? { ok: true, intent: { kind: 'chart', symbols, ...(range ? { range } : {}) } }
-            : { ok: true, intent: { kind: 'quote', symbols } };
+        // A date band is a chart annotation; it cannot ride along on a quote.
+        if (item.group !== 'market') {
+            if (highlight.ok && highlight.highlight) return { ok: false };
+            return { ok: true, intent: { kind: 'quote', symbols } };
+        }
+        const hl = highlight.ok ? highlight.highlight : undefined;
+        return { ok: true, intent: { kind: 'chart', symbols, ...(range ? { range } : {}), ...(hl ?? {}) } };
     }
+    if (highlight.ok && highlight.highlight) return { ok: false };
     return raw.kind === 'quote' ? { ok: true, intent: { kind: 'quote', symbols } } : { ok: false };
 }
 
@@ -626,6 +729,9 @@ export function buildPresentCommand(intent: PresentIntent, id: string, issuedAt:
         ...(intent.kind === 'range' ? { range: intent.range } : {}),
         ...(intent.kind === 'explain' ? { term: intent.term } : {}),
         ...((intent.kind === 'chart' || intent.kind === 'compare') && intent.range ? { range: intent.range } : {}),
+        ...((intent.kind === 'chart' || intent.kind === 'compare') && intent.highlightFrom && intent.highlightTo
+            ? { highlightFrom: intent.highlightFrom, highlightTo: intent.highlightTo }
+            : {}),
         issuedAt,
     };
 }
@@ -649,7 +755,8 @@ export function buildParsePrompt(text: string, catalog: CatalogItem[], lang: 'en
             `Language hint: ${lang}. User text can be zh-TW, Cantonese colloquial, or English.`,
             'Catalog lines are SYMBOL\tname\tnameEn\tgroup\taliases. Aliases are alternative spoken names for MATCHING ONLY — output must always use the exact SYMBOL.',
             catalogLines,
-            'Kinds: chart = show one market chart; compare = chart one market symbol against 1-4 market symbols; quote = show one market or macro quote; view = switch projector view; clear = return to slides and close overlays; page = turn one slide forward/back relative to current; goto = jump to a slide page; jargon = turn jargon spotlight on/off; cycle = turn auto-cycle on/off; range = switch market-data time range; explain = show a jargon explanation card for one financial term; highlight = visually emphasize one market card on the index dashboard.',
+            'Kinds: chart = show one market chart; compare = chart one market symbol against 1-4 market symbols; quote = show one market or macro quote; view = switch projector view; clear = return to slides and close overlays; page = turn one slide forward/back relative to current; goto = jump to a slide page; jargon = turn jargon spotlight on/off; cycle = turn auto-cycle on/off; range = switch market-data time range; explain = show a jargon explanation card for one financial term; highlight = visually emphasize one market card on the index dashboard (NOT a date band on a chart).',
+            'compare and chart may include range (1W,1M,3M,6M,YTD,1Y,5Y). Optional highlightFrom and highlightTo are inclusive YYYY-MM-DD dates with highlightFrom <= highlightTo, and only on chart or compare. Do not emit kind "overlay".',
             'View names: slide, index, heatmap. index = dashboard overview.',
             'direction is "next" or "prev" for page. page is an integer 1-999 or "first"/"last" for goto. on is boolean. dwellSec must be one of 15,30,45,60,120. range must be one of 1W,1M,3M,6M,YTD,1Y,5Y. term is the term to explain, 1-80 chars; highlight takes exactly 1 market symbol.',
             'symbols MUST be [] for page/goto/jargon/cycle/range/view/clear/explain. chart/quote need exactly 1 catalog symbol and highlight exactly 1 market symbol — never emit an empty symbols array for them. view REQUIRES the view field. range may accompany chart/compare ONLY, never quote. Asking how a catalog item is doing = chart (market) or quote (macro), NOT explain. Only emit the fields documented per kind; extra fields are ignored. If toggle polarity is unclear, respond {"kind":"none"}.',
@@ -663,6 +770,41 @@ export function buildParsePrompt(text: string, catalog: CatalogItem[], lang: 'en
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
     return Object.keys(value).every(key => keys.includes(key));
+}
+
+function highlightKeysOk(command: Record<string, unknown>): boolean {
+    const hasFrom = 'highlightFrom' in command;
+    const hasTo = 'highlightTo' in command;
+    if (!hasFrom && !hasTo) return true;
+    if (!hasFrom || !hasTo) return false;
+    return isHighlightDay(command.highlightFrom)
+        && isHighlightDay(command.highlightTo)
+        && command.highlightFrom <= command.highlightTo;
+}
+
+/** Symbols + period + optional date band, without a free-text parse. */
+export function buildStructuredCompareCommand(
+    symbols: unknown,
+    range: unknown,
+    highlight: { highlightFrom: string; highlightTo: string } | undefined,
+    id: string,
+    issuedAt: number,
+): PresentCommand | null {
+    if (!Array.isArray(symbols) || symbols.length < 2 || symbols.length > MAX_COMPARE_SYMBOLS) return null;
+    if (!symbols.every(symbol => typeof symbol === 'string' && STRUCTURED_SYMBOL.test(symbol))) return null;
+    const deduped = dedupeSymbols(symbols);
+    if (deduped.length < 2) return null;
+    const canonicalRange = normalizeRange(range);
+    if (range !== undefined && !canonicalRange) return null;
+    const window = readHighlightWindow(highlight?.highlightFrom, highlight?.highlightTo);
+    if (!window.ok) return null;
+    if (highlight && !window.highlight) return null;
+    return buildPresentCommand({
+        kind: 'compare',
+        symbols: deduped,
+        ...(canonicalRange ? { range: canonicalRange } : {}),
+        ...(window.highlight ?? {}),
+    }, id, issuedAt);
 }
 
 function symbolsAreExecutable(symbols: unknown): symbols is string[] {
@@ -736,20 +878,23 @@ export function isExecutablePresentCommand(value: unknown): value is PresentComm
             && command.symbols[0].length <= 32;
     }
 
-    if (command.kind === 'chart') {
-        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'range', 'issuedAt'])
-            && command.symbols.length === 1
-            && (command.range === undefined || isPresentRange(command.range));
+    if (command.kind === 'chart' || command.kind === 'compare') {
+        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'range', 'highlightFrom', 'highlightTo', 'issuedAt'])
+            && (command.kind === 'chart'
+                ? command.symbols.length === 1
+                : command.symbols.length >= 2 && command.symbols.length <= MAX_COMPARE_SYMBOLS)
+            && (command.range === undefined || isPresentRange(command.range))
+            && highlightKeysOk(command);
     }
 
-    if (command.kind === 'compare') {
-        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'range', 'issuedAt'])
-            && command.symbols.length >= 2
-            && command.symbols.length <= MAX_COMPARE_SYMBOLS
-            && (command.range === undefined || isPresentRange(command.range));
-    }
+    if ('range' in command || 'highlightFrom' in command || 'highlightTo' in command) return false;
 
-    if ('range' in command) return false;
+    if (command.kind === 'overlay') {
+        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'overlay', 'issuedAt'])
+            && command.symbols.length === 0
+            && isPresentOverlayPayload(command.overlay);
+    }
+    if ('overlay' in command) return false;
 
     if (!hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'issuedAt'])) return false;
     if (command.kind === 'clear') return command.symbols.length === 0;
