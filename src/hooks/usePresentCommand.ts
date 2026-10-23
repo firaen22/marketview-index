@@ -8,6 +8,12 @@ const POLL_MS = 2500;
 // perceived lag. Drop to 1s for a minute after each hit, then revert. Failure
 // backoff still wins while errors continue — a faster retry on a dead socket
 // just piles on.
+// 2026-10-23 dry-run (marketindex.pmd-hk.com, Asia/Hong_Kong, after PR #83):
+// POST 160–368ms, GET poll ~260–360ms, ack until lid matches command.id
+// 2.1–3.6s. lid is sent on the poll AFTER the one that runs the command, so
+// the ack is this idle wait plus FAST_POLL_MS. Leave 2500: RATE_LIMIT_MAX
+// 90/min assumes ~24 projector polls/min on a shared office NAT. README
+// "Presenter remote" records the samples.
 export const FAST_POLL_MS = 1000;
 export const ACTIVE_WINDOW_MS = 60_000;
 // fetch() has no default timeout: a stalled socket (flaky venue wifi) never
