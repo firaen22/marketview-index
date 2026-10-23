@@ -210,7 +210,7 @@ describe('market-data sweep 20 hardening', () => {
         expect(hsi).toMatchObject({ symbol: '^HSI', price: 321, stale: true });
         expect(hsi.estimated).toBeUndefined();
         expect(state.redis.set).toHaveBeenCalledWith(
-            expect.stringContaining('global_market_cache_yfinance_v1_YTD'),
+            expect.stringContaining('global_market_cache_yfinance_v2_YTD'),
             expect.stringContaining('"stale":true'),
             { ex: 3600 },
         );

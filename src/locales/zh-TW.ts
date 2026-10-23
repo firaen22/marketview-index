@@ -63,6 +63,7 @@ export default {
     indexNames: {
         "S&P 500": "標普 500 指數",
         "Nasdaq Composite": "納斯達克綜合指數",
+        "Invesco QQQ": "納指100 ETF",
         "Dow Jones": "道瓊工業指數",
         "VIX": "恐慌指數 VIX",
         "US Dollar Index": "美元指數",
@@ -150,6 +151,7 @@ export default {
         pdfRetry: "重試",
         pdfPageError: "PDF 頁面載入失敗",
         pdfRenderError: "PDF 頁面渲染失敗",
+        overlayLabel: "圖表疊加",
     },
     glossary: {
         title: "關鍵詞速查",

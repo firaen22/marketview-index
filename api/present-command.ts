@@ -16,13 +16,18 @@ import {
 import {
     buildParsePrompt,
     buildPresentCommand,
+    buildStructuredCompareCommand,
+    containsPeeledHighlightWindow,
     type CatalogItem,
     isExecutablePresentCommand,
     PAGE_COMMAND_FRESH_MS,
     parseCommandDeterministic,
+    PRESENT_RANGES,
     type PresentCommand,
+    readHighlightWindow,
     validatePresentIntent,
 } from '../lib/presentCommand.js';
+import { isOverlayCaption, isOverlayImageSrc } from '../lib/presentOverlay.js';
 
 const COMMAND_KEY = 'present:cmd:v1';
 // Page turns are RELATIVE commands: unlike chart/view/clear (absolute, safe to
@@ -124,8 +129,24 @@ function canonicalCatalog(catalog: CatalogItem[]): CatalogItem[] {
     }));
 }
 
-async function storeCommand(command: PresentCommand) {
-    await redis!.set(COMMAND_KEY, JSON.stringify(command), { ex: COMMAND_TTL_SECONDS });
+export const COMMAND_STORE_IF_FRESH = `
+local existing = redis.call('GET', KEYS[1])
+if existing then
+  local parsed = cjson.decode(existing)
+  if parsed.issuedAt and tonumber(parsed.issuedAt) > tonumber(ARGV[2]) then
+    return 0
+  end
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+return 1`;
+
+async function storeCommandIfFresh(command: PresentCommand, receivedAt: number): Promise<boolean> {
+    const result = await redis!.eval(
+        COMMAND_STORE_IF_FRESH,
+        [COMMAND_KEY],
+        [JSON.stringify(command), String(receivedAt), String(COMMAND_TTL_SECONDS)],
+    );
+    return Number(result) === 1;
 }
 
 async function enqueuePageCommand(command: PresentCommand) {
@@ -369,8 +390,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
         if (parsed.body.action === 'clear') {
-            const command = buildPresentCommand({ kind: 'clear', symbols: [] }, crypto.randomUUID(), Date.now());
-            await storeCommand(command);
+            const receivedAt = Date.now();
+            const command = buildPresentCommand({ kind: 'clear', symbols: [] }, crypto.randomUUID(), receivedAt);
+            if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
             return json(res, 200, { success: true, command });
         }
 
@@ -471,6 +493,74 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return json(res, 200, { success: true, assist });
         }
 
+        if (parsed.body.action === 'compare' || parsed.body.action === 'overlay') {
+            const receivedAt = Date.now();
+            let command: PresentCommand | null = null;
+            if (parsed.body.action === 'overlay') {
+                if (parsed.body.clear === true) {
+                    command = {
+                        v: 1,
+                        id: crypto.randomUUID(),
+                        kind: 'overlay',
+                        symbols: [],
+                        overlay: { type: 'clear' },
+                        issuedAt: Date.now(),
+                    };
+                } else {
+                    if (!isOverlayImageSrc(parsed.body.src)) return json(res, 400, { error: 'invalid_overlay' });
+                    let caption: string | undefined;
+                    if (parsed.body.caption !== undefined && parsed.body.caption !== '') {
+                        if (!isOverlayCaption(parsed.body.caption)) return json(res, 400, { error: 'invalid_overlay' });
+                        caption = parsed.body.caption;
+                    }
+                    command = {
+                        v: 1,
+                        id: crypto.randomUUID(),
+                        kind: 'overlay',
+                        symbols: [],
+                        overlay: { type: 'image', src: parsed.body.src, ...(caption ? { caption } : {}) },
+                        issuedAt: Date.now(),
+                    };
+                }
+            } else {
+                const highlight = readHighlightWindow(parsed.body.highlightFrom, parsed.body.highlightTo);
+                if (!highlight.ok) return json(res, 400, { error: 'invalid_highlight' });
+                if (parsed.body.range !== undefined) {
+                    const upper = typeof parsed.body.range === 'string' ? parsed.body.range.toUpperCase() : '';
+                    if (!(PRESENT_RANGES as readonly string[]).includes(upper)) {
+                        return json(res, 400, { error: 'invalid_range' });
+                    }
+                }
+                if (parsed.body.catalog !== undefined) {
+                    if (!validCatalog(parsed.body.catalog)) return json(res, 400, { error: 'invalid_catalog' });
+                    const validation = validatePresentIntent({
+                        kind: 'compare',
+                        symbols: parsed.body.symbols,
+                        ...(parsed.body.range !== undefined ? { range: parsed.body.range } : {}),
+                        ...(highlight.highlight ?? {}),
+                    }, canonicalCatalog(parsed.body.catalog));
+                    if (!validation.ok || (validation.intent.kind !== 'compare' && validation.intent.kind !== 'chart')) {
+                        return json(res, 422, { error: 'invalid_symbols' });
+                    }
+                    command = buildPresentCommand(validation.intent, crypto.randomUUID(), Date.now());
+                } else {
+                    command = buildStructuredCompareCommand(
+                        parsed.body.symbols,
+                        parsed.body.range,
+                        highlight.highlight,
+                        crypto.randomUUID(),
+                        Date.now(),
+                    );
+                    if (!command) return json(res, 400, { error: 'invalid_symbols' });
+                }
+            }
+            if (!command || !isExecutablePresentCommand(command)) {
+                return json(res, 400, { error: parsed.body.action === 'overlay' ? 'invalid_overlay' : 'invalid_symbols' });
+            }
+            if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
+            return json(res, 200, { success: true, command });
+        }
+
         if (parsed.body.action !== 'send') {
             return json(res, 400, { error: 'Unknown action' });
         }
@@ -511,6 +601,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!validation.ok) {
             return json(res, 422, { error: 'cannot_parse' });
         }
+        if (containsPeeledHighlightWindow(text)
+            && (validation.intent.kind !== 'chart'
+                && validation.intent.kind !== 'compare'
+                || !validation.intent.highlightFrom
+                || !validation.intent.highlightTo)) {
+            return json(res, 422, { error: 'cannot_parse' });
+        }
 
         // A parsed "next page"/"上一頁" is a RELATIVE command like the page
         // buttons: it goes to the page queue (each turn must be delivered),
@@ -526,12 +623,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // AFTER this one (send → NIM takes seconds → presenter hits clear →
         // the old send lands last and resurrects stale intent). issuedAt is
         // server-stamped, so anything stored after this request arrived wins.
-        const existing = await readCommand();
-        if (existing && existing.issuedAt > receivedAt) {
-            return json(res, 409, { error: 'superseded' });
-        }
         const command = buildPresentCommand(validation.intent, crypto.randomUUID(), Date.now());
-        await storeCommand(command);
+        if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
         return json(res, 200, { success: true, command });
     } catch (error) {
         console.error('Present command write error:', error);

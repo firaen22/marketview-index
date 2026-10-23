@@ -8,6 +8,7 @@ const redisState = vi.hoisted(() => ({
         incr: vi.fn(),
         ttl: vi.fn(),
         expire: vi.fn(),
+        eval: vi.fn(),
         rpush: vi.fn(),
         lrange: vi.fn(),
         lrem: vi.fn(),
@@ -101,7 +102,7 @@ function projectorGet(query: any) {
 }
 
 function lastStoredCommand() {
-    return JSON.parse(redisState.current.set.mock.calls.at(-1)[1]);
+    return JSON.parse(redisState.current.eval.mock.calls.at(-1)[2][0]);
 }
 
 describe('present-command API handler', () => {
@@ -119,6 +120,7 @@ describe('present-command API handler', () => {
             lrange: vi.fn().mockResolvedValue([]),
             lrem: vi.fn().mockResolvedValue(1),
             ltrim: vi.fn().mockResolvedValue('OK'),
+            eval: vi.fn().mockResolvedValue(1),
         };
         nimState.callNim.mockReset();
         nimState.callNimHedged.mockReset();
@@ -278,7 +280,11 @@ describe('present-command API handler', () => {
         });
         expect(typeof res.body.command.id).toBe('string');
         expect(res.body.command.id.length).toBeGreaterThan(0);
-        expect(redisState.current.set).toHaveBeenCalledWith('present:cmd:v1', JSON.stringify(res.body.command), { ex: 120 });
+        expect(redisState.current.eval).toHaveBeenCalledWith(
+            expect.stringContaining("cjson.decode"),
+            ['present:cmd:v1'],
+            [JSON.stringify(res.body.command), '5000', '120'],
+        );
 
         res = await call(authPost({ action: 'clear' }));
 
@@ -311,7 +317,11 @@ describe('present-command API handler', () => {
                 ...expected,
                 issuedAt: 5000,
             });
-            expect(redisState.current.set).toHaveBeenCalledWith('present:cmd:v1', JSON.stringify(res.body.command), { ex: 120 });
+            expect(redisState.current.eval).toHaveBeenCalledWith(
+                expect.stringContaining("cjson.decode"),
+                ['present:cmd:v1'],
+                [JSON.stringify(res.body.command), '5000', '120'],
+            );
         }
     });
 
@@ -464,6 +474,7 @@ describe('present-command API handler', () => {
             symbols: [],
             issuedAt: 9000,
         }) : null);
+        redisState.current.eval.mockResolvedValue(0);
 
         const res = await call(authPost({ action: 'send', text: 'show hsi', lang: 'en', catalog }));
 
@@ -507,6 +518,25 @@ describe('present-command API handler', () => {
         res = await call(authPost({ action: 'send', text: 'mystery', lang: 'en', catalog }));
         expect(res.statusCode).toBe(200);
         expect(res.body.command.kind).toBe('quote');
+    });
+
+    it('does not store a macro quote when a peeled highlight would be lost', async () => {
+        const macroCatalog = [{ symbol: 'CPIYOY', name: 'CPI', nameEn: 'CPI', group: 'macro' }];
+        nimState.callNim.mockResolvedValueOnce(JSON.stringify({ kind: 'quote', symbols: ['CPIYOY'] }));
+
+        let res = await call(authPost({
+            action: 'send',
+            text: 'CPI highlight 2026-01-01 2026-02-01',
+            lang: 'en',
+            catalog: macroCatalog,
+        }));
+        expect(res.statusCode).toBe(422);
+        expect(res.body).toEqual({ error: 'cannot_parse' });
+        expect(redisState.current.eval).not.toHaveBeenCalled();
+
+        res = await call(authPost({ action: 'send', text: 'CPI', lang: 'en', catalog: macroCatalog }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({ kind: 'quote', symbols: ['CPIYOY'] });
     });
 
     it('canonicalizes NIM compare dedupe, compare truncation, and macro quote', async () => {
@@ -716,5 +746,84 @@ describe('present-command API handler', () => {
 
         expect(deckA).toMatch(/^present:assist:v1:img:[a-f0-9]{64}$/);
         expect(deckA).not.toBe(deckB);
+    });
+
+    it('stores a structured compare with YTD and a May–August highlight', async () => {
+        const res = await call(authPost({
+            action: 'compare',
+            symbols: ['0P00000EBQ', '^IXIC'],
+            range: 'ytd',
+            highlightFrom: '2026-05-01',
+            highlightTo: '2026-08-31',
+        }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({
+            kind: 'compare',
+            symbols: ['0P00000EBQ', '^IXIC'],
+            range: 'YTD',
+            highlightFrom: '2026-05-01',
+            highlightTo: '2026-08-31',
+        });
+        expect(redisState.current.eval).toHaveBeenCalledWith(
+            expect.stringContaining("cjson.decode"),
+            ['present:cmd:v1'],
+            [expect.any(String), '5000', '120'],
+        );
+    });
+
+    it('rejects a compare whose symbols are not in the supplied catalog', async () => {
+        const res = await call(authPost({
+            action: 'compare',
+            symbols: ['QQ', '^IXIC'],
+            range: 'YTD',
+            catalog,
+        }));
+        expect(res.statusCode).toBe(422);
+        expect(res.body).toEqual({ error: 'invalid_symbols' });
+    });
+
+    it('rejects a reversed highlight and a bad range', async () => {
+        let res = await call(authPost({
+            action: 'compare',
+            symbols: ['^HSI', '^IXIC'],
+            highlightFrom: '2026-08-31',
+            highlightTo: '2026-05-01',
+        }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_highlight' });
+
+        res = await call(authPost({
+            action: 'compare',
+            symbols: ['^HSI', '^IXIC'],
+            range: '1D',
+        }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_range' });
+    });
+
+    it('stores an image overlay and a clear that does not use slide mode', async () => {
+        let res = await call(authPost({
+            action: 'overlay',
+            src: 'https://cdn.example/chart.png',
+            caption: 'QQQ vs HSI',
+        }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({
+            kind: 'overlay',
+            symbols: [],
+            overlay: { type: 'image', src: 'https://cdn.example/chart.png', caption: 'QQQ vs HSI' },
+        });
+
+        res = await call(authPost({ action: 'overlay', clear: true }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command.overlay).toEqual({ type: 'clear' });
+        expect(res.body.command.kind).toBe('overlay');
+
+        res = await call(authPost({ action: 'overlay', src: 'javascript:alert(1)' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_overlay' });
+
+        res = await call(makeReq({ method: 'POST', body: { action: 'overlay', src: 'https://cdn.example/a.png' } }));
+        expect(res.statusCode).toBe(401);
     });
 });

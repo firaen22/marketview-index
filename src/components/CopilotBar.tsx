@@ -46,7 +46,11 @@ function commandMessage(command: PresentCommand, catalog: CatalogItem[]): string
     if (command.kind === 'highlight') return `Highlight: ${displayForSymbol(command.symbols[0], catalog)}`;
     const names = command.symbols.map(symbol => displayForSymbol(symbol, catalog));
     const rangeSuffix = command.range ? ` · ${command.range}` : '';
-    if (command.kind === 'compare') return `Compare: ${names.join(' vs ')}${rangeSuffix}`;
+    if (command.kind === 'compare') {
+        const band = command.highlightFrom && command.highlightTo ? ` · ${command.highlightFrom}–${command.highlightTo}` : '';
+        return `Compare: ${names.join(' vs ')}${rangeSuffix}${band}`;
+    }
+    if (command.kind === 'overlay') return command.overlay?.type === 'clear' ? 'Overlay: clear' : 'Overlay';
     if (command.kind === 'quote') return `Quote: ${names[0] ?? command.symbols[0]}`;
     return `Chart: ${names[0] ?? command.symbols[0]}${rangeSuffix}`;
 }

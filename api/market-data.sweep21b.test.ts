@@ -149,7 +149,7 @@ describe('sweep 21 round 2 — never remember a hole, never carry a crashy row',
             expect(res.body.data.find((i: any) => i.symbol === '^HSI')).toBeUndefined();
             expect(res.body.data.length).toBe(fullCount - 1);
             expect(state.redis.set).not.toHaveBeenCalledWith(
-                expect.stringContaining('global_market_cache_yfinance_v1'),
+                expect.stringContaining('global_market_cache_yfinance_v2'),
                 expect.anything(),
                 expect.objectContaining({ ex: 3600 }),
             );

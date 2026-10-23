@@ -63,6 +63,7 @@ export default {
     indexNames: {
         "S&P 500": "S&P 500",
         "Nasdaq Composite": "Nasdaq",
+        "Invesco QQQ": "QQQ",
         "Dow Jones": "Dow Jones",
         "VIX": "VIX",
         "US Dollar Index": "Dollar Index",
@@ -150,6 +151,7 @@ export default {
         pdfRetry: "Retry",
         pdfPageError: "Failed to load PDF page",
         pdfRenderError: "Failed to render PDF page",
+        overlayLabel: "Chart overlay",
     },
     glossary: {
         title: "Session Glossary",

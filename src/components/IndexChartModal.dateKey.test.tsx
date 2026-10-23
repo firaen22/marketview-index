@@ -3,7 +3,7 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IndexChartModal, chartDateKey } from './IndexChartModal';
+import { IndexChartModal, chartDateKey, resolveHighlightBand } from './IndexChartModal';
 import type { IndexData } from '../types';
 
 vi.mock('recharts', () => ({
@@ -18,6 +18,10 @@ vi.mock('recharts', () => ({
     XAxis: ({ tickFormatter }: { tickFormatter?: (v: string) => string }) =>
         <div data-testid="xtick">{tickFormatter?.('2026-13-40')}</div>,
     YAxis: () => null,
+    ReferenceArea: ({ x1, x2 }: { x1?: string; x2?: string }) =>
+        <div data-testid="highlight-band" data-x1={x1} data-x2={x2} />,
+    ReferenceLine: ({ x }: { x?: string }) =>
+        <div data-testid="highlight-line" data-x={x} />,
 }));
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -182,5 +186,75 @@ describe('IndexChartModal compare rows share a date key across sources', () => {
 
         expect(r.map((x: { date: string }) => x.date)).toEqual(['2026-08-23', '2026-08-30']);
         expect(r[1]).toMatchObject({ '^GSPC': 1, '^HSI': 1, '0P00000EBQ': 5 });
+    });
+
+    it('shades May–August 2026 on the plotted days and leaves the period chips in place', () => {
+        const history = [
+            { date: '2026-04-15T13:30:00.000Z', value: 100 },
+            { date: '2026-05-15T13:30:00.000Z', value: 110 },
+            { date: '2026-08-20T13:30:00.000Z', value: 120 },
+            { date: '2026-10-01T13:30:00.000Z', value: 130 },
+        ];
+        const fund = index('0P00000EBQ', 'Fund', history);
+        const nasdaq = index('^IXIC', 'US', history.map(point => ({ ...point, value: point.value / 10 })));
+        rows({
+            item: fund,
+            allData: [fund, nasdaq],
+            pageRange: 'YTD',
+            initialCompareSymbols: ['^IXIC'],
+            highlightFrom: '2026-05-01',
+            highlightTo: '2026-08-31',
+        });
+        const band = container.querySelector('[data-testid="highlight-band"]');
+        expect(band?.getAttribute('data-x1')).toBe('2026-05-15');
+        expect(band?.getAttribute('data-x2')).toBe('2026-08-20');
+        expect(container.textContent).toContain('Highlight: 2026-05-01 – 2026-08-31');
+        expect(container.textContent).toContain('YTD');
+        expect(container.querySelector('[data-testid="highlight-band"]')).not.toBeNull();
+        expect(container.querySelector('[data-testid="highlight-line"]')).toBeNull();
+    });
+
+    it('draws a single plotted day as a reference line', () => {
+        const onlyDay = index('^GSPC', 'US', [{ date: '2026-05-15T13:30:00.000Z', value: 100 }]);
+        rows({
+            item: onlyDay,
+            allData: [onlyDay],
+            pageRange: 'YTD',
+            highlightFrom: '2026-05-15',
+            highlightTo: '2026-05-15',
+        });
+        expect(container.querySelector('[data-testid="highlight-line"]')?.getAttribute('data-x')).toBe('2026-05-15');
+        expect(container.querySelector('[data-testid="highlight-band"]')).toBeNull();
+    });
+});
+
+describe('resolveHighlightBand', () => {
+    const days = ['2026-04-15', '2026-05-15', '2026-08-20', '2026-10-01'];
+
+    it('snaps an inclusive window onto plotted days', () => {
+        expect(resolveHighlightBand(days, '2026-05-01', '2026-08-31', 'YTD')).toEqual({
+            x1: '2026-05-15',
+            x2: '2026-08-20',
+        });
+    });
+
+    it('returns null when the period does not overlap, or the window is not a real range', () => {
+        expect(resolveHighlightBand(days, '2026-11-01', '2026-11-30', '1M')).toBeNull();
+        expect(resolveHighlightBand(days, '2026-08-31', '2026-05-01', 'YTD')).toBeNull();
+        expect(resolveHighlightBand(days, '2026-02-31', '2026-08-31', 'YTD')).toBeNull();
+        expect(resolveHighlightBand(days, undefined, undefined, 'YTD')).toBeNull();
+        expect(resolveHighlightBand([], '2026-05-01', '2026-08-31', 'YTD')).toBeNull();
+    });
+
+    it('includes a 5Y week when any day of that week sits in the window', () => {
+        // 2026-04-26 is the Sunday of the week that contains May 1.
+        // 2026-08-30 is the Sunday of the week that contains August 31.
+        // 2026-04-19 ends on April 25, before May 1.
+        expect(resolveHighlightBand(
+            ['2026-04-19', '2026-04-26', '2026-08-30', '2026-09-06'],
+            '2026-05-01',
+            '2026-08-31',
+            '5Y',
+        )).toEqual({ x1: '2026-04-26', x2: '2026-08-30' });
     });
 });
