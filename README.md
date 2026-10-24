@@ -141,6 +141,16 @@ Same session, these checks passed: QQQ is in market-data; H01 and QQ aliases res
 
 `GET` or `POST /api/present-slide` returns `{ "success": true, "slide": { "mode", "content", "updatedAt" } }` — the slide is nested under `slide`. PDF object keys must be passed through exactly as issued (`/api/pdf-proxy?key=` plus the literal key). Underscores in that key are part of the string; rewriting or “normalizing” it fails the allowlist.
 
+**Viewport (observed 2026-10-24).** Live unauthenticated `GET`s on `https://marketindex.pmd-hk.com`, checked against the poll code. The browser viewport is not on the present API. This note records the gap. It does not add the fields.
+
+- Scaling stays in the browser. `/present` and `/` mount `useViewportScale` (`PresentationPage`, `Dashboard`). `src/index.css` then sets `font-size: clamp(16px, calc(100vmin / 67.5), 32px)` on `html.mv-viewport-scale`. `100vmin` is the shorter side of the layout viewport, the same box as `window.innerWidth` and `window.innerHeight`. `GlossarySessionPanel` reads those two `window` fields for the QR. `screen.width` and `screen.height` are not read. None of this is sent.
+- The projector poll (`presentCommandPollUrl` in `src/hooks/usePresentCommand.ts`) sets `st`, `mode`, `page`, `v`, optional `lid`, and `ack`. `ProjectorState` is `mode`, `page`, `v`, `at`, and optional `lid`. The authenticated `st=1` report writes that object. It does not include a width or a height.
+- A plain `GET /api/present-command` returned `success`, `command`, `serverTime`, `pageCommands`, and `projector: { mode, page, v, at }` (optional `lid`; this sample had none). No `innerWidth`, `innerHeight`, viewport, or screen fields.
+- `GET /api/present-slide` returned `success` and `slide: { mode, content, updatedAt }`.
+- No other `api/present-*.ts` route returns a resolution. `/present-control` reads projector state (`usePresentAssist` → `fetchProjectorState`) and does not report its own viewport. It does not mount `useViewportScale`.
+
+**Ask.** On the poll cadence, have `/present` and ideally `/present-control` POST `window.innerWidth` and `window.innerHeight`, and ideally `screen.width` and `screen.height`, to the present API. Persist them with projector state (or an adjacent key) and include them on the unauthenticated `GET /api/present-command` `projector` object, so a remote reader can see the browser viewport. Keep that POST behind `x-api-key`, the same header as today’s present writes. Do not put the key in the repo. Those two pages are different boxes: if both report, keep the numbers distinct so a control-page poll does not replace the projector viewport. Stay inside the 90/min NAT budget in the speed note: use the existing cadence, not a tighter loop.
+
 ## Repo layout
 
 ```
