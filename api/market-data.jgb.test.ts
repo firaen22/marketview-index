@@ -28,6 +28,14 @@ describe('parseJgbDate', () => {
             expect(parseJgbDate(raw)).toBeNull();
         }
     });
+
+    it('rejects a day the month does not have instead of rolling it over', () => {
+        // Date.UTC(2026, 1, 31) is 2026-03-03 — a silently shifted yield point.
+        for (const raw of ['R8.2.29', 'R8.2.31', 'R8.4.31', 'H1.11.31']) {
+            expect(parseJgbDate(raw)).toBeNull();
+        }
+        expect(parseJgbDate('R6.2.29')?.toISOString()).toBe('2024-02-29T00:00:00.000Z');
+    });
 });
 
 describe('parseJgbCsv', () => {
