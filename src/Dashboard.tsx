@@ -290,9 +290,12 @@ export default function Dashboard() {
                     <p className="text-sm">{t.loading}</p>
                   </div>
                 ) : marketData.length > 0 ? (
+                  <div className={(isPresentationMode || isEmbed) ? '@container min-w-0' : undefined}>
                   <div className={cn(
                     "grid gap-4 transition-all duration-500",
-                    (isPresentationMode || isEmbed) ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 md:grid-cols-2"
+                    (isPresentationMode || isEmbed)
+                      ? "grid-cols-1 @min-[480px]:grid-cols-2 @min-[720px]:grid-cols-3 @min-[960px]:grid-cols-4"
+                      : "grid-cols-1 md:grid-cols-2"
                   )}>
                     {filteredIndices.map((index) => (
                       <MarketStatCard
@@ -309,6 +312,7 @@ export default function Dashboard() {
                         highlighted={isEmbed && index.symbol === highlightSymbol}
                       />
                     ))}
+                  </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-64 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">

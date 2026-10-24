@@ -25,6 +25,7 @@ describe('presentCommandApi additions', () => {
         await expect(fetchProjectorState()).resolves.toEqual({
             serverTime: 10_000,
             projector: { mode: 'pdf', page: 2, v: 0, at: 9000, lid: 'cmd-1' },
+            control: null,
         });
         expect(globalThis.fetch).toHaveBeenCalledWith('/api/present-command', { signal: undefined });
     });
@@ -35,7 +36,20 @@ describe('presentCommandApi additions', () => {
             projector: { mode: 'evil', page: 2, v: 0, at: 9000 },
         }));
 
-        await expect(fetchProjectorState()).resolves.toEqual({ serverTime: 10_000, projector: null });
+        await expect(fetchProjectorState()).resolves.toEqual({ serverTime: 10_000, projector: null, control: null });
+    });
+
+    it('fetchProjectorState keeps core projector state when display is malformed', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({
+            serverTime: 10_000,
+            projector: { mode: 'index', page: 1, v: 0, at: 9000, display: { schema: 1, iw: 0, ih: 720, dpr: 1 } },
+        }));
+
+        await expect(fetchProjectorState()).resolves.toEqual({
+            serverTime: 10_000,
+            projector: { mode: 'index', page: 1, v: 0, at: 9000 },
+            control: null,
+        });
     });
 
     it('sendPresentPageCommand posts the direction and returns the validated command', async () => {

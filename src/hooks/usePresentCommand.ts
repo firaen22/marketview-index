@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { PresentCommand } from '../../lib/presentCommand';
 import { isExecutablePresentCommand, PAGE_COMMAND_FRESH_MS, shouldExecute } from '../../lib/presentCommand';
+import { appendProjectorDisplayParams, type ProjectorDisplay } from '../../lib/presentDisplay';
 import { authHeaders } from '../presentCommandApi';
 
 const POLL_MS = 2500;
@@ -30,6 +31,7 @@ export interface ProjectorState {
     page: number;
     v: number;
     lid?: string;
+    display?: ProjectorDisplay;
 }
 
 export function presentCommandBackoffMs(failureCount: number): number {
@@ -52,6 +54,7 @@ export function presentCommandPollUrl(state: ProjectorState | null, ackIds: stri
     params.set('page', String(state.page));
     params.set('v', String(state.v));
     if (state.lid) params.set('lid', state.lid);
+    appendProjectorDisplayParams(params, state.display);
     for (const id of ackIds) params.append('ack', id);
     return `/api/present-command?${params.toString()}`;
 }

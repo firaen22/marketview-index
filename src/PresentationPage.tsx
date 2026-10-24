@@ -40,6 +40,7 @@ import { MarketStatusChip } from './components/MarketStatusChip';
 import { DataFreshness } from './components/DataFreshness';
 import { usePresentCommand } from './hooks/usePresentCommand';
 import { forwardTrackpadEvents, useTrackpadGestures } from './hooks/useTrackpadGestures';
+import { sampleProjectorDisplay } from '../lib/presentDisplay';
 import type { ProjectorState } from './hooks/usePresentCommand';
 import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentRange } from '../lib/presentCommand';
 import { buildGlossaryLookup, JARGON_GLOSSARY, lookupExplanation, normalizeTerm } from '../lib/jargonGlossary';
@@ -489,18 +490,25 @@ export default function PresentationPage() {
     const getProjectorState = useCallback((): ProjectorState | null => {
         const current = projectorReportRef.current;
         if (!current) return null;
+        const display = sampleProjectorDisplay({
+            lang,
+            indexIframe: current.mainView === 'index' ? indexIframeRef.current : null,
+        });
+        const withDisplay = (core: ProjectorState): ProjectorState => (
+            display ? { ...core, display } : core
+        );
         if (current.mainView === 'slide') {
-            return {
+            return withDisplay({
                 mode: current.slideMode,
                 page: current.slideMode === 'pdf' ? Math.max(lastPdfPageRef.current, 1) : 1,
                 v: current.updatedAt,
-            };
+            });
         }
         if (current.mainView === 'index' || current.mainView === 'heatmap') {
-            return { mode: current.mainView, page: 1, v: current.updatedAt };
+            return withDisplay({ mode: current.mainView, page: 1, v: current.updatedAt });
         }
         return null;
-    }, []);
+    }, [lang]);
     // Depend on jargon.terms only, NOT lang: on a mid-session language flip the
     // new lang commits a render before useJargon clears the old-language terms,
     // so firing on `lang` would push old-language text under the new label —
