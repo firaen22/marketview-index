@@ -54,6 +54,9 @@ describe('usePresentAssist integration', () => {
         // this file pins is the assist effect re-firing on poll identity churn.
         fetchProjectorState.mockImplementation(async () => ({
             projector: { mode: 'pdf', page: 2, v: 7, at: Date.now() },
+            projectorLast: null,
+            applied: null,
+            control: null,
             serverTime: Date.now(),
         }));
         fetchAssist.mockReset();
@@ -255,6 +258,9 @@ describe('usePresentAssist integration', () => {
         });
         fetchProjectorState.mockImplementation(async () => ({
             projector: { mode: 'pdf', page: 3, v: 7, at: Date.now() },
+            projectorLast: null,
+            applied: null,
+            control: null,
             serverTime: Date.now(),
         }));
         await act(async () => {

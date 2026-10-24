@@ -1,5 +1,5 @@
 import type { ControlSurfaceState } from '../../lib/presentDisplay';
-import type { ProjectorState } from '../presentCommandApi';
+import type { ProjectorLastState, ProjectorState } from '../presentCommandApi';
 
 const LIVE_MS = 15_000;
 
@@ -18,12 +18,16 @@ function formatControlDisplay(control: ControlSurfaceState): string {
 
 interface Props {
     projector: ProjectorState | null;
+    projectorLast?: ProjectorLastState | null;
     control: ControlSurfaceState | null;
     serverTime: number;
 }
 
-export function ProjectorTelemetryStrip({ projector, control, serverTime }: Props) {
-    if (!projector) {
+export function ProjectorTelemetryStrip({ projector, projectorLast, control, serverTime }: Props) {
+    const snapshot = projector ?? (projectorLast
+        ? { mode: projectorLast.mode, page: projectorLast.page, v: projectorLast.v, at: projectorLast.at, display: projectorLast.display, lid: projectorLast.lid }
+        : null);
+    if (!snapshot) {
         return (
             <div className="flex items-center px-2 py-1 rounded-md bg-zinc-900/80 border border-zinc-800 text-[0.625rem] font-mono text-zinc-500 max-w-[min(100%,20rem)] sm:max-w-[min(100%,28rem)] truncate shrink min-w-0" title="Projector telemetry">
                 Projector offline
@@ -31,8 +35,9 @@ export function ProjectorTelemetryStrip({ projector, control, serverTime }: Prop
         );
     }
 
-    const ageSec = Math.max(0, Math.floor((serverTime - projector.at) / 1000));
-    const live = serverTime - projector.at <= LIVE_MS;
+    const live = !!projector && serverTime - projector.at <= LIVE_MS;
+    const ageMs = Math.max(0, serverTime - snapshot.at);
+    const ageSec = Math.floor(ageMs / 1000);
     const ageLabel = live ? `${ageSec}s ago` : `stale ${ageSec}s`;
 
     return (
@@ -42,10 +47,10 @@ export function ProjectorTelemetryStrip({ projector, control, serverTime }: Prop
             }`}
             title="Live projector viewport (world-readable via GET /api/present-command)"
         >
-            <span className="text-emerald-500/90 uppercase">{projector.mode}</span>
-            <span>p{projector.page}</span>
+            <span className={`uppercase ${live ? 'text-emerald-500/90' : 'text-amber-500/90'}`}>{snapshot.mode}</span>
+            <span>p{snapshot.page}</span>
             <span className="text-zinc-500">·</span>
-            <span>{formatDisplay(projector)}</span>
+            <span>{formatDisplay(snapshot)}</span>
             <span className="text-zinc-600">· {ageLabel}</span>
             {control && (
                 <>

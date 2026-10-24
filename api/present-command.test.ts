@@ -105,23 +105,85 @@ function lastStoredCommand() {
     return JSON.parse(redisState.current.eval.mock.calls.at(-1)[2][0]);
 }
 
+function atFromJson(raw: string | null): number {
+    if (!raw) return 0;
+    try {
+        const o = JSON.parse(raw) as { at?: number };
+        return typeof o.at === 'number' ? o.at : 0;
+    } catch {
+        return 0;
+    }
+}
+
+function installRedisMemory() {
+    const mem = new Map<string, string>();
+    return {
+        get: vi.fn(async (key: string) => (mem.has(key) ? mem.get(key)! : null)),
+        set: vi.fn(async (key: string, value: string) => {
+            mem.set(key, value);
+            return 'OK';
+        }),
+        incr: vi.fn().mockResolvedValue(1),
+        ttl: vi.fn().mockResolvedValue(60),
+        expire: vi.fn().mockResolvedValue(1),
+        rpush: vi.fn().mockResolvedValue(1),
+        lrange: vi.fn().mockResolvedValue([]),
+        lrem: vi.fn().mockResolvedValue(1),
+        ltrim: vi.fn().mockResolvedValue('OK'),
+        eval: vi.fn(async (script: string, keys: string[], args: string[]) => {
+            if (script.includes('incoming_at')) {
+                let incoming: { at?: number };
+                try {
+                    incoming = JSON.parse(args[0]);
+                } catch {
+                    return 0;
+                }
+                const storedAt = Math.max(
+                    atFromJson(mem.get(keys[0]) ?? null),
+                    atFromJson(mem.get(keys[1]) ?? null),
+                );
+                if ((incoming.at ?? 0) < storedAt) return 0;
+                mem.set(keys[0], args[0]);
+                mem.set(keys[1], args[0]);
+                if (keys[2] && args[3]) {
+                    const meta = mem.get(args[3]);
+                    if (meta) {
+                        try {
+                            const appliedJson = args[4];
+                            const neu = JSON.parse(appliedJson) as { id: string; at: number };
+                            const prev = mem.get(keys[2]);
+                            if (prev) {
+                                const old = JSON.parse(prev) as { id: string; at: number };
+                                if (old.id === neu.id) return 1;
+                                if (old.at > neu.at) return 1;
+                            }
+                            mem.set(keys[2], appliedJson);
+                        } catch {
+                            // ignore corrupt applied payload
+                        }
+                    }
+                }
+                return 1;
+            }
+            const existing = mem.get(keys[0]);
+            if (existing) {
+                const parsed = JSON.parse(existing) as { issuedAt?: number };
+                if (parsed.issuedAt && parsed.issuedAt > Number(args[1])) return 0;
+            }
+            mem.set(keys[0], args[0]);
+            if (keys[1]) mem.set(keys[1], args[3]);
+            return 1;
+        }),
+        _mem: mem,
+    };
+}
+
 describe('present-command API handler', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         vi.spyOn(Date, 'now').mockReturnValue(5000);
         process.env.PRESENT_API_KEY = 'secret';
-        redisState.current = {
-            get: vi.fn(),
-            set: vi.fn().mockResolvedValue('OK'),
-            incr: vi.fn().mockResolvedValue(1),
-            ttl: vi.fn().mockResolvedValue(60),
-            expire: vi.fn().mockResolvedValue(1),
-            rpush: vi.fn().mockResolvedValue(1),
-            lrange: vi.fn().mockResolvedValue([]),
-            lrem: vi.fn().mockResolvedValue(1),
-            ltrim: vi.fn().mockResolvedValue('OK'),
-            eval: vi.fn().mockResolvedValue(1),
-        };
+        redisState.current = installRedisMemory();
         nimState.callNim.mockReset();
         nimState.callNimHedged.mockReset();
     });
@@ -159,7 +221,16 @@ describe('present-command API handler', () => {
         res = await call(makeReq({ method: 'GET' }));
 
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ success: true, command: null, serverTime: expect.any(Number), projector: null, control: null, pageCommands: [] });
+        expect(res.body).toEqual({
+            success: true,
+            command: null,
+            serverTime: expect.any(Number),
+            projector: null,
+            projectorLast: null,
+            applied: null,
+            control: null,
+            pageCommands: [],
+        });
     });
 
     it('rate-limits GET and does not add CORS headers', async () => {
@@ -173,21 +244,17 @@ describe('present-command API handler', () => {
     });
 
     it('GET stores valid projector state and includes it in the response', async () => {
-        redisState.current.get.mockResolvedValue(null);
-
         const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '2', v: '0' }));
 
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenCalledWith(
-            'present:pstate:v1',
-            JSON.stringify({ mode: 'pdf', page: 2, v: 0, at: 5000 }),
-            { ex: 15 },
-        );
+        expect(redisState.current.eval).toHaveBeenCalled();
         expect(res.body).toEqual({
             success: true,
             command: null,
             serverTime: 5000,
             projector: { mode: 'pdf', page: 2, v: 0, at: 5000 },
+            projectorLast: { mode: 'pdf', page: 2, v: 0, at: 5000, stale: false, ageMs: 0 },
+            applied: null,
             control: null,
             pageCommands: [],
         });
@@ -213,14 +280,13 @@ describe('present-command API handler', () => {
             }),
             { ex: 15 },
         );
-        expect(redisState.current.set).not.toHaveBeenCalledWith('present:pstate:v1', expect.anything(), expect.anything());
+        expect(redisState.current.eval).not.toHaveBeenCalled();
         expect(res.body.control.display.iw).toBe(390);
         expect(res.body.projector).toBeNull();
+        expect(res.body.projectorLast).toBeNull();
     });
 
     it('GET stores optional display fields on the projector report', async () => {
-        redisState.current.get.mockResolvedValue(null);
-
         const res = await call(projectorGet({
             st: '1',
             mode: 'index',
@@ -234,23 +300,11 @@ describe('present-command API handler', () => {
         }));
 
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenCalledWith(
-            'present:pstate:v1',
-            JSON.stringify({
-                mode: 'index',
-                page: 1,
-                v: 7,
-                at: 5000,
-                display: { schema: 1, iw: 1280, ih: 720, dpr: 1.25, fw: 631, fh: 400 },
-            }),
-            { ex: 15 },
-        );
         expect(res.body.projector.display).toEqual({ schema: 1, iw: 1280, ih: 720, dpr: 1.25, fw: 631, fh: 400 });
+        expect(res.body.projectorLast?.stale).toBe(false);
     });
 
     it('GET drops invalid display params but still stores core projector state', async () => {
-        redisState.current.get.mockResolvedValue(null);
-
         const res = await call(projectorGet({
             st: '1',
             mode: 'index',
@@ -262,11 +316,7 @@ describe('present-command API handler', () => {
         }));
 
         expect(res.statusCode).toBe(200);
-        expect(redisState.current.set).toHaveBeenCalledWith(
-            'present:pstate:v1',
-            JSON.stringify({ mode: 'index', page: 1, v: 7, at: 5000 }),
-            { ex: 15 },
-        );
+        expect(res.body.projector).toMatchObject({ mode: 'index', page: 1, v: 7, at: 5000 });
         expect(res.body.projector.display).toBeUndefined();
     });
 
@@ -358,11 +408,8 @@ describe('present-command API handler', () => {
         });
         expect(typeof res.body.command.id).toBe('string');
         expect(res.body.command.id.length).toBeGreaterThan(0);
-        expect(redisState.current.eval).toHaveBeenCalledWith(
-            expect.stringContaining("cjson.decode"),
-            ['present:cmd:v1'],
-            [JSON.stringify(res.body.command), '5000', '120'],
-        );
+        expect(redisState.current.eval).toHaveBeenCalled();
+        expect(lastStoredCommand()).toMatchObject({ kind: 'chart', symbols: ['^HSI'] });
 
         res = await call(authPost({ action: 'clear' }));
 
@@ -395,11 +442,8 @@ describe('present-command API handler', () => {
                 ...expected,
                 issuedAt: 5000,
             });
-            expect(redisState.current.eval).toHaveBeenCalledWith(
-                expect.stringContaining("cjson.decode"),
-                ['present:cmd:v1'],
-                [JSON.stringify(res.body.command), '5000', '120'],
-            );
+            expect(redisState.current.eval).toHaveBeenCalled();
+            expect(lastStoredCommand()).toMatchObject(expected);
         }
     });
 
@@ -518,14 +562,125 @@ describe('present-command API handler', () => {
         // Valid report shape, but no (or wrong) x-api-key: must degrade to a
         // plain read poll instead of consuming page turns / forging state.
         for (const headers of [{}, { 'x-api-key': 'wrong' }]) {
-            const res = await call(makeReq({ method: 'GET', headers, query: { st: '1', mode: 'pdf', page: '2000', v: '999' } }));
+            const res = await call(makeReq({
+                method: 'GET',
+                headers,
+                query: {
+                    st: '1',
+                    mode: 'pdf',
+                    page: '2000',
+                    v: '999',
+                    lid: '550e8400-e29b-41d4-a716-446655440099',
+                },
+            }));
             expect(res.statusCode).toBe(200);
             expect(res.body.pageCommands).toEqual([]);
             // Stored state is served, not the forged report.
             expect(res.body.projector).toMatchObject({ mode: 'slide', page: 1, v: 3 });
         }
         expect(redisState.current.lrange).not.toHaveBeenCalled();
-        expect(redisState.current.set).not.toHaveBeenCalledWith('present:pstate:v1', expect.anything(), expect.anything());
+        expect(redisState.current.eval).not.toHaveBeenCalled();
+    });
+
+    it('writes applied with projector report at even when an older applied row exists', async () => {
+        const mem = redisState.current._mem as Map<string, string>;
+        const lidA = '550e8400-e29b-41d4-a716-446655440002';
+        const lidB = '550e8400-e29b-41d4-a716-446655440003';
+        mem.set(`present:cmdmeta:v1:${lidA}`, JSON.stringify({ kind: 'view', at: 5000, view: 'index' }));
+        mem.set('present:applied:v1', JSON.stringify({ id: lidB, kind: 'layout', at: 4990 }));
+
+        const res = await call(projectorGet({ st: '1', mode: 'index', page: '1', v: '1', lid: lidA }));
+
+        expect(res.body.applied).toMatchObject({ id: lidA, kind: 'view', view: 'index', at: 5000 });
+    });
+
+    it('uses the pre-rate-limit report timestamp so a stalled poll cannot supersede a newer commit', async () => {
+        const mem = redisState.current._mem as Map<string, string>;
+        let releaseIncr: (() => void) | null = null;
+        let stallFirstIncr = true;
+        redisState.current.incr = vi.fn(async () => {
+            if (stallFirstIncr) {
+                stallFirstIncr = false;
+                await new Promise<void>(resolve => {
+                    releaseIncr = resolve;
+                });
+            }
+            return 1;
+        });
+
+        const stalled = call(projectorGet({ st: '1', mode: 'slide', page: '1', v: '1' }));
+        vi.spyOn(Date, 'now').mockReturnValue(6000);
+        const newer = await call(projectorGet({ st: '1', mode: 'index', page: '1', v: '2' }));
+        expect(newer.body.projector).toMatchObject({ mode: 'index', v: 2, at: 6000 });
+
+        releaseIncr?.();
+        const older = await stalled;
+        expect(older.body.projector).toMatchObject({ mode: 'index', v: 2, at: 6000 });
+        expect(mem.get('present:pstate:v1')).toContain('"mode":"index"');
+    }, 10_000);
+
+    it('keeps first applied at when the same lid is reported again', async () => {
+        const mem = redisState.current._mem as Map<string, string>;
+        const lid = '550e8400-e29b-41d4-a716-446655440010';
+        mem.set(`present:cmdmeta:v1:${lid}`, JSON.stringify({ kind: 'view', at: 5000, view: 'index' }));
+
+        await call(projectorGet({ st: '1', mode: 'index', page: '1', v: '1', lid }));
+        const first = JSON.parse(mem.get('present:applied:v1')!) as { at: number };
+
+        vi.spyOn(Date, 'now').mockReturnValue(8000);
+        await call(projectorGet({ st: '1', mode: 'index', page: '1', v: '2', lid }));
+        const second = JSON.parse(mem.get('present:applied:v1')!) as { at: number };
+        expect(second.at).toBe(first.at);
+    });
+
+    it('writes applied when projector reports a lid with cmdmeta', async () => {
+        const mem = redisState.current._mem as Map<string, string>;
+        const lid = '550e8400-e29b-41d4-a716-446655440000';
+        mem.set(`present:cmdmeta:v1:${lid}`, JSON.stringify({ kind: 'layout', at: 5000, density: 'compact' }));
+
+        const res = await call(projectorGet({ st: '1', mode: 'index', page: '1', v: '1', lid }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.applied).toMatchObject({ id: lid, kind: 'layout', density: 'compact' });
+        expect(mem.get('present:applied:v1')).toContain(lid);
+    });
+
+    it('still commits projector state when stored live JSON is corrupt', async () => {
+        const mem = redisState.current._mem as Map<string, string>;
+        mem.set('present:pstate:v1', '{bad');
+        mem.set('present:pstate:last:v1', '{bad');
+
+        const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '1', v: '0' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.projector).toMatchObject({ mode: 'pdf', page: 1, v: 0, at: 5000 });
+    });
+
+    it('still commits projector state when cmdmeta is corrupt', async () => {
+        const mem = redisState.current._mem as Map<string, string>;
+        const lid = '550e8400-e29b-41d4-a716-446655440001';
+        mem.set(`present:cmdmeta:v1:${lid}`, '{bad');
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        const res = await call(projectorGet({ st: '1', mode: 'slide', page: '2', v: '3', lid }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.projector).toMatchObject({ mode: 'slide', page: 2, v: 3, lid });
+        expect(res.body.applied).toBeNull();
+        expect(redisState.current.eval).toHaveBeenCalled();
+    });
+
+    it('rejects an older projector report without returning it as live projector', async () => {
+        const mem = redisState.current._mem as Map<string, string>;
+        const newer = JSON.stringify({ mode: 'index', page: 1, v: 2, at: 6000 });
+        mem.set('present:pstate:v1', newer);
+        mem.set('present:pstate:last:v1', newer);
+
+        const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '9', v: '0' }));
+
+        expect(res.statusCode).toBe(200);
+        expect(res.body.projector).toMatchObject({ mode: 'index', page: 1, v: 2, at: 6000 });
+        expect(res.body.projectorLast?.stale).toBe(false);
     });
 
     it('caps the page queue by trimming the oldest backlog', async () => {
@@ -842,11 +997,8 @@ describe('present-command API handler', () => {
             highlightFrom: '2026-05-01',
             highlightTo: '2026-08-31',
         });
-        expect(redisState.current.eval).toHaveBeenCalledWith(
-            expect.stringContaining("cjson.decode"),
-            ['present:cmd:v1'],
-            [expect.any(String), '5000', '120'],
-        );
+        expect(redisState.current.eval).toHaveBeenCalled();
+        expect(lastStoredCommand().kind).toBe('compare');
     });
 
     it('rejects a compare whose symbols are not in the supplied catalog', async () => {
@@ -903,5 +1055,36 @@ describe('present-command API handler', () => {
 
         res = await call(makeReq({ method: 'POST', body: { action: 'overlay', src: 'https://cdn.example/a.png' } }));
         expect(res.statusCode).toBe(401);
+    });
+
+    it('stores structured index control commands', async () => {
+        const mem = redisState.current._mem as Map<string, string>;
+        let res = await call(authPost({ action: 'view', view: 'index' }));
+        expect(res.statusCode).toBe(200);
+        const viewId = res.body.command.id as string;
+        expect(res.body.command).toMatchObject({ kind: 'view', view: 'index', symbols: [] });
+        expect(mem.get(`present:cmdmeta:v1:${viewId}`)).toContain('view');
+
+        res = await call(authPost({ action: 'layout', density: 'compact' }));
+        expect(res.statusCode).toBe(200);
+        const layoutId = res.body.command.id as string;
+        expect(res.body.command).toMatchObject({ kind: 'layout', density: 'compact', symbols: [] });
+        expect(mem.get(`present:cmdmeta:v1:${layoutId}`)).toContain('compact');
+
+        res = await call(authPost({ action: 'fullscreen', mode: 'enter' }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({ kind: 'fullscreen', fsMode: 'enter', symbols: [] });
+
+        res = await call(authPost({ action: 'fullscreen', mode: 'toggle' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_fullscreen' });
+
+        res = await call(authPost({ action: 'range', range: 'YTD' }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({ kind: 'range', range: 'YTD', symbols: [] });
+
+        res = await call(authPost({ action: 'highlight', symbol: '^HSI', catalog }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({ kind: 'highlight', symbols: ['^HSI'] });
     });
 });

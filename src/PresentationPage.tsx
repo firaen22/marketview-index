@@ -42,7 +42,8 @@ import { usePresentCommand } from './hooks/usePresentCommand';
 import { forwardTrackpadEvents, useTrackpadGestures } from './hooks/useTrackpadGestures';
 import { sampleProjectorDisplay } from '../lib/presentDisplay';
 import type { ProjectorState } from './hooks/usePresentCommand';
-import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentRange } from '../lib/presentCommand';
+import { CYCLE_DWELL_PRESETS, PRESENT_RANGES, type PresentCommand, type PresentFullscreenMode, type PresentRange } from '../lib/presentCommand';
+import { resolvePresentIndexDensity } from '../lib/presentIndexView';
 import { buildGlossaryLookup, JARGON_GLOSSARY, lookupExplanation, normalizeTerm } from '../lib/jargonGlossary';
 import { parseJargonResponse, type JargonTerm } from './jargon';
 import { authHeaders } from './presentCommandApi';
@@ -72,6 +73,8 @@ interface PresentationCommandExecutorDeps {
     clearRemoteJargon: () => void;
     postToIndexIframe: (msg: unknown) => boolean;
     setFloatOverlay: (next: { src: string; caption?: string } | null) => void;
+    indexEmbedWidth: () => number | undefined;
+    applyFullscreen: (mode: PresentFullscreenMode) => void;
 }
 
 export async function fetchExplainTerm(
@@ -243,6 +246,8 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
         clearRemoteJargon,
         postToIndexIframe,
         setFloatOverlay,
+        indexEmbedWidth,
+        applyFullscreen,
     } = deps;
 
     if (cmd.kind === 'clear') {
@@ -322,7 +327,14 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
     }
 
     if (cmd.kind === 'range') {
+        if (mainView !== 'index') {
+            setDataRange(cmd.range);
+            setMainView('index');
+            resetDwellCountdown();
+            return false;
+        }
         setDataRange(cmd.range);
+        if (!postToIndexIframe({ type: 'mv-range', range: cmd.range })) return false;
         resetDwellCountdown();
         return true;
     }
@@ -339,6 +351,33 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
             return false;
         }
         if (!postToIndexIframe({ type: 'mv-highlight', symbol: cmd.symbols[0] })) return false;
+        resetDwellCountdown();
+        return true;
+    }
+
+    if (cmd.kind === 'layout') {
+        const resolved = resolvePresentIndexDensity(cmd.density!, indexEmbedWidth());
+        if (mainView !== 'index') {
+            setMainView('index');
+            resetDwellCountdown();
+            return false;
+        }
+        if (!postToIndexIframe({ type: 'mv-density', density: resolved })) return false;
+        resetDwellCountdown();
+        return true;
+    }
+
+    if (cmd.kind === 'fullscreen') {
+        const mode = cmd.fsMode!;
+        if (mode === 'enter' && document.fullscreenElement) {
+            resetDwellCountdown();
+            return true;
+        }
+        if (mode === 'exit' && !document.fullscreenElement) {
+            resetDwellCountdown();
+            return true;
+        }
+        applyFullscreen(mode);
         resetDwellCountdown();
         return true;
     }
@@ -423,6 +462,7 @@ export default function PresentationPage() {
     }, []);
     const indexIframeRef = useRef<HTMLIFrameElement | null>(null);
     const indexIframeLoadedRef = useRef(false);
+    const indexEmbedBridgeReadyRef = useRef(false);
     // The DOM node indexIframeLoadedRef was last marked loaded for, so a ref
     // re-attach to the SAME already-loaded element does not strand the flag false.
     const lastLoadedIndexNodeRef = useRef<HTMLIFrameElement | null>(null);
@@ -603,9 +643,19 @@ export default function PresentationPage() {
 
     const postToIndexIframe = useCallback((msg: unknown): boolean => {
         const win = indexIframeRef.current?.contentWindow;
-        if (!win || !indexIframeLoadedRef.current) return false;
+        if (!win || !indexIframeLoadedRef.current || !indexEmbedBridgeReadyRef.current) return false;
         win.postMessage(msg, window.location.origin);
         return true;
+    }, []);
+
+    useEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            if (event.origin !== window.location.origin) return;
+            const data = event.data as { type?: unknown } | null;
+            if (data?.type === 'mv-present-ready') indexEmbedBridgeReadyRef.current = true;
+        };
+        window.addEventListener('message', onMessage);
+        return () => window.removeEventListener('message', onMessage);
     }, []);
 
     const persistPresentCycle = useCallback((next: PresentCycle) => {
@@ -626,6 +676,29 @@ export default function PresentationPage() {
     // Returns false when the command's symbol isn't in the (possibly still
     // loading) data — usePresentCommand then leaves the id unlocked and the
     // next poll retries, instead of losing the command forever.
+    const indexEmbedWidth = useCallback((): number | undefined => {
+        const display = sampleProjectorDisplay({
+            lang,
+            indexIframe: indexIframeRef.current,
+        });
+        return display?.fw;
+    }, [lang]);
+
+    const toggleFullscreen = useCallback(() => {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+        else document.exitFullscreen().catch(() => {});
+    }, []);
+
+    const applyFullscreen = useCallback((mode: PresentFullscreenMode) => {
+        if (mode === 'enter' && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+            return;
+        }
+        if (mode === 'exit' && document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        }
+    }, []);
+
     const executePresentCommand = useCallback((cmd: PresentCommand): boolean => executePresentationCommandWithDeps(cmd, {
         marketData,
         qp,
@@ -643,7 +716,9 @@ export default function PresentationPage() {
         clearRemoteJargon,
         postToIndexIframe,
         setFloatOverlay,
-    }), [marketData, qp, resetDwellCountdown, mainView, slide.mode, persistPresentCycle, normalizedPresentCycle, setDataRange, showExplainTerm, clearRemoteJargon, postToIndexIframe]);
+        indexEmbedWidth,
+        applyFullscreen,
+    }), [marketData, qp, resetDwellCountdown, mainView, slide.mode, persistPresentCycle, normalizedPresentCycle, setDataRange, showExplainTerm, clearRemoteJargon, postToIndexIframe, indexEmbedWidth, applyFullscreen]);
 
     usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
 
@@ -682,11 +757,6 @@ export default function PresentationPage() {
         return () => {
             if (hintsTimerRef.current) clearTimeout(hintsTimerRef.current);
         };
-    }, []);
-
-    const toggleFullscreen = useCallback(() => {
-        if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
-        else document.exitFullscreen().catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -808,7 +878,10 @@ export default function PresentationPage() {
             // that same already-loaded element fires no fresh 'load' event, so
             // blindly clearing the flag here would strand it false and silently
             // drop every subsequent `highlight` command.
-            if (node && node !== lastLoadedIndexNodeRef.current) indexIframeLoadedRef.current = false;
+            if (node && node !== lastLoadedIndexNodeRef.current) {
+                indexIframeLoadedRef.current = false;
+                indexEmbedBridgeReadyRef.current = false;
+            }
         }
         iframeCleanupRef.current[view]?.();
         delete iframeCleanupRef.current[view];

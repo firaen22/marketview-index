@@ -33,6 +33,8 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
         clearRemoteJargon: vi.fn(),
         postToIndexIframe: vi.fn(() => true),
         setFloatOverlay: vi.fn(),
+        indexEmbedWidth: vi.fn(() => 960),
+        applyFullscreen: vi.fn(),
         ...overrides,
     } as any;
 }
@@ -174,6 +176,98 @@ describe('executePresentationCommandWithDeps', () => {
         expect(deps.setFloatOverlay).toHaveBeenCalledWith(null);
         expect(deps.pdfRef.current.nextPage).not.toHaveBeenCalled();
         expect(deps.pdfRef.current.goToPage).not.toHaveBeenCalled();
+    });
+
+    it('retries range until index iframe accepts mv-range', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'range-1',
+            kind: 'range',
+            symbols: [],
+            range: 'YTD',
+            issuedAt: 1000,
+        };
+        const deps = baseDeps({ mainView: 'slide' });
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(false);
+        expect(deps.setMainView).toHaveBeenCalledWith('index');
+        expect(deps.setDataRange).toHaveBeenCalledWith('YTD');
+
+        const blocked = baseDeps({ mainView: 'index', postToIndexIframe: vi.fn(() => false) });
+        expect(executePresentationCommandWithDeps(command, blocked)).toBe(false);
+
+        const ready = baseDeps({ mainView: 'index' });
+        expect(executePresentationCommandWithDeps(command, ready)).toBe(true);
+        expect(ready.postToIndexIframe).toHaveBeenCalledWith({ type: 'mv-range', range: 'YTD' });
+    });
+
+    it('retries layout until index iframe accepts mv-density', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'layout-1',
+            kind: 'layout',
+            symbols: [],
+            density: 'auto',
+            issuedAt: 1000,
+        };
+        const deps = baseDeps({ mainView: 'slide' });
+
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(false);
+        expect(deps.setMainView).toHaveBeenCalledWith('index');
+        expect(deps.postToIndexIframe).not.toHaveBeenCalled();
+
+        const blocked = baseDeps({ mainView: 'index', postToIndexIframe: vi.fn(() => false) });
+        expect(executePresentationCommandWithDeps(command, blocked)).toBe(false);
+
+        const ready = baseDeps({ mainView: 'index' });
+        expect(executePresentationCommandWithDeps(command, ready)).toBe(true);
+        expect(ready.postToIndexIframe).toHaveBeenCalledWith({ type: 'mv-density', density: 'comfortable' });
+    });
+
+    it('acks fullscreen enter when already fullscreen without calling applyFullscreen', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'fs-1',
+            kind: 'fullscreen',
+            symbols: [],
+            fsMode: 'enter',
+            issuedAt: 1000,
+        };
+        const el = document.createElement('div');
+        Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => el });
+        const deps = baseDeps();
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(true);
+        expect(deps.applyFullscreen).not.toHaveBeenCalled();
+        Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
+    });
+
+    it('acks fullscreen exit when already windowed', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'fs-3',
+            kind: 'fullscreen',
+            symbols: [],
+            fsMode: 'exit',
+            issuedAt: 1000,
+        };
+        Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
+        const deps = baseDeps();
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(true);
+        expect(deps.applyFullscreen).not.toHaveBeenCalled();
+    });
+
+    it('calls applyFullscreen for enter when windowed', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'fs-2',
+            kind: 'fullscreen',
+            symbols: [],
+            fsMode: 'enter',
+            issuedAt: 1000,
+        };
+        Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
+        const deps = baseDeps();
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(true);
+        expect(deps.applyFullscreen).toHaveBeenCalledWith('enter');
     });
 
     it('floats an image over the deck and clears it without paging', () => {

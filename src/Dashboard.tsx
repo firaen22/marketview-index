@@ -26,6 +26,7 @@ import { useDashboardData } from './hooks/useDashboardData';
 import { useMacroData } from './hooks/useMacroData';
 import { computeNewSinceVisit, getLastVisitAt, recordVisitNow } from './newSinceVisit';
 import { getLocale } from './locales';
+import type { ResolvedIndexDensity } from '../lib/presentIndexView';
 
 export default function Dashboard() {
   const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
@@ -43,6 +44,7 @@ export default function Dashboard() {
   const [language, setLanguage] = useState<'en' | 'zh-TW'>(initialSettings.lang);
   const [chartMode, setChartMode] = useState<'nominal' | 'percent'>(initialSettings.chartMode);
   const [highlightSymbol, setHighlightSymbol] = useState<string | null>(null);
+  const [indexDensity, setIndexDensity] = useState<ResolvedIndexDensity>('comfortable');
 
   // Snapshot the previous visit ONCE per mount, before this session's own view
   // of the news list gets a chance to overwrite it — otherwise every render
@@ -107,13 +109,30 @@ export default function Dashboard() {
     let clearTimer: ReturnType<typeof setTimeout> | null = null;
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      const data = event.data as { type?: unknown; symbol?: unknown } | null;
-      if (!data || data.type !== 'mv-highlight' || typeof data.symbol !== 'string' || data.symbol.length < 1 || data.symbol.length > 32) return;
+      const data = event.data as { type?: unknown; symbol?: unknown; density?: unknown; range?: unknown } | null;
+      if (!data || typeof data !== 'object') return;
+      if (data.type === 'mv-density') {
+        if (data.density === 'compact' || data.density === 'comfortable') {
+          setIndexDensity(data.density);
+        }
+        return;
+      }
+      if (data.type === 'mv-range' && typeof data.range === 'string') {
+        const range = data.range.toUpperCase();
+        if (['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'].includes(range)) {
+          setTimeRange(range);
+        }
+        return;
+      }
+      if (data.type !== 'mv-highlight' || typeof data.symbol !== 'string' || data.symbol.length < 1 || data.symbol.length > 32) return;
       setHighlightSymbol(data.symbol);
       if (clearTimer) clearTimeout(clearTimer);
       clearTimer = setTimeout(() => setHighlightSymbol(null), 15_000);
     };
     window.addEventListener('message', onMessage);
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'mv-present-ready' }, window.location.origin);
+    }
     return () => {
       window.removeEventListener('message', onMessage);
       if (clearTimer) clearTimeout(clearTimer);
@@ -292,10 +311,12 @@ export default function Dashboard() {
                 ) : marketData.length > 0 ? (
                   <div className={(isPresentationMode || isEmbed) ? '@container min-w-0' : undefined}>
                   <div className={cn(
-                    "grid gap-4 transition-all duration-500",
+                    'grid transition-all duration-500',
                     (isPresentationMode || isEmbed)
-                      ? "grid-cols-1 @min-[480px]:grid-cols-2 @min-[720px]:grid-cols-3 @min-[960px]:grid-cols-4"
-                      : "grid-cols-1 md:grid-cols-2"
+                      ? (isEmbed && indexDensity === 'compact'
+                          ? 'gap-2 grid-cols-1 @min-[400px]:grid-cols-2 @min-[560px]:grid-cols-3 @min-[720px]:grid-cols-4'
+                          : 'gap-4 grid-cols-1 @min-[480px]:grid-cols-2 @min-[720px]:grid-cols-3 @min-[960px]:grid-cols-4')
+                      : 'gap-4 grid-cols-1 md:grid-cols-2',
                   )}>
                     {filteredIndices.map((index) => (
                       <MarketStatCard

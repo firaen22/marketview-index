@@ -1,6 +1,13 @@
 import { isPresentOverlayPayload, type PresentOverlayPayload } from './presentOverlay.js';
+import {
+    isPresentFullscreenMode,
+    isPresentIndexDensity,
+    type PresentFullscreenMode,
+    type PresentIndexDensity,
+} from './presentIndexView.js';
 
-export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range' | 'explain' | 'highlight' | 'overlay';
+export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range' | 'explain' | 'highlight' | 'overlay' | 'layout' | 'fullscreen';
+export type { PresentFullscreenMode, PresentIndexDensity } from './presentIndexView.js';
 export type PresentView = 'slide' | 'index' | 'heatmap';
 export type PageDirection = 'next' | 'prev';
 export type PresentRange = '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '5Y';
@@ -26,6 +33,8 @@ export interface PresentCommand {
     highlightTo?: string;
     /** Image popup over the current deck. Not a slide-mode change. */
     overlay?: PresentOverlayPayload;
+    density?: PresentIndexDensity;
+    fsMode?: PresentFullscreenMode;
     issuedAt: number;
 }
 
@@ -48,9 +57,11 @@ export type PresentIntent =
     | { kind: 'cycle'; symbols: []; on: boolean; dwellSec?: number }
     | { kind: 'range'; symbols: []; range: PresentRange }
     | { kind: 'explain'; symbols: []; term: string }
-    | { kind: 'highlight'; symbols: string[] };
+    | { kind: 'highlight'; symbols: string[] }
+    | { kind: 'layout'; symbols: []; density: PresentIndexDensity }
+    | { kind: 'fullscreen'; symbols: []; fsMode: PresentFullscreenMode };
 
-const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page', 'goto', 'jargon', 'cycle', 'range', 'explain', 'highlight', 'overlay'] as const;
+const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page', 'goto', 'jargon', 'cycle', 'range', 'explain', 'highlight', 'overlay', 'layout', 'fullscreen'] as const;
 const VIEWS = ['slide', 'index', 'heatmap'] as const;
 const CLEAR_WORDS = new Set(['clear', 'close', 'back', 'slides', 'slide', '返回', '清除', '關閉', '投影片']);
 const HEATMAP_WORDS = new Set(['heatmap', '熱圖', '熱力圖']);
@@ -86,6 +97,8 @@ type RawIntent = {
     term?: unknown;
     highlightFrom?: unknown;
     highlightTo?: unknown;
+    density?: unknown;
+    fsMode?: unknown;
 };
 
 // Spoken/typed nicknames. Matching is EXACT-only (after verb/noun stripping):
@@ -667,6 +680,20 @@ export function validatePresentIntent(
             : { ok: false };
     }
 
+    if (raw.kind === 'layout') {
+        const density = raw.density;
+        return Array.isArray(raw.symbols) && raw.symbols.length === 0 && isPresentIndexDensity(density)
+            ? { ok: true, intent: { kind: 'layout', symbols: [], density } }
+            : { ok: false };
+    }
+
+    if (raw.kind === 'fullscreen') {
+        const fsMode = raw.fsMode;
+        return Array.isArray(raw.symbols) && raw.symbols.length === 0 && isPresentFullscreenMode(fsMode)
+            ? { ok: true, intent: { kind: 'fullscreen', symbols: [], fsMode } }
+            : { ok: false };
+    }
+
     if (!Array.isArray(raw.symbols) || !raw.symbols.every(symbol => typeof symbol === 'string')) {
         return { ok: false };
     }
@@ -720,6 +747,12 @@ export function validatePresentIntent(
 export function buildPresentCommand(intent: PresentIntent, id: string, issuedAt: number): PresentCommand {
     if (intent.kind === 'view') {
         return { v: 1, id, kind: 'view', symbols: [], view: intent.view, issuedAt };
+    }
+    if (intent.kind === 'layout') {
+        return { v: 1, id, kind: 'layout', symbols: [], density: intent.density, issuedAt };
+    }
+    if (intent.kind === 'fullscreen') {
+        return { v: 1, id, kind: 'fullscreen', symbols: [], fsMode: intent.fsMode, issuedAt };
     }
     return {
         v: 1,
@@ -881,6 +914,20 @@ export function isExecutablePresentCommand(value: unknown): value is PresentComm
             && typeof command.symbols[0] === 'string'
             && command.symbols[0].length <= 32;
     }
+
+    if (command.kind === 'layout') {
+        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'density', 'issuedAt'])
+            && command.symbols.length === 0
+            && isPresentIndexDensity(command.density);
+    }
+    if ('density' in command) return false;
+
+    if (command.kind === 'fullscreen') {
+        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'fsMode', 'issuedAt'])
+            && command.symbols.length === 0
+            && isPresentFullscreenMode(command.fsMode);
+    }
+    if ('fsMode' in command) return false;
 
     if (command.kind === 'chart' || command.kind === 'compare') {
         return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'range', 'highlightFrom', 'highlightTo', 'issuedAt'])

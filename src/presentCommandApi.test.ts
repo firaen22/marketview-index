@@ -25,6 +25,8 @@ describe('presentCommandApi additions', () => {
         await expect(fetchProjectorState()).resolves.toEqual({
             serverTime: 10_000,
             projector: { mode: 'pdf', page: 2, v: 0, at: 9000, lid: 'cmd-1' },
+            projectorLast: null,
+            applied: null,
             control: null,
         });
         expect(globalThis.fetch).toHaveBeenCalledWith('/api/present-command', { signal: undefined });
@@ -36,7 +38,13 @@ describe('presentCommandApi additions', () => {
             projector: { mode: 'evil', page: 2, v: 0, at: 9000 },
         }));
 
-        await expect(fetchProjectorState()).resolves.toEqual({ serverTime: 10_000, projector: null, control: null });
+        await expect(fetchProjectorState()).resolves.toEqual({
+            serverTime: 10_000,
+            projector: null,
+            projectorLast: null,
+            applied: null,
+            control: null,
+        });
     });
 
     it('fetchProjectorState keeps core projector state when display is malformed', async () => {
@@ -48,6 +56,36 @@ describe('presentCommandApi additions', () => {
         await expect(fetchProjectorState()).resolves.toEqual({
             serverTime: 10_000,
             projector: { mode: 'index', page: 1, v: 0, at: 9000 },
+            projectorLast: null,
+            applied: null,
+            control: null,
+        });
+    });
+
+    it('fetchProjectorState parses applied range', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({
+            serverTime: 1,
+            applied: { id: 'r1', kind: 'range', range: 'YTD', at: 1 },
+        }));
+
+        await expect(fetchProjectorState()).resolves.toMatchObject({
+            applied: { id: 'r1', kind: 'range', range: 'YTD', at: 1 },
+        });
+    });
+
+    it('fetchProjectorState parses projectorLast and applied', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({
+            serverTime: 20_000,
+            projector: null,
+            projectorLast: { mode: 'index', page: 1, v: 3, at: 19_000, stale: true, ageMs: 1000 },
+            applied: { id: 'cmd-9', kind: 'layout', density: 'compact', at: 18_500 },
+        }));
+
+        await expect(fetchProjectorState()).resolves.toEqual({
+            serverTime: 20_000,
+            projector: null,
+            projectorLast: { mode: 'index', page: 1, v: 3, at: 19_000, stale: true, ageMs: 1000 },
+            applied: { id: 'cmd-9', kind: 'layout', density: 'compact', at: 18_500 },
             control: null,
         });
     });
