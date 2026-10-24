@@ -3,6 +3,7 @@ import type { AssistResult } from '../../lib/presentAssist';
 import { ASSIST_MAX_TEXT_LEN, ASSIST_MIN_TEXT_LEN, normalizeAssistText } from '../../lib/presentAssist';
 import type { PresentSlide } from '../settings';
 import { getSettings } from '../settings';
+import type { ControlSurfaceState } from '../../lib/presentDisplay';
 import { authHeaders, fetchAssist, fetchAssistImage, fetchProjectorState, type ProjectorState } from '../presentCommandApi';
 import { extractPdfPageText, loadPdf, renderPdfPageToJpeg } from '../pdfText';
 import { buildJargonWarmBody, isJargonEligible } from '../jargon';
@@ -40,6 +41,11 @@ export interface PresentAssistState {
         jargonFailed: number[];
         start: () => void;
         cancel: () => void;
+    };
+    telemetry: {
+        projector: ProjectorState | null;
+        control: ControlSurfaceState | null;
+        serverTime: number;
     };
 }
 
@@ -99,6 +105,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     const [status, setStatus] = useState<AssistStatus>(enabled ? 'loading' : 'idle');
     const [assist, setAssist] = useState<AssistResult | null>(null);
     const [projector, setProjector] = useState<ProjectorState | null>(null);
+    const [controlSurface, setControlSurface] = useState<ControlSurfaceState | null>(null);
     const [serverTime, setServerTime] = useState(() => Date.now());
     const [manualPage, setManualPage] = useState(1);
     const [numPages, setNumPages] = useState(0);
@@ -184,6 +191,7 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 wasLiveRef.current = nextLive;
                 projectorRef.current = result.projector;
                 setProjector(result.projector);
+                setControlSurface(result.control);
                 setServerTime(result.serverTime);
                 timeout = window.setTimeout(run, POLL_MS);
             } catch (error) {
@@ -670,5 +678,6 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
             start: startPrepare,
             cancel: cancelPrepare,
         },
+        telemetry: { projector, control: controlSurface, serverTime },
     };
 }

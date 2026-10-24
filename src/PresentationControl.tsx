@@ -16,11 +16,14 @@ import { SaveButton } from './components/SaveButton';
 import { MODE_HINTS, EXAMPLES } from './presentationExamples';
 import { CopilotBar } from './components/CopilotBar';
 import { AssistPanel, type PageCommandState } from './components/AssistPanel';
+import { useControlDisplayReport } from './hooks/useControlDisplayReport';
 import { usePresentAssist } from './hooks/usePresentAssist';
 import { sendPresentPageCommand } from './presentCommandApi';
 import { PreflightPanel } from './components/PreflightPanel';
 import { useCopilotCommand } from './hooks/useCopilotCommand';
 import { useWakeLock } from './hooks/useWakeLock';
+import { GlossaryAudienceStrip } from './components/GlossaryAudienceStrip';
+import { ProjectorTelemetryStrip } from './components/ProjectorTelemetryStrip';
 import { Toast, useToast } from './components/Toast';
 
 export default function PresentationControl() {
@@ -28,6 +31,7 @@ export default function PresentationControl() {
     const { slide, saveSlide, doRemoteSave, cloudStatus, lastSavedAt, sizeWarning } = useSlideSync();
     const { message: toastMessage, showToast } = useToast();
     const lang = getSettings().lang;
+    useControlDisplayReport(true, lang);
     const { data: marketData } = useMarketData({ range: 'YTD', lang });
     const { data: macroData } = useMacroData({ lang, refreshMs: 60 * 60 * 1000 });
     const [showPreview, setShowPreview] = useState(false);
@@ -110,7 +114,7 @@ export default function PresentationControl() {
                     <Link to="/" className="text-xs text-zinc-500 hover:text-zinc-200">← Dashboard</Link>
                     <span className="text-sm font-mono tracking-widest text-zinc-400 hidden sm:inline">CONTROL</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                     {saveBtn}
                     {/* Preview toggle — mobile only */}
                     <button
@@ -146,6 +150,14 @@ export default function PresentationControl() {
                     </button>
                 </div>
             </header>
+            <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 px-4 sm:px-6 py-2 border-b border-zinc-900/80 shrink-0 min-w-0">
+                <ProjectorTelemetryStrip
+                    projector={assist.telemetry.projector}
+                    control={assist.telemetry.control}
+                    serverTime={assist.telemetry.serverTime}
+                />
+                <GlossaryAudienceStrip />
+            </div>
             {preflightOpen && <PreflightPanel lang={lang} onClose={() => setPreflightOpen(false)} />}
 
             {/* Mobile: notes live above the grid so the Preview toggle cannot hide

@@ -27,6 +27,12 @@ import {
     readHighlightWindow,
     validatePresentIntent,
 } from '../lib/presentCommand.js';
+import {
+    parseProjectorDisplayFromQuery,
+    type ControlSurfaceState,
+    type ProjectorDisplay,
+    validateProjectorDisplay,
+} from '../lib/presentDisplay.js';
 import { isOverlayCaption, isOverlayImageSrc } from '../lib/presentOverlay.js';
 
 const COMMAND_KEY = 'present:cmd:v1';
@@ -40,6 +46,7 @@ const PAGE_COMMANDS_MAX_DRAIN = 20;
 // in an overflow the net offset is already wrong; bounding the damage wins.
 const PAGE_COMMANDS_MAX_QUEUE = 40;
 const PROJECTOR_STATE_KEY = 'present:pstate:v1';
+const CONTROL_SURFACE_KEY = 'present:pcontrol:v1';
 const COMMAND_TTL_SECONDS = 120;
 const PROJECTOR_STATE_TTL_SECONDS = 15;
 const ASSIST_TTL_SECONDS = 2_592_000;
@@ -65,6 +72,7 @@ interface ProjectorState {
     v: number;
     at: number;
     lid?: string;
+    display?: ProjectorDisplay;
 }
 
 function authorize(providedKey: unknown, requiredKey: string): boolean {
@@ -238,7 +246,15 @@ function validateProjectorState(value: unknown): ProjectorState | null {
     if (typeof raw.v !== 'number' || !Number.isSafeInteger(raw.v) || raw.v < 0) return null;
     if (typeof raw.at !== 'number' || !Number.isSafeInteger(raw.at) || raw.at < 0) return null;
     const lid = validLastExecutedId(raw.lid);
-    return { mode, page: raw.page, v: raw.v, at: raw.at, ...(lid ? { lid } : {}) };
+    const display = raw.display === undefined ? undefined : validateProjectorDisplay(raw.display) ?? undefined;
+    return {
+        mode,
+        page: raw.page,
+        v: raw.v,
+        at: raw.at,
+        ...(lid ? { lid } : {}),
+        ...(display ? { display } : {}),
+    };
 }
 
 function parseStoredJson(value: unknown): unknown {
@@ -246,14 +262,50 @@ function parseStoredJson(value: unknown): unknown {
     return JSON.parse(value);
 }
 
+function controlDisplayFromQuery(query: Record<string, unknown>, now: number): ControlSurfaceState | null {
+    if (oneQuery(query.st) !== '1' || oneQuery(query.role) !== 'control') return null;
+    const display = parseProjectorDisplayFromQuery(query);
+    if (!display) return null;
+    return { at: now, display };
+}
+
+function validateControlSurfaceState(value: unknown): ControlSurfaceState | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, unknown>;
+    if (typeof raw.at !== 'number' || !Number.isSafeInteger(raw.at) || raw.at < 0) return null;
+    const display = validateProjectorDisplay(raw.display);
+    if (!display) return null;
+    return { at: raw.at, display };
+}
+
+async function readControlSurfaceState(): Promise<ControlSurfaceState | null> {
+    try {
+        const stored = await redis!.get(CONTROL_SURFACE_KEY);
+        if (!stored) return null;
+        const parsed = parseStoredJson(stored);
+        return validateControlSurfaceState(parsed);
+    } catch {
+        return null;
+    }
+}
+
 function projectorStateFromQuery(query: Record<string, unknown>, now: number): ProjectorState | null {
     if (oneQuery(query.st) !== '1') return null;
+    if (oneQuery(query.role) === 'control') return null;
     const mode = validProjectorMode(query.mode);
     const page = parseStrictInteger(query.page, 1, 2000);
     const v = parseStrictInteger(query.v, 0, Number.MAX_SAFE_INTEGER);
     if (!mode || page === null || v === null) return null;
     const lid = validLastExecutedId(query.lid);
-    return { mode, page, v, at: now, ...(lid ? { lid } : {}) };
+    const display = parseProjectorDisplayFromQuery(query);
+    return {
+        mode,
+        page,
+        v,
+        at: now,
+        ...(lid ? { lid } : {}),
+        ...(display ? { display } : {}),
+    };
 }
 
 async function readProjectorState(): Promise<ProjectorState | null> {
@@ -337,7 +389,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // instead of being able to consume page turns or forge visible state.
         const getKey = process.env.PRESENT_API_KEY;
         const projectorAuthed = !!getKey && authorize(req.headers?.['x-api-key'], getKey);
-        const nextProjector = projectorAuthed ? projectorStateFromQuery(req.query as Record<string, unknown>, serverTime) : null;
+        const query = req.query as Record<string, unknown>;
+        const nextControl = projectorAuthed ? controlDisplayFromQuery(query, serverTime) : null;
+        const nextProjector = projectorAuthed ? projectorStateFromQuery(query, serverTime) : null;
         const ackValues = req.query?.ack;
         const ackIds = (Array.isArray(ackValues) ? ackValues : [ackValues])
             .filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(id));
@@ -349,17 +403,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 return json(res, 503, { error: 'page_command_ack_failed' });
             }
         }
-        if (oneQuery((req.query as Record<string, unknown>).st) === '1' && nextProjector) {
+        if (nextProjector) {
             try {
                 await redis.set(PROJECTOR_STATE_KEY, JSON.stringify(nextProjector), { ex: PROJECTOR_STATE_TTL_SECONDS });
             } catch (error) {
                 console.error('Present projector state write error:', error);
             }
         }
-        const hasProjectorReport = projectorAuthed && oneQuery((req.query as Record<string, unknown>).st) === '1';
-        const [command, projector, pageCommands] = await Promise.all([
+        if (nextControl) {
+            try {
+                await redis.set(CONTROL_SURFACE_KEY, JSON.stringify(nextControl), { ex: PROJECTOR_STATE_TTL_SECONDS });
+            } catch (error) {
+                console.error('Present control surface write error:', error);
+            }
+        }
+        const [command, projector, control, pageCommands] = await Promise.all([
             readCommand(),
-            hasProjectorReport ? Promise.resolve(nextProjector) : readProjectorState(),
+            nextProjector ? Promise.resolve(nextProjector) : readProjectorState(),
+            nextControl ? Promise.resolve(nextControl) : readControlSurfaceState(),
             // Read only for a VALID projector report: this GET is unauth by
             // design, so a bare st=1 probe (or a malformed poll) must not be
             // able to consume or acknowledge queued page turns.
@@ -368,7 +429,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // serverTime lets the projector judge staleness in SERVER time —
         // issuedAt is server-stamped, so a skewed projector clock must not
         // silently expire (or resurrect) every command.
-        return json(res, 200, { success: true, command, serverTime, projector, pageCommands });
+        return json(res, 200, { success: true, command, serverTime, projector, control, pageCommands });
     }
 
     if (req.method !== 'POST') {

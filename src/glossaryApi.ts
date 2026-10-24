@@ -1,4 +1,5 @@
 import type { GlossaryLang, GlossarySession, GlossaryTermSnapshot } from '../lib/glossarySession';
+import { parseCurrentGlossaryPointer } from './audienceGlossaryPoll';
 import type { JargonTerm } from './jargon';
 
 const API_KEY = import.meta.env.VITE_PRESENT_API_KEY;
@@ -71,6 +72,27 @@ async function postGlossary(body: Record<string, unknown>): Promise<any> {
         throw new GlossaryApiError(response.status, payload?.error || `Glossary request failed (${response.status})`);
     }
     return payload;
+}
+
+export async function fetchCurrentGlossaryPointer(signal?: AbortSignal): Promise<string | null> {
+    const response = await fetch('/api/glossary-session?resolve=current&format=json', { cache: 'no-store', signal });
+    if (!response.ok) return null;
+    const payload = await readJson(response);
+    return parseCurrentGlossaryPointer(payload);
+}
+
+/** Audience-facing session shape (no presenter-only fields). */
+export async function fetchPublicGlossarySession(code: string, signal?: AbortSignal): Promise<PublicGlossarySession | null> {
+    const response = await fetch(`/api/glossary-session?code=${encodeURIComponent(code)}`, { signal });
+    if (response.status === 404) return null;
+    const payload = await readJson(response);
+    if (!response.ok) {
+        throw new GlossaryApiError(response.status, payload?.error || `Glossary session load failed (${response.status})`);
+    }
+    if (!isSessionShaped(payload.session)) {
+        throw new GlossaryApiError(502, 'Glossary server returned an invalid response');
+    }
+    return payload.session as PublicGlossarySession;
 }
 
 export async function fetchGlossarySession(code: string): Promise<ClientGlossarySession | null> {

@@ -117,6 +117,18 @@ export function classifyMacro(status: number, payload: unknown): Classification 
     }
 }
 
+export function classifyProjectorEmbed(
+    projector: { at: number; display?: { fw?: number } } | null,
+    serverTime: number,
+): Classification {
+    const live = classifyProjector(projector, serverTime);
+    if (live.status !== 'pass') return { status: 'warn', detail: `projector ${live.detail}` };
+    const fw = projector?.display?.fw;
+    if (fw === undefined) return { status: 'skip', detail: 'no embed width on projector report' };
+    if (fw < 960) return { status: 'warn', detail: `embed ${fw}px — expect fewer than 4 columns` };
+    return { status: 'pass', detail: `embed ${fw}px` };
+}
+
 export function classifyProjector(projector: { at: number } | null, serverTime: number): Classification {
     if (!projector) return { status: 'warn', detail: 'not reporting - open /present' };
     const at = projector.at;
@@ -251,7 +263,16 @@ export function runPreflight(opts: { lang: 'en' | 'zh-TW' }): { results: Promise
         const { controller, cleanup } = createController(DEFAULT_TIMEOUT_MS);
         try {
             const state = await fetchProjectorState(controller.signal);
-            return result('projector', classifyProjector(state.projector, state.serverTime));
+            const projector = state.projector;
+            const live = classifyProjector(projector, state.serverTime);
+            const embed = classifyProjectorEmbed(projector, state.serverTime);
+            const detail = live.status === 'pass' && embed.status !== 'skip'
+                ? `${live.detail}; ${embed.detail}`
+                : live.detail;
+            const status = live.status === 'fail'
+                ? 'fail'
+                : (embed.status === 'warn' ? 'warn' : live.status);
+            return result('projector', { status, detail });
         } catch {
             return result('projector', { status: 'fail', detail: 'unreachable/timeout' });
         } finally {

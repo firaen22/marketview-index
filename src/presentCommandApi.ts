@@ -2,6 +2,9 @@ import type { CatalogItem, PageDirection, PresentCommand } from '../lib/presentC
 import { isExecutablePresentCommand } from '../lib/presentCommand';
 import type { AssistResult } from '../lib/presentAssist';
 import { validateAssistResult } from '../lib/presentAssist';
+import { type ControlSurfaceState, type ProjectorDisplay, validateProjectorDisplay } from '../lib/presentDisplay';
+
+export type { ControlSurfaceState } from '../lib/presentDisplay';
 
 const API_KEY = import.meta.env.VITE_PRESENT_API_KEY;
 const PROJECTOR_MODES = ['slide', 'pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
@@ -12,6 +15,7 @@ export interface ProjectorState {
     v: number;
     at: number;
     lid?: string;
+    display?: ProjectorDisplay;
 }
 
 if (import.meta.env.DEV && import.meta.env.MODE !== 'test' && !API_KEY) {
@@ -52,22 +56,26 @@ async function postPresentCommand(body: Record<string, unknown>, signal?: AbortS
     return payload;
 }
 
-function isProjectorState(value: unknown): value is ProjectorState {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+function parseProjectorState(value: unknown): ProjectorState | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const raw = value as Record<string, unknown>;
-    return typeof raw.mode === 'string'
-        && (PROJECTOR_MODES as readonly string[]).includes(raw.mode)
-        && typeof raw.page === 'number'
-        && Number.isInteger(raw.page)
-        && raw.page >= 1
-        && raw.page <= 2000
-        && typeof raw.v === 'number'
-        && Number.isSafeInteger(raw.v)
-        && raw.v >= 0
-        && typeof raw.at === 'number'
-        && Number.isSafeInteger(raw.at)
-        && raw.at >= 0
-        && (raw.lid === undefined || (typeof raw.lid === 'string' && raw.lid.length >= 1 && raw.lid.length <= 64 && /^[A-Za-z0-9-]+$/.test(raw.lid)));
+    if (typeof raw.mode !== 'string' || !(PROJECTOR_MODES as readonly string[]).includes(raw.mode)) return null;
+    if (typeof raw.page !== 'number' || !Number.isInteger(raw.page) || raw.page < 1 || raw.page > 2000) return null;
+    if (typeof raw.v !== 'number' || !Number.isSafeInteger(raw.v) || raw.v < 0) return null;
+    if (typeof raw.at !== 'number' || !Number.isSafeInteger(raw.at) || raw.at < 0) return null;
+    const lid = raw.lid === undefined
+        ? undefined
+        : (typeof raw.lid === 'string' && raw.lid.length >= 1 && raw.lid.length <= 64 && /^[A-Za-z0-9-]+$/.test(raw.lid) ? raw.lid : null);
+    if (raw.lid !== undefined && lid === null) return null;
+    const display = raw.display === undefined ? undefined : validateProjectorDisplay(raw.display) ?? undefined;
+    return {
+        mode: raw.mode as ProjectorState['mode'],
+        page: raw.page,
+        v: raw.v,
+        at: raw.at,
+        ...(lid ? { lid } : {}),
+        ...(display ? { display } : {}),
+    };
 }
 
 // A 200 whose command doesn't pass the executor validator is a malformed
@@ -127,7 +135,20 @@ export async function sendPresentPageCommand(direction: PageDirection, signal?: 
     return toCommand(payload);
 }
 
-export async function fetchProjectorState(signal?: AbortSignal): Promise<{ projector: ProjectorState | null; serverTime: number }> {
+function parseControlSurface(value: unknown): ControlSurfaceState | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, unknown>;
+    if (typeof raw.at !== 'number' || !Number.isSafeInteger(raw.at) || raw.at < 0) return null;
+    const display = raw.display === undefined ? undefined : validateProjectorDisplay(raw.display) ?? undefined;
+    if (!display) return null;
+    return { at: raw.at, display };
+}
+
+export async function fetchProjectorState(signal?: AbortSignal): Promise<{
+    projector: ProjectorState | null;
+    control: ControlSurfaceState | null;
+    serverTime: number;
+}> {
     const response = await fetch('/api/present-command', { signal });
     const payload = await readJson(response);
     if (!response.ok) {
@@ -136,8 +157,9 @@ export async function fetchProjectorState(signal?: AbortSignal): Promise<{ proje
     const serverTime = typeof payload?.serverTime === 'number' && Number.isFinite(payload.serverTime)
         ? payload.serverTime
         : Date.now();
-    const projector = isProjectorState(payload?.projector) ? payload.projector : null;
-    return { projector, serverTime };
+    const projector = parseProjectorState(payload?.projector);
+    const control = parseControlSurface(payload?.control);
+    return { projector, control, serverTime };
 }
 
 export async function fetchAssist(text: string, lang: 'en' | 'zh-TW', signal?: AbortSignal): Promise<AssistResult> {

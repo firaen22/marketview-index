@@ -1,6 +1,6 @@
 # MarketView Index
 
-A bilingual (繁體中文 / English) market dashboard built for **live client briefings** — it runs on a projector, not just a desktop. Alongside the usual quotes and charts, it drives a presenter-controlled projector view, explains financial jargon on screen with AI, and hands the audience a QR-code glossary they can follow on their phones.
+A bilingual (繁體中文 / English) market dashboard built for **live client briefings** — it runs on a projector, not just a desktop. Alongside the usual quotes and charts, it drives a presenter-controlled projector view (with **viewport telemetry** on the control screen), keeps the index embed readable at **720p** via container-based columns, explains financial jargon on screen with AI, and hands the audience a QR-code glossary they can follow on their phones.
 
 **Live:** [marketindex.pmd-hk.com](https://marketindex.pmd-hk.com)
 
@@ -11,7 +11,7 @@ A bilingual (繁體中文 / English) market dashboard built for **live client br
 Most of this repo exists to serve one scenario: someone standing in front of a room, presenting markets to clients who don't share their vocabulary.
 
 - **Dashboard** — indices, FX, commodities, crypto and funds, with sparklines, a treemap heatmap, and AI-summarised market news.
-- **Projector mode** — a separate presenter-controlled view (`/present`) driven from a phone or second screen (`/present-control`). Slide navigation, chart focus, highlighting, and range switching are all remote commands.
+- **Projector mode** — a separate presenter-controlled view (`/present`) driven from a phone or second screen (`/present-control`). Slide navigation, chart focus, highlighting, and range switching are all remote commands. Control can see the projector’s reported outer window, embed iframe size, and glossary session status (not the control laptop’s screen size).
 - **Jargon explainer** — press a key and the on-screen term gets a plain-language card. Backed by a model chain with vision, so it works on decks that are pure images.
 - **Audience glossary** — a QR code puts a live, per-session glossary on the audience's own phones (`/session/:code`); terms appear as the presenter covers them.
 - **PDF decks** — upload a deck and present it inside the same view, so slides and live market data share one screen.
@@ -83,6 +83,25 @@ Quotes come from Yahoo Finance (`yahoo-finance2`); macro series come from FRED. 
 > ⚠️ The `Deploy to Vercel` GitHub Action in `.github/workflows/deploy.yml` is **not the deploy path** and currently fails on every run (it has no `VERCEL_TOKEN` secret). A red ✗ from that workflow does not mean your deploy failed — check the Vercel dashboard instead.
 
 Because the app is code-split, verifying that a change reached production by grepping `index.html` won't work — lazily-loaded routes live in their own chunks. Load the page and check the DOM.
+
+## Presenter viewport telemetry
+
+Phased plan, TypeSafe-style finding table, and architecture reviews (**gpt-6.1-sol** + **Grok 4.7**, 2026-10-24): `docs/present-viewport-plan.md`. Summary of what shipped (no `/api/present-status`, no extra POST on the poll cadence):
+
+**Three layout boxes** (do not conflate them):
+
+| Box | Where | What we measure |
+|-----|--------|-----------------|
+| Outer projector window | `/present` | `display.iw` / `display.ih` (`innerWidth` / `innerHeight`) |
+| Index embed iframe | `/?embed=1` inside `/present` | `display.fw` / `display.fh` (`clientWidth` / `clientHeight` on the iframe document) — card grid and `100vmin` scaling apply here, not the outer window |
+| Control device | `/present-control` | Separate Redis key `present:pcontrol:v1` via `st=1&role=control` |
+
+- **Projector heartbeat** — authenticated `st=1` **GET** (`usePresentCommand`) adds optional `display` (`iw`, `ih`, `fw`, `fh`, `dpr`, optional `screenW`/`screenH`, `lang`). Stored in `present:pstate:v1` (15 s TTL). Invalid `display` is dropped; mode/page/`v`/`at`/`lid` still save. **Do not** add viewport on a separate POST — that bypasses the 90/min GET limiter and doubles traffic ([Sol/Grok PR #85 review](https://github.com/firaen22/marketview-index/pull/85)).
+- **World-readable GET** — unauthenticated `GET /api/present-command` returns `projector.display` like `mode`/`page` (sizes and language only; no glossary terms on this key).
+- **Control UI** — telemetry strip reads `usePresentAssist`’s 4s poll (no second interval). Glossary audience status uses separate `/api/glossary-session` polls. Launch popup sizing uses `screen.availWidth` / `availHeight` on the **control** device only (hint for window chrome, not projector layout).
+- **Server time** — clients never send `at`; the API stamps it on write.
+- **Embed density** — container queries on the embed grid (~4 columns from ~960px iframe width) so 720p and Windows display scaling keep more cards visible without changing OS resolution.
+- **Rate budget** — same NAT may run projector fast poll (~60/min), assist poll (~15/min), and control display report (~5/min) ≈ **80/min** under the **90/min** GET cap on `/api/present-command`.
 
 ## Tests
 

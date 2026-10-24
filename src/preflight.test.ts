@@ -6,6 +6,7 @@ import {
     classifyMacro,
     classifyMarket,
     classifyProjector,
+    classifyProjectorEmbed,
     classifySlide,
 } from './preflight';
 
@@ -57,6 +58,21 @@ describe('preflight classifiers', () => {
         expect(classifyMacro(200, { success: true, data: {} })).toEqual({ status: 'fail', detail: 'malformed response' });
         expect(classifyMacro(200, { success: true, data: [] })).toEqual({ status: 'warn', detail: '0 items' });
         expect(classifyMacro(200, { success: true, data: [{}] })).toEqual({ status: 'pass', detail: '1 items' });
+    });
+
+    it('classifies projector embed width when live', () => {
+        expect(classifyProjectorEmbed({ at: 9000, display: { fw: 631 } }, 10_000)).toEqual({
+            status: 'warn',
+            detail: 'embed 631px — expect fewer than 4 columns',
+        });
+        expect(classifyProjectorEmbed({ at: 9000, display: { fw: 1024 } }, 10_000)).toEqual({
+            status: 'pass',
+            detail: 'embed 1024px',
+        });
+        expect(classifyProjectorEmbed({ at: 9000 }, 10_000)).toEqual({
+            status: 'skip',
+            detail: 'no embed width on projector report',
+        });
     });
 
     it('classifies projector liveness and keeps invalid times readable', () => {

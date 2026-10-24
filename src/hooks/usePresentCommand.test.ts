@@ -25,6 +25,12 @@ describe('usePresentCommand helpers', () => {
         expect(presentCommandPollUrl({ mode: 'pdf', page: 2, v: 0, lid: 'cmd-1' })).toBe('/api/present-command?st=1&mode=pdf&page=2&v=0&lid=cmd-1');
         expect(presentCommandPollUrl({ mode: 'pdf', page: 2, v: 0 }, ['page-1', 'page-2']))
             .toBe('/api/present-command?st=1&mode=pdf&page=2&v=0&ack=page-1&ack=page-2');
+        expect(presentCommandPollUrl({
+            mode: 'index',
+            page: 1,
+            v: 9,
+            display: { schema: 1, iw: 1280, ih: 720, dpr: 1, fw: 631, fh: 400 },
+        })).toBe('/api/present-command?st=1&mode=index&page=1&v=9&iw=1280&ih=720&dpr=100&fw=631&fh=400');
     });
 
     it('keeps the bare poll URL when getState returns null', () => {

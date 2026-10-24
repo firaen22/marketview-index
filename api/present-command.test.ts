@@ -159,7 +159,7 @@ describe('present-command API handler', () => {
         res = await call(makeReq({ method: 'GET' }));
 
         expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ success: true, command: null, serverTime: expect.any(Number), projector: null, pageCommands: [] });
+        expect(res.body).toEqual({ success: true, command: null, serverTime: expect.any(Number), projector: null, control: null, pageCommands: [] });
     });
 
     it('rate-limits GET and does not add CORS headers', async () => {
@@ -188,8 +188,86 @@ describe('present-command API handler', () => {
             command: null,
             serverTime: 5000,
             projector: { mode: 'pdf', page: 2, v: 0, at: 5000 },
+            control: null,
             pageCommands: [],
         });
+    });
+
+    it('GET stores control surface separately from projector state', async () => {
+        redisState.current.get.mockResolvedValue(null);
+
+        const res = await call(projectorGet({
+            st: '1',
+            role: 'control',
+            iw: '390',
+            ih: '844',
+            dpr: '300',
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.set).toHaveBeenCalledWith(
+            'present:pcontrol:v1',
+            JSON.stringify({
+                at: 5000,
+                display: { schema: 1, iw: 390, ih: 844, dpr: 3 },
+            }),
+            { ex: 15 },
+        );
+        expect(redisState.current.set).not.toHaveBeenCalledWith('present:pstate:v1', expect.anything(), expect.anything());
+        expect(res.body.control.display.iw).toBe(390);
+        expect(res.body.projector).toBeNull();
+    });
+
+    it('GET stores optional display fields on the projector report', async () => {
+        redisState.current.get.mockResolvedValue(null);
+
+        const res = await call(projectorGet({
+            st: '1',
+            mode: 'index',
+            page: '1',
+            v: '7',
+            iw: '1280',
+            ih: '720',
+            dpr: '125',
+            fw: '631',
+            fh: '400',
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.set).toHaveBeenCalledWith(
+            'present:pstate:v1',
+            JSON.stringify({
+                mode: 'index',
+                page: 1,
+                v: 7,
+                at: 5000,
+                display: { schema: 1, iw: 1280, ih: 720, dpr: 1.25, fw: 631, fh: 400 },
+            }),
+            { ex: 15 },
+        );
+        expect(res.body.projector.display).toEqual({ schema: 1, iw: 1280, ih: 720, dpr: 1.25, fw: 631, fh: 400 });
+    });
+
+    it('GET drops invalid display params but still stores core projector state', async () => {
+        redisState.current.get.mockResolvedValue(null);
+
+        const res = await call(projectorGet({
+            st: '1',
+            mode: 'index',
+            page: '1',
+            v: '7',
+            iw: '1280',
+            ih: '720',
+            dpr: 'not-valid',
+        }));
+
+        expect(res.statusCode).toBe(200);
+        expect(redisState.current.set).toHaveBeenCalledWith(
+            'present:pstate:v1',
+            JSON.stringify({ mode: 'index', page: 1, v: 7, at: 5000 }),
+            { ex: 15 },
+        );
+        expect(res.body.projector.display).toBeUndefined();
     });
 
     it('GET ignores invalid projector params and still returns command with projector null', async () => {
