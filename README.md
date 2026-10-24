@@ -103,6 +103,20 @@ Phased plan, TypeSafe-style finding table, and architecture reviews (**gpt-6.1-s
 - **Embed density** — container queries on the embed grid (~4 columns from ~960px iframe width) so 720p and Windows display scaling keep more cards visible without changing OS resolution.
 - **Rate budget** — same NAT may run projector fast poll (~60/min), assist poll (~15/min), and control display report (~5/min) ≈ **80/min** under the **90/min** GET cap on `/api/present-command`.
 
+**Remote helpers (2026-10-24, Asia/Hong_Kong).** Grok Bot drives the show with `GET`/`POST /api/present-command`. That GET is the remote view of the projector. The bot has no screenshot of the presenter machine unless the Grok Bot desktop app is online on that Mac. It cannot resize the browser or enter fullscreen. Fullscreen is on-device (`F` on `/present` calls `requestFullscreen`). A bot may POST `view`, `clear`, compare, and the other present commands only.
+
+**Are the index cards showing?** Only a live `projector` object answers that. Read `projector.mode` (`"index"` is the cards; `"pdf"`, `"heatmap"`, and the other projector modes are other screens), `projector.page`, `projector.display` (`iw`, `ih`, `dpr`, optional `fw`/`fh`/`screenW`/`screenH`/`lang`), and `projector.at` (server-stamped). `projector.lid` is the last command id the projector reported, on the poll after it ran that command. The `command` slot (`present:cmd:v1`, 120 s TTL) can still hold `{ kind: "view", view: "index", id, issuedAt }` after the projector has gone quiet. The slot is not cleared when the command is applied, and a closed tab never applies it, so a queued view is not confirmation the cards are on screen. `control` does not carry mode.
+
+**What `projector: null` means today.** Authenticated `st=1` polls write `present:pstate:v1` with a 15 s TTL (`PROJECTOR_STATE_TTL_SECONDS`). A world-readable GET does not refresh that key. When `/present` is closed, backgrounded (hidden tabs throttle timers, often past 10 s), or stops those keyed polls, Redis expires the key and `GET /api/present-command` returns `projector: null`. `lid` expires with it. `control` is a different key (`present:pcontrol:v1`, same 15 s TTL; `/present-control` reports about every 12 s) and is only `{ at, display }` for the control device, so the same GET often has `control: null` too. The handler returns no `projectorLast`, `stale`, `ageMs`, or `applied` field. The control strip then shows “Projector offline”; it does not keep the last mode. A probe at 2026-10-24 14:44 HKT (06:44 UTC), unauthenticated `GET https://marketindex.pmd-hk.com/api/present-command`, returned `success: true` with `projector: null`, `control: null`, `command: null`, and `pageCommands: []`.
+
+**Proposed contract (not implemented).** So a helper can still answer after the heartbeat drops:
+
+- **Last-known projector snapshot.** On TTL expiry, return a short-lived `projectorLast` (or keep returning `projector` with `stale: true` and `ageMs`) including the last `mode`, `page`, `display`, and `at`. Helpers can then say “last seen: index at …” versus “unknown.”
+- **Command ack / applied state.** On the world-readable GET, surface `lid` plus the last applied `kind` and `view`, or `applied: { id, kind, view, at }`, including mid-poll and after `projector` is null. `applied.id` matching `command.id` confirms a `view` / `index` command was consumed. The command slot alone does not.
+- **Control-side mirror (optional).** If `/present-control` is open, echo the projector’s last known mode on the control strip and on the `control` payload, so operators and bots see the same cards-versus-PDF status without the projector tab.
+
+Until that follow-up lands in `api/present-command.ts`, expiry is still a hard `null`.
+
 ## Tests
 
 ```bash
@@ -112,7 +126,7 @@ npm run lint    # tsc --noEmit
 
 ## Presenter remote (agents)
 
-`/present` is the projector. `/present-control` is a preview and editor on another screen — commands that “did nothing” were often applied on the projector while the control preview stayed on the PDF. The projector is a client that polls `GET /api/present-command` (and the slide GET); a newly opened or backgrounded tab is blank until JavaScript loads and can lag a command until the next poll. `highlight` emphasizes one market card on the index view. It is not a date band on a chart.
+`/present` is the projector. `/present-control` is a preview and editor on another screen — commands that “did nothing” were often applied on the projector while the control preview stayed on the PDF. The projector is a client that polls `GET /api/present-command` (and the slide GET); a newly opened or backgrounded tab is blank until JavaScript loads and can lag a command until the next poll. `highlight` emphasizes one market card on the index view. It is not a date band on a chart. `projector: null` after the tab closes is the 15 s heartbeat expiry described under **Remote helpers** above, not a last-known index view.
 
 Writes send `x-api-key: $PRESENT_API_KEY`. Do not put the key in the repo.
 
