@@ -153,6 +153,7 @@ export default function PresentationControl() {
             <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 px-4 sm:px-6 py-2 border-b border-zinc-900/80 shrink-0 min-w-0">
                 <ProjectorTelemetryStrip
                     projector={assist.telemetry.projector}
+                    projectorLast={assist.telemetry.projectorLast}
                     control={assist.telemetry.control}
                     serverTime={assist.telemetry.serverTime}
                 />

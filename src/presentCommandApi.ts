@@ -1,8 +1,18 @@
-import type { CatalogItem, PageDirection, PresentCommand } from '../lib/presentCommand';
+import {
+    PRESENT_RANGES,
+    type CatalogItem,
+    type PageDirection,
+    type PresentCommand,
+    type PresentFullscreenMode,
+    type PresentIndexDensity,
+    type PresentRange,
+    type PresentView,
+} from '../lib/presentCommand';
 import { isExecutablePresentCommand } from '../lib/presentCommand';
 import type { AssistResult } from '../lib/presentAssist';
 import { validateAssistResult } from '../lib/presentAssist';
 import { type ControlSurfaceState, type ProjectorDisplay, validateProjectorDisplay } from '../lib/presentDisplay';
+import { isPresentFullscreenMode, isPresentIndexDensity } from '../lib/presentIndexView';
 
 export type { ControlSurfaceState } from '../lib/presentDisplay';
 
@@ -16,6 +26,22 @@ export interface ProjectorState {
     at: number;
     lid?: string;
     display?: ProjectorDisplay;
+}
+
+export interface ProjectorLastState extends ProjectorState {
+    stale: boolean;
+    ageMs: number;
+}
+
+export interface PresentAppliedState {
+    id: string;
+    kind: PresentCommand['kind'];
+    at: number;
+    view?: PresentView;
+    density?: PresentIndexDensity;
+    fsMode?: PresentFullscreenMode;
+    symbol?: string;
+    range?: PresentRange;
 }
 
 if (import.meta.env.DEV && import.meta.env.MODE !== 'test' && !API_KEY) {
@@ -135,6 +161,80 @@ export async function sendPresentPageCommand(direction: PageDirection, signal?: 
     return toCommand(payload);
 }
 
+export async function sendPresentView(view: PresentView, signal?: AbortSignal): Promise<PresentCommand> {
+    const payload = await postPresentCommand({ action: 'view', view }, signal);
+    return toCommand(payload);
+}
+
+export async function sendPresentIndexLayout(density: PresentIndexDensity, signal?: AbortSignal): Promise<PresentCommand> {
+    const payload = await postPresentCommand({ action: 'layout', density }, signal);
+    return toCommand(payload);
+}
+
+export async function sendPresentFullscreen(mode: PresentFullscreenMode, signal?: AbortSignal): Promise<PresentCommand> {
+    const payload = await postPresentCommand({ action: 'fullscreen', mode }, signal);
+    return toCommand(payload);
+}
+
+export async function sendPresentRange(range: string, signal?: AbortSignal): Promise<PresentCommand> {
+    const payload = await postPresentCommand({ action: 'range', range }, signal);
+    return toCommand(payload);
+}
+
+export async function sendPresentHighlight(
+    symbol: string,
+    catalog?: CatalogItem[],
+    signal?: AbortSignal,
+): Promise<PresentCommand> {
+    const payload = await postPresentCommand({
+        action: 'highlight',
+        symbol,
+        ...(catalog ? { catalog } : {}),
+    }, signal);
+    return toCommand(payload);
+}
+
+function parseProjectorLast(value: unknown): ProjectorLastState | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, unknown>;
+    const core = parseProjectorState(raw);
+    if (!core) return null;
+    if (typeof raw.stale !== 'boolean') return null;
+    if (typeof raw.ageMs !== 'number' || !Number.isFinite(raw.ageMs) || raw.ageMs < 0) return null;
+    return { ...core, stale: raw.stale, ageMs: raw.ageMs };
+}
+
+function parsePresentApplied(value: unknown): PresentAppliedState | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, unknown>;
+    if (typeof raw.id !== 'string' || raw.id.length < 1 || raw.id.length > 64) return null;
+    if (typeof raw.kind !== 'string' || typeof raw.at !== 'number' || !Number.isFinite(raw.at)) return null;
+    const applied: PresentAppliedState = {
+        id: raw.id,
+        kind: raw.kind as PresentAppliedState['kind'],
+        at: raw.at,
+    };
+    if (raw.view !== undefined) {
+        if (raw.view !== 'slide' && raw.view !== 'index' && raw.view !== 'heatmap') return null;
+        applied.view = raw.view;
+    }
+    if (raw.density !== undefined) {
+        if (!isPresentIndexDensity(raw.density)) return null;
+        applied.density = raw.density;
+    }
+    if (raw.fsMode !== undefined) {
+        if (!isPresentFullscreenMode(raw.fsMode)) return null;
+        applied.fsMode = raw.fsMode;
+    }
+    if (typeof raw.symbol === 'string') applied.symbol = raw.symbol;
+    if (raw.range !== undefined) {
+        const rangeKey = typeof raw.range === 'string' ? raw.range.toUpperCase() : null;
+        if (!rangeKey || !PRESENT_RANGES.includes(rangeKey as PresentRange)) return null;
+        applied.range = rangeKey as PresentRange;
+    }
+    return applied;
+}
+
 function parseControlSurface(value: unknown): ControlSurfaceState | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const raw = value as Record<string, unknown>;
@@ -146,6 +246,8 @@ function parseControlSurface(value: unknown): ControlSurfaceState | null {
 
 export async function fetchProjectorState(signal?: AbortSignal): Promise<{
     projector: ProjectorState | null;
+    projectorLast: ProjectorLastState | null;
+    applied: PresentAppliedState | null;
     control: ControlSurfaceState | null;
     serverTime: number;
 }> {
@@ -158,8 +260,10 @@ export async function fetchProjectorState(signal?: AbortSignal): Promise<{
         ? payload.serverTime
         : Date.now();
     const projector = parseProjectorState(payload?.projector);
+    const projectorLast = parseProjectorLast(payload?.projectorLast);
+    const applied = parsePresentApplied(payload?.applied);
     const control = parseControlSurface(payload?.control);
-    return { projector, control, serverTime };
+    return { projector, projectorLast, applied, control, serverTime };
 }
 
 export async function fetchAssist(text: string, lang: 'en' | 'zh-TW', signal?: AbortSignal): Promise<AssistResult> {

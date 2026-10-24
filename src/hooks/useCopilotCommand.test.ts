@@ -112,7 +112,13 @@ describe('useCopilotCommand shared command lifecycle', () => {
         api.sendPresentCommand.mockReset();
         api.clearPresentCommand.mockReset();
         api.fetchProjectorState.mockReset();
-        api.fetchProjectorState.mockResolvedValue({ projector: null, control: null, serverTime: 0 });
+        api.fetchProjectorState.mockResolvedValue({
+            projector: null,
+            projectorLast: null,
+            applied: null,
+            control: null,
+            serverTime: 0,
+        });
         container = document.createElement('div');
         document.body.appendChild(container);
         root = createRoot(container);

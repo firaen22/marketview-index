@@ -4,7 +4,15 @@ import { ASSIST_MAX_TEXT_LEN, ASSIST_MIN_TEXT_LEN, normalizeAssistText } from '.
 import type { PresentSlide } from '../settings';
 import { getSettings } from '../settings';
 import type { ControlSurfaceState } from '../../lib/presentDisplay';
-import { authHeaders, fetchAssist, fetchAssistImage, fetchProjectorState, type ProjectorState } from '../presentCommandApi';
+import {
+    authHeaders,
+    fetchAssist,
+    fetchAssistImage,
+    fetchProjectorState,
+    type PresentAppliedState,
+    type ProjectorLastState,
+    type ProjectorState,
+} from '../presentCommandApi';
 import { extractPdfPageText, loadPdf, renderPdfPageToJpeg } from '../pdfText';
 import { buildJargonWarmBody, isJargonEligible } from '../jargon';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -44,6 +52,8 @@ export interface PresentAssistState {
     };
     telemetry: {
         projector: ProjectorState | null;
+        projectorLast: ProjectorLastState | null;
+        applied: PresentAppliedState | null;
         control: ControlSurfaceState | null;
         serverTime: number;
     };
@@ -105,6 +115,8 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
     const [status, setStatus] = useState<AssistStatus>(enabled ? 'loading' : 'idle');
     const [assist, setAssist] = useState<AssistResult | null>(null);
     const [projector, setProjector] = useState<ProjectorState | null>(null);
+    const [projectorLast, setProjectorLast] = useState<ProjectorLastState | null>(null);
+    const [applied, setApplied] = useState<PresentAppliedState | null>(null);
     const [controlSurface, setControlSurface] = useState<ControlSurfaceState | null>(null);
     const [serverTime, setServerTime] = useState(() => Date.now());
     const [manualPage, setManualPage] = useState(1);
@@ -191,6 +203,8 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 wasLiveRef.current = nextLive;
                 projectorRef.current = result.projector;
                 setProjector(result.projector);
+                setProjectorLast(result.projectorLast);
+                setApplied(result.applied);
                 setControlSurface(result.control);
                 setServerTime(result.serverTime);
                 timeout = window.setTimeout(run, POLL_MS);
@@ -678,6 +692,6 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
             start: startPrepare,
             cancel: cancelPrepare,
         },
-        telemetry: { projector, control: controlSurface, serverTime },
+        telemetry: { projector, projectorLast, applied, control: controlSurface, serverTime },
     };
 }

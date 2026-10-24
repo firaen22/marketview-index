@@ -46,4 +46,11 @@ describe('presentDisplay', () => {
     it('drops invalid display query without throwing', () => {
         expect(parseProjectorDisplayFromQuery({ iw: '1280', ih: 'not-a-number', dpr: '100' })).toBeNull();
     });
+
+    it('round-trips fullscreen flag fs=0 and fs=1 and omits invalid fs', () => {
+        expect(parseProjectorDisplayFromQuery({ iw: '100', ih: '100', dpr: '100', fs: '1' })?.fs).toBe(1);
+        expect(parseProjectorDisplayFromQuery({ iw: '100', ih: '100', dpr: '100', fs: '0' })?.fs).toBe(0);
+        expect(parseProjectorDisplayFromQuery({ iw: '100', ih: '100', dpr: '100', fs: '2' })?.fs).toBeUndefined();
+        expect(validateProjectorDisplay({ schema: 1, iw: 100, ih: 100, dpr: 1, fs: 9 })?.fs).toBeUndefined();
+    });
 });

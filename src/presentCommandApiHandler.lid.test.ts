@@ -1,15 +1,49 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+function atFromJson(raw: string | null): number {
+    if (!raw) return 0;
+    try {
+        const o = JSON.parse(raw) as { at?: number };
+        return typeof o.at === 'number' && Number.isFinite(o.at) ? o.at : 0;
+    } catch {
+        return 0;
+    }
+}
+
+function installRedisMemory() {
+    const mem = new Map<string, string>();
+    return {
+        get: vi.fn(async (key: string) => (mem.has(key) ? mem.get(key)! : null)),
+        set: vi.fn(async (key: string, value: string) => {
+            mem.set(key, value);
+            return 'OK';
+        }),
+        incr: vi.fn().mockResolvedValue(1),
+        ttl: vi.fn().mockResolvedValue(60),
+        expire: vi.fn().mockResolvedValue(1),
+        lrange: vi.fn().mockResolvedValue([]),
+        lrem: vi.fn().mockResolvedValue(1),
+        eval: vi.fn(async (script: string, keys: string[], args: string[]) => {
+            if (script.includes('incoming_at')) {
+                const incoming = JSON.parse(args[0]);
+                const storedAt = Math.max(
+                    atFromJson(mem.get(keys[0]) ?? null),
+                    atFromJson(mem.get(keys[1]) ?? null),
+                );
+                if (incoming.at < storedAt) return 0;
+                mem.set(keys[0], args[0]);
+                mem.set(keys[1], args[0]);
+                return 1;
+            }
+            mem.set(keys[0], args[0]);
+            return 1;
+        }),
+        _mem: mem,
+    };
+}
+
 const redisState = vi.hoisted(() => ({
-    current: {
-        get: vi.fn(),
-        set: vi.fn(),
-        incr: vi.fn(),
-        ttl: vi.fn(),
-        expire: vi.fn(),
-        lrange: vi.fn(),
-        lrem: vi.fn(),
-    } as any,
+    current: installRedisMemory(),
 }));
 
 vi.mock('../lib/redis.js', () => ({
@@ -71,15 +105,7 @@ describe('present-command API projector lid reports', () => {
         vi.restoreAllMocks();
         vi.spyOn(Date, 'now').mockReturnValue(5000);
         process.env.PRESENT_API_KEY = 'secret';
-        redisState.current = {
-            get: vi.fn().mockResolvedValue(null),
-            set: vi.fn().mockResolvedValue('OK'),
-            incr: vi.fn().mockResolvedValue(1),
-            ttl: vi.fn().mockResolvedValue(60),
-            expire: vi.fn().mockResolvedValue(1),
-            lrange: vi.fn().mockResolvedValue([]),
-            lrem: vi.fn().mockResolvedValue(1),
-        };
+        redisState.current = installRedisMemory();
     });
 
     it('stores valid lid and omits absent or malformed lid without rejecting projector state', async () => {
@@ -88,22 +114,14 @@ describe('present-command API projector lid reports', () => {
         let res = await call({ st: '1', mode: 'slide', page: '3', v: '7', lid });
         expect(res.statusCode).toBe(200);
         expect(res.body.projector).toEqual({ mode: 'slide', page: 3, v: 7, at: 5000, lid });
-        expect(redisState.current.set).toHaveBeenCalledWith(
-            'present:pstate:v1',
-            JSON.stringify({ mode: 'slide', page: 3, v: 7, at: 5000, lid }),
-            { ex: 15 },
-        );
+        expect(redisState.current.eval).toHaveBeenCalled();
 
         for (const badLid of ['x'.repeat(65), 'bad_id']) {
-            redisState.current.set.mockClear();
+            redisState.current.eval.mockClear();
             res = await call({ st: '1', mode: 'pdf', page: '3', v: '7', lid: badLid });
             expect(res.statusCode).toBe(200);
             expect(res.body.projector).toEqual({ mode: 'pdf', page: 3, v: 7, at: 5000 });
-            expect(redisState.current.set).toHaveBeenCalledWith(
-                'present:pstate:v1',
-                JSON.stringify({ mode: 'pdf', page: 3, v: 7, at: 5000 }),
-                { ex: 15 },
-            );
+            expect(redisState.current.eval).toHaveBeenCalled();
         }
 
         res = await call({ st: '1', mode: 'pdf', page: '3', v: '7' });

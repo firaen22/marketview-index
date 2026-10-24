@@ -15,6 +15,8 @@ export interface ProjectorDisplay {
     screenW?: number;
     screenH?: number;
     lang?: string;
+    /** Fullscreen element active on projector (0 or 1). Invalid wire values are omitted. */
+    fs?: 0 | 1;
 }
 
 function validDim(value: unknown, allowZero = false): number | null {
@@ -35,6 +37,13 @@ function validLang(value: unknown): string | undefined {
     if (value === undefined || value === null) return undefined;
     if (typeof value !== 'string' || value.length > 16 || !LANG_PATTERN.test(value)) return undefined;
     return value;
+}
+
+function validFullscreenFlag(value: unknown): 0 | 1 | undefined {
+    if (value === 0 || value === 1) return value;
+    if (value === '0') return 0;
+    if (value === '1') return 1;
+    return undefined;
 }
 
 export function validateProjectorDisplay(value: unknown): ProjectorDisplay | null {
@@ -59,6 +68,8 @@ export function validateProjectorDisplay(value: unknown): ProjectorDisplay | nul
     const lang = validLang(raw.lang);
     if (raw.lang !== undefined && lang === undefined) return null;
 
+    const fs = validFullscreenFlag(raw.fs);
+
     return {
         schema: 1,
         iw,
@@ -69,6 +80,7 @@ export function validateProjectorDisplay(value: unknown): ProjectorDisplay | nul
         ...(screenW !== undefined ? { screenW } : {}),
         ...(screenH !== undefined ? { screenH } : {}),
         ...(lang !== undefined ? { lang } : {}),
+        ...(fs !== undefined ? { fs } : {}),
     };
 }
 
@@ -113,6 +125,11 @@ export function parseProjectorDisplayFromQuery(query: Record<string, unknown>): 
         const lang = validLang(langText);
         if (lang !== undefined) raw.lang = lang;
     }
+    const fsText = oneQuery(query.fs);
+    if (fsText !== null) {
+        const fs = validFullscreenFlag(fsText);
+        if (fs !== undefined) raw.fs = fs;
+    }
 
     return validateProjectorDisplay(raw);
 }
@@ -140,6 +157,7 @@ export function appendProjectorDisplayParams(params: URLSearchParams, display: P
     if (display.screenW !== undefined) params.set('sw', String(display.screenW));
     if (display.screenH !== undefined) params.set('sh', String(display.screenH));
     if (display.lang !== undefined) params.set('dlang', display.lang);
+    if (display.fs !== undefined) params.set('fs', String(display.fs));
 }
 
 export function sampleProjectorDisplay(opts: {
@@ -163,6 +181,7 @@ export function sampleProjectorDisplay(opts: {
     const screenW = typeof window.screen?.width === 'number' ? validDim(window.screen.width) : null;
     const screenH = typeof window.screen?.height === 'number' ? validDim(window.screen.height) : null;
     const lang = opts.lang ? validLang(opts.lang) : undefined;
+    const fs = document.fullscreenElement ? 1 : 0;
     return validateProjectorDisplay({
         schema: 1,
         iw,
@@ -172,5 +191,6 @@ export function sampleProjectorDisplay(opts: {
         ...(screenW !== null ? { screenW } : {}),
         ...(screenH !== null ? { screenH } : {}),
         ...(lang !== undefined ? { lang } : {}),
+        fs,
     }) ?? undefined;
 }

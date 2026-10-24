@@ -86,7 +86,7 @@ Because the app is code-split, verifying that a change reached production by gre
 
 ## Presenter viewport telemetry
 
-Phased plan, TypeSafe-style finding table, and architecture reviews (**gpt-6.1-sol** + **Grok 4.7**, 2026-10-24): `docs/present-viewport-plan.md`. Summary of what shipped (no `/api/present-status`, no extra POST on the poll cadence):
+Phased plan, TypeSafe-style finding table, and architecture reviews (**gpt-6.1-sol** + **Grok 4.7**, 2026-10-24): `docs/present-viewport-plan.md`. **Remote helper last-known / applied ack** (PR #87 gap, follow-up spec): `docs/present-remote-helper-plan.md` (same review stack + TypeSafe **jev-1.14.0** ratings). Summary of what shipped (no `/api/present-status`, no extra POST on the poll cadence):
 
 **Three layout boxes** (do not conflate them):
 
@@ -96,8 +96,8 @@ Phased plan, TypeSafe-style finding table, and architecture reviews (**gpt-6.1-s
 | Index embed iframe | `/?embed=1` inside `/present` | `display.fw` / `display.fh` (`clientWidth` / `clientHeight` on the iframe document) — card grid and `100vmin` scaling apply here, not the outer window |
 | Control device | `/present-control` | Separate Redis key `present:pcontrol:v1` via `st=1&role=control` |
 
-- **Projector heartbeat** — authenticated `st=1` **GET** (`usePresentCommand`) adds optional `display` (`iw`, `ih`, `fw`, `fh`, `dpr`, optional `screenW`/`screenH`, `lang`). Stored in `present:pstate:v1` (15 s TTL). Invalid `display` is dropped; mode/page/`v`/`at`/`lid` still save. **Do not** add viewport on a separate POST — that bypasses the 90/min GET limiter and doubles traffic ([Sol/Grok PR #85 review](https://github.com/firaen22/marketview-index/pull/85)).
-- **World-readable GET** — unauthenticated `GET /api/present-command` returns `projector.display` like `mode`/`page` (sizes and language only; no glossary terms on this key).
+- **Projector heartbeat** — authenticated `st=1` **GET** (`usePresentCommand`) adds optional `display` (`iw`, `ih`, `fw`, `fh`, `dpr`, optional `screenW`/`screenH`, `lang`, `fs` as `0`/`1` for fullscreen element). Stored in `present:pstate:v1` (15 s TTL). Invalid `display` fields are dropped individually; mode/page/`v`/`at`/`lid` still save. **Do not** add viewport on a separate POST — that bypasses the 90/min GET limiter and doubles traffic ([Sol/Grok PR #85 review](https://github.com/firaen22/marketview-index/pull/85)).
+- **World-readable GET** — unauthenticated `GET /api/present-command` always returns `projector` (live heartbeat or `null`), `projectorLast` (last snapshot + `stale` + `ageMs`), `applied` (last command ack from `lid` + cmdmeta), and `command` (executable slot). Treat **live** `projector.mode` / `projector.display.fs` as on-screen truth; use `projectorLast` when the heartbeat expired. Bots: after each POST, poll until `applied.id === command.id` (bounded wait); do not infer index on screen from `command` alone.
 - **Control UI** — telemetry strip reads `usePresentAssist`’s 4s poll (no second interval). Glossary audience status uses separate `/api/glossary-session` polls. Launch popup sizing uses `screen.availWidth` / `availHeight` on the **control** device only (hint for window chrome, not projector layout).
 - **Server time** — clients never send `at`; the API stamps it on write.
 - **Embed density** — container queries on the embed grid (~4 columns from ~960px iframe width) so 720p and Windows display scaling keep more cards visible without changing OS resolution.
@@ -113,6 +113,10 @@ npm run lint    # tsc --noEmit
 ## Presenter remote (agents)
 
 `/present` is the projector. `/present-control` is a preview and editor on another screen — commands that “did nothing” were often applied on the projector while the control preview stayed on the PDF. The projector is a client that polls `GET /api/present-command` (and the slide GET); a newly opened or backgrounded tab is blank until JavaScript loads and can lag a command until the next poll. `highlight` emphasizes one market card on the index view. It is not a date band on a chart.
+
+**Poll contract (bots):** World-readable `GET /api/present-command` returns `projector` (live ≤15 s), `projectorLast` (last mode + `stale`/`ageMs`), `applied` (ack for the last executed command id), and `command` (slot). After each POST, poll until `applied.id === command.id` (or the control UI’s `projector.lid` matches) before chaining another command. Do not treat a non-null `command` alone as proof the projector is on index. Use **live** `projector.display.fs` for fullscreen (`0`/`1`); `applied` for `fullscreen enter` can be true while `fs` stays `0` if the browser denied activation — retry or read live telemetry only. `projectorLast.display.fs` is not trustworthy after the heartbeat expires. Remote control cannot resize the OS window or move monitors — use `layout` / embed density and fullscreen enter/exit only.
+
+**Structured POST (index):** `{"action":"view","view":"index"}` · `{"action":"layout","density":"compact"|"comfortable"|"auto"}` · `{"action":"range","range":"YTD"}` (etc.) · `{"action":"highlight","symbol":"^HSI"}` · `{"action":"fullscreen","mode":"enter"|"exit"}` (no `toggle`).
 
 Writes send `x-api-key: $PRESENT_API_KEY`. Do not put the key in the repo.
 

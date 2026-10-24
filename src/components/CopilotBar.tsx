@@ -107,7 +107,7 @@ export function CopilotBar({ catalog, lang, text, onTextChange: setText, command
             try {
                 const result = await fetchProjectorState(controller.signal);
                 if (controller.signal.aborted) return;
-                if (result.projector?.lid === command.id) {
+                if (result.applied?.id === command.id || result.projector?.lid === command.id) {
                     if (ackControllerRef.current !== controller) return;
                     ackControllerRef.current = null;
                     setDismissibleStatus({ type: 'success', message, confirmed: true });

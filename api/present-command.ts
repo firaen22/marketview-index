@@ -34,6 +34,20 @@ import {
     validateProjectorDisplay,
 } from '../lib/presentDisplay.js';
 import { isOverlayCaption, isOverlayImageSrc } from '../lib/presentOverlay.js';
+import { isPresentFullscreenMode, isPresentIndexDensity } from '../lib/presentIndexView.js';
+import {
+    APPLIED_STATE_KEY,
+    buildAppliedFromMeta,
+    buildCmdMeta,
+    cmdMetaKey,
+    COMMAND_STORE_WITH_META,
+    CMD_META_TTL_SECONDS,
+    commitProjectorReport,
+    enrichProjectorLast,
+    isLiveProjector,
+    PROJECTOR_LAST_KEY,
+    type AppliedState,
+} from '../lib/presentRemoteRedis.js';
 
 const COMMAND_KEY = 'present:cmd:v1';
 // Page turns are RELATIVE commands: unlike chart/view/clear (absolute, safe to
@@ -137,24 +151,71 @@ function canonicalCatalog(catalog: CatalogItem[]): CatalogItem[] {
     }));
 }
 
-export const COMMAND_STORE_IF_FRESH = `
-local existing = redis.call('GET', KEYS[1])
-if existing then
-  local parsed = cjson.decode(existing)
-  if parsed.issuedAt and tonumber(parsed.issuedAt) > tonumber(ARGV[2]) then
-    return 0
-  end
-end
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
-return 1`;
+export const COMMAND_STORE_IF_FRESH = COMMAND_STORE_WITH_META;
 
 async function storeCommandIfFresh(command: PresentCommand, receivedAt: number): Promise<boolean> {
+    const meta = buildCmdMeta(command);
     const result = await redis!.eval(
-        COMMAND_STORE_IF_FRESH,
-        [COMMAND_KEY],
-        [JSON.stringify(command), String(receivedAt), String(COMMAND_TTL_SECONDS)],
+        COMMAND_STORE_WITH_META,
+        [COMMAND_KEY, cmdMetaKey(command.id)],
+        [
+            JSON.stringify(command),
+            String(receivedAt),
+            String(COMMAND_TTL_SECONDS),
+            JSON.stringify(meta),
+            String(CMD_META_TTL_SECONDS),
+        ],
     );
     return Number(result) === 1;
+}
+
+function parseAppliedState(value: unknown): AppliedState | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const raw = value as Record<string, unknown>;
+    if (typeof raw.id !== 'string' || raw.id.length < 1 || raw.id.length > 64) return null;
+    if (typeof raw.kind !== 'string' || typeof raw.at !== 'number' || !Number.isFinite(raw.at)) return null;
+    const applied: AppliedState = { id: raw.id, kind: raw.kind as AppliedState['kind'], at: raw.at };
+    if (raw.view !== undefined) {
+        if (raw.view !== 'slide' && raw.view !== 'index' && raw.view !== 'heatmap') return null;
+        applied.view = raw.view;
+    }
+    if (raw.density !== undefined) {
+        if (!isPresentIndexDensity(raw.density)) return null;
+        applied.density = raw.density;
+    }
+    if (raw.fsMode !== undefined) {
+        if (!isPresentFullscreenMode(raw.fsMode)) return null;
+        applied.fsMode = raw.fsMode;
+    }
+    if (raw.symbol !== undefined) {
+        if (typeof raw.symbol !== 'string') return null;
+        applied.symbol = raw.symbol;
+    }
+    if (raw.range !== undefined) {
+        const rangeKey = typeof raw.range === 'string' ? raw.range.toUpperCase() : null;
+        if (!rangeKey || !PRESENT_RANGES.includes(rangeKey as typeof PRESENT_RANGES[number])) return null;
+        applied.range = rangeKey as AppliedState['range'];
+    }
+    return applied;
+}
+
+async function readAppliedState(): Promise<AppliedState | null> {
+    try {
+        const stored = await redis!.get(APPLIED_STATE_KEY);
+        if (!stored) return null;
+        return parseAppliedState(parseStoredJson(stored));
+    } catch {
+        return null;
+    }
+}
+
+async function readProjectorLastState(): Promise<ProjectorState | null> {
+    try {
+        const stored = await redis!.get(PROJECTOR_LAST_KEY);
+        return validateProjectorState(parseStoredJson(stored));
+    } catch {
+        return null;
+    }
 }
 
 async function enqueuePageCommand(command: PresentCommand) {
@@ -381,8 +442,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'GET') {
+        const reportAt = Date.now();
         if (!await rateLimit(req)) return json(res, 429, { error: 'rate_limited' });
-        const serverTime = Date.now();
         // A projector report MUTATES server state (state write + acknowledgements),
         // so it must carry the same soft-gate key as POST. Plain command polls
         // stay unauthenticated; an unkeyed st=1 probe degrades to a plain poll
@@ -390,8 +451,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const getKey = process.env.PRESENT_API_KEY;
         const projectorAuthed = !!getKey && authorize(req.headers?.['x-api-key'], getKey);
         const query = req.query as Record<string, unknown>;
-        const nextControl = projectorAuthed ? controlDisplayFromQuery(query, serverTime) : null;
-        const nextProjector = projectorAuthed ? projectorStateFromQuery(query, serverTime) : null;
+        const nextControl = projectorAuthed ? controlDisplayFromQuery(query, reportAt) : null;
+        const nextProjector = projectorAuthed ? projectorStateFromQuery(query, reportAt) : null;
         const ackValues = req.query?.ack;
         const ackIds = (Array.isArray(ackValues) ? ackValues : [ackValues])
             .filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(id));
@@ -405,7 +466,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         if (nextProjector) {
             try {
-                await redis.set(PROJECTOR_STATE_KEY, JSON.stringify(nextProjector), { ex: PROJECTOR_STATE_TTL_SECONDS });
+                const lid = nextProjector.lid;
+                let appliedPayload: { metaKey: string; appliedJson: string } | null = null;
+                if (lid) {
+                    try {
+                        const metaRaw = await redis.get(cmdMetaKey(lid));
+                        if (metaRaw) {
+                            const meta = parseStoredJson(metaRaw) as ReturnType<typeof buildCmdMeta>;
+                            if (meta && typeof meta === 'object' && meta.kind) {
+                                appliedPayload = {
+                                    metaKey: cmdMetaKey(lid),
+                                    appliedJson: JSON.stringify(
+                                        buildAppliedFromMeta(lid, meta, nextProjector.at),
+                                    ),
+                                };
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Present cmdmeta/applied parse error:', error);
+                    }
+                }
+                await commitProjectorReport(redis, JSON.stringify(nextProjector), appliedPayload);
             } catch (error) {
                 console.error('Present projector state write error:', error);
             }
@@ -417,19 +498,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 console.error('Present control surface write error:', error);
             }
         }
-        const [command, projector, control, pageCommands] = await Promise.all([
+        const [command, projectorStored, projectorLastStored, applied, control, pageCommands] = await Promise.all([
             readCommand(),
-            nextProjector ? Promise.resolve(nextProjector) : readProjectorState(),
+            readProjectorState(),
+            readProjectorLastState(),
+            readAppliedState(),
             nextControl ? Promise.resolve(nextControl) : readControlSurfaceState(),
-            // Read only for a VALID projector report: this GET is unauth by
-            // design, so a bare st=1 probe (or a malformed poll) must not be
-            // able to consume or acknowledge queued page turns.
             nextProjector ? readPageCommands() : Promise.resolve([]),
         ]);
-        // serverTime lets the projector judge staleness in SERVER time —
-        // issuedAt is server-stamped, so a skewed projector clock must not
-        // silently expire (or resurrect) every command.
-        return json(res, 200, { success: true, command, serverTime, projector, control, pageCommands });
+        const responseTime = Date.now();
+        const liveFresh = isLiveProjector(projectorStored, responseTime);
+        const lastSnapshot = projectorLastStored ?? projectorStored;
+        const projector = liveFresh ? projectorStored : null;
+        const projectorLast = enrichProjectorLast(lastSnapshot, responseTime, liveFresh);
+        return json(res, 200, {
+            success: true,
+            command,
+            serverTime: responseTime,
+            projector,
+            projectorLast,
+            applied,
+            control,
+            pageCommands,
+        });
     }
 
     if (req.method !== 'POST') {
@@ -617,6 +708,89 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
             if (!command || !isExecutablePresentCommand(command)) {
                 return json(res, 400, { error: parsed.body.action === 'overlay' ? 'invalid_overlay' : 'invalid_symbols' });
+            }
+            if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
+            return json(res, 200, { success: true, command });
+        }
+
+        if (parsed.body.action === 'view') {
+            const receivedAt = Date.now();
+            const validation = validatePresentIntent({ kind: 'view', symbols: [], view: parsed.body.view }, []);
+            if (!validation.ok || validation.intent.kind !== 'view') {
+                return json(res, 400, { error: 'invalid_view' });
+            }
+            const command = buildPresentCommand(validation.intent, crypto.randomUUID(), receivedAt);
+            if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
+            return json(res, 200, { success: true, command });
+        }
+
+        if (parsed.body.action === 'layout') {
+            const receivedAt = Date.now();
+            if (!isPresentIndexDensity(parsed.body.density)) {
+                return json(res, 400, { error: 'invalid_density' });
+            }
+            const command = buildPresentCommand(
+                { kind: 'layout', symbols: [], density: parsed.body.density },
+                crypto.randomUUID(),
+                receivedAt,
+            );
+            if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
+            return json(res, 200, { success: true, command });
+        }
+
+        if (parsed.body.action === 'fullscreen') {
+            const receivedAt = Date.now();
+            if (!isPresentFullscreenMode(parsed.body.mode)) {
+                return json(res, 400, { error: 'invalid_fullscreen' });
+            }
+            const command = buildPresentCommand(
+                { kind: 'fullscreen', symbols: [], fsMode: parsed.body.mode },
+                crypto.randomUUID(),
+                receivedAt,
+            );
+            if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
+            return json(res, 200, { success: true, command });
+        }
+
+        if (parsed.body.action === 'range') {
+            const receivedAt = Date.now();
+            const validation = validatePresentIntent({ kind: 'range', symbols: [], range: parsed.body.range }, []);
+            if (!validation.ok || validation.intent.kind !== 'range') {
+                return json(res, 400, { error: 'invalid_range' });
+            }
+            const command = buildPresentCommand(validation.intent, crypto.randomUUID(), receivedAt);
+            if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
+            return json(res, 200, { success: true, command });
+        }
+
+        if (parsed.body.action === 'highlight') {
+            const receivedAt = Date.now();
+            const symbol = parsed.body.symbol;
+            if (typeof symbol !== 'string' || symbol.length < 1 || symbol.length > 32) {
+                return json(res, 400, { error: 'invalid_symbol' });
+            }
+            let command: PresentCommand | null = null;
+            if (parsed.body.catalog !== undefined) {
+                if (!validCatalog(parsed.body.catalog)) return json(res, 400, { error: 'invalid_catalog' });
+                const validation = validatePresentIntent(
+                    { kind: 'highlight', symbols: [symbol] },
+                    canonicalCatalog(parsed.body.catalog),
+                );
+                if (!validation.ok || validation.intent.kind !== 'highlight') {
+                    return json(res, 422, { error: 'invalid_symbols' });
+                }
+                command = buildPresentCommand(validation.intent, crypto.randomUUID(), receivedAt);
+            } else {
+                command = {
+                    v: 1,
+                    id: crypto.randomUUID(),
+                    kind: 'highlight',
+                    symbols: [symbol],
+                    issuedAt: receivedAt,
+                };
+            }
+            if (!command || !isExecutablePresentCommand(command)) {
+                return json(res, 400, { error: 'invalid_symbol' });
             }
             if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
             return json(res, 200, { success: true, command });
