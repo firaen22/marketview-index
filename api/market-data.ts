@@ -320,7 +320,8 @@ export function parseJgbDate(raw: string): Date | null {
   const day = Number(match[4]);
   if (!base || !(eraYear > 0) || !(month >= 1 && month <= 12) || !(day >= 1 && day <= 31)) return null;
   const date = new Date(Date.UTC(base + eraYear, month - 1, day));
-  return Number.isNaN(date.getTime()) ? null : date;
+  // Date.UTC rolls a day the month lacks into the next one (R8.2.31 -> 2026-03-03).
+  return date.getUTCMonth() === month - 1 ? date : null;
 }
 
 /**
@@ -491,6 +492,23 @@ export async function fetchJgbYieldHistory(
  */
 const SANITY_CAPPED_CATEGORIES: ReadonlySet<string> = new Set(['US', 'Europe', 'Asia', 'Currency']);
 
+/**
+ * `date` moved by `months`, clamped to the target month's last day.
+ * setMonth() alone overflows: Mar 31 - 1M is "Feb 31", i.e. Mar 3, which
+ * shortens a 1M window to 28 days.
+ */
+export function shiftMonths(date: Date, months: number): Date {
+  const out = new Date(date);
+  const day = out.getDate();
+  out.setDate(1);
+  out.setMonth(out.getMonth() + months);
+  // Not new Date(y, m + 1, 0): that constructor maps years 0-99 to 1900+.
+  const monthEnd = new Date(out);
+  monthEnd.setMonth(out.getMonth() + 1, 0);
+  out.setDate(Math.min(day, monthEnd.getDate()));
+  return out;
+}
+
 export async function fetchAllIndices(range: string, hasFrozenFallback = false) {
   const startedAt = Date.now();
   // JP10Y is our own label, not a Yahoo ticker — asking for it would make the
@@ -518,19 +536,19 @@ export async function fetchAllIndices(range: string, hasFrozenFallback = false) 
   }
 
   // Calculate dynamic start date based on range
-  const d1 = new Date();
+  let d1 = new Date();
   if (range === '1W') {
     d1.setDate(d1.getDate() - 7);
   } else if (range === '1M') {
-    d1.setMonth(d1.getMonth() - 1);
+    d1 = shiftMonths(d1, -1);
   } else if (range === '3M') {
-    d1.setMonth(d1.getMonth() - 3);
+    d1 = shiftMonths(d1, -3);
   } else if (range === '6M') {
-    d1.setMonth(d1.getMonth() - 6);
+    d1 = shiftMonths(d1, -6);
   } else if (range === '1Y') {
-    d1.setFullYear(d1.getFullYear() - 1);
+    d1 = shiftMonths(d1, -12);
   } else if (range === '5Y') {
-    d1.setFullYear(d1.getFullYear() - 5);
+    d1 = shiftMonths(d1, -60);
   } else {
     // Default YTD
     d1.setFullYear(d1.getFullYear(), 0, 1);
