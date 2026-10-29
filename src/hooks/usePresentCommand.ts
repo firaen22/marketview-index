@@ -4,24 +4,21 @@ import { isExecutablePresentCommand, PAGE_COMMAND_FRESH_MS, shouldExecute } from
 import { appendProjectorDisplayParams, type ProjectorDisplay } from '../../lib/presentDisplay';
 import { authHeaders } from '../presentCommandApi';
 
-const POLL_MS = 2500;
-// A delivered command means the phone remote is in play; 2.5s then dominates
-// perceived lag. Drop to 1s for a minute after each hit, then revert. Failure
-// backoff still wins while errors continue — a faster retry on a dead socket
-// just piles on.
-// 2026-10-23 dry-run (marketindex.pmd-hk.com, Asia/Hong_Kong, after PR #83):
-// POST 160–368ms, GET poll ~260–360ms, ack until lid matches command.id
-// 2.1–3.6s. lid is sent on the poll AFTER the one that runs the command, so
-// the ack is this idle wait plus FAST_POLL_MS. Leave 2500: RATE_LIMIT_MAX
-// 90/min assumes ~24 projector polls/min on a shared office NAT. README
-// "Presenter remote" records the samples.
+/** Idle projector poll interval (ms). In-talk cadence uses {@link FAST_POLL_MS}. */
+export const POLL_MS = 1800;
 export const FAST_POLL_MS = 1000;
 export const ACTIVE_WINDOW_MS = 60_000;
-// fetch() has no default timeout: a stalled socket (flaky venue wifi) never
-// settles, and since the next poll is only armed after the previous one
-// resolves, one hung request would silently end page-turn delivery for the rest
-// of the presentation. Abort well past a normal poll so slow-but-alive networks
-// still succeed.
+/** One stateful follow-up poll after a slot execute so the server gets `lid` without waiting a full FAST/idle tick. */
+export const LID_FLUSH_MS = 50;
+const MAX_FLUSH_NULL_STATE_TICKS = 20;
+
+// Shared-NAT GET budget: ~60 FAST + ~15 assist + ~5 control display ≈ 80/min before
+// optional +1 flush per slot execute (see docs/present-latency-fix-plan.md). Do not cut
+// FAST_POLL_MS to 600 — that alone exceeds RATE_LIMIT_MAX 90/min in-talk.
+//
+// 2026-10-23 dry-run (marketindex.pmd-hk.com): ack 2.1–3.6 s was dominated by sending
+// `lid` on poll N+1 after FAST_POLL_MS. P0 adds a single coalesced LID_FLUSH_MS poll
+// after each successful stateful slot execute when getState() is available.
 const POLL_TIMEOUT_MS = 10000;
 const BACKOFF_MS = [5000, 10000, 20000] as const;
 const PROJECTOR_MODES = ['slide', 'pdf', 'markdown', 'html', 'url', 'index', 'heatmap'] as const;
@@ -61,13 +58,9 @@ export function presentCommandPollUrl(state: ProjectorState | null, ackIds: stri
 
 async function fetchPresentCommand(signal: AbortSignal, state: ProjectorState | null, ackIds: string[]): Promise<{ ok: true; command: PresentCommand | null; pageCommands: PresentCommand[]; serverTime: number } | { ok: false }> {
     try {
-        // The key rides along so the server honors the st=1 projector report
-        // (state write + page-queue drain are gated on it).
         const response = await fetch(presentCommandPollUrl(state, ackIds), { signal, headers: authHeaders() });
         if (!response.ok) return { ok: false };
         const payload = await response.json() as { command?: unknown; pageCommands?: unknown; serverTime?: unknown };
-        // Staleness is judged in server time (issuedAt is server-stamped); a
-        // projector clock minutes off must not expire every fresh command.
         const serverTime = typeof payload.serverTime === 'number' && Number.isFinite(payload.serverTime)
             ? payload.serverTime
             : Date.now();
@@ -84,11 +77,10 @@ async function fetchPresentCommand(signal: AbortSignal, state: ProjectorState | 
 interface Options {
     enabled: boolean;
     getState?: () => ProjectorState | null;
-    // Return false when the command could not be applied yet (e.g. its symbol
-    // is not in the still-loading market data) — the id is then NOT locked, so
-    // the next poll retries instead of losing the command forever.
     onCommand: (command: PresentCommand) => boolean;
 }
+
+type PollKind = 'normal' | 'lid-flush';
 
 export function usePresentCommand({ enabled, getState, onCommand }: Options) {
     const onCommandRef = useRef(onCommand);
@@ -113,6 +105,27 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
         let lastDeliveredAt: number | null = null;
         let controller: AbortController | null = null;
         const pendingPageAckIds: string[] = [];
+        let nextPollKind: PollKind = 'normal';
+        let flushNullStateTicks = 0;
+
+        const clearScheduledPoll = () => {
+            if (timeout !== null) {
+                window.clearTimeout(timeout);
+                timeout = null;
+            }
+        };
+
+        const schedulePoll = (delayMs: number, kind: PollKind = 'normal') => {
+            clearScheduledPoll();
+            nextPollKind = kind;
+            timeout = window.setTimeout(run, delayMs);
+        };
+
+        const cadenceInterval = () => (
+            lastDeliveredAt !== null && Date.now() - lastDeliveredAt < ACTIVE_WINDOW_MS
+                ? FAST_POLL_MS
+                : POLL_MS
+        );
 
         const invokeCommand = (command: PresentCommand): boolean => {
             try {
@@ -124,19 +137,39 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
         };
 
         const run = async () => {
-            // Two overlapping polls can double-execute a page turn on stage;
-            // skip rather than start a second in-flight request.
             if (stopped || inFlight) return;
             inFlight = true;
             controller = new AbortController();
             const pollController = controller;
             const timeoutId = window.setTimeout(() => pollController.abort(), POLL_TIMEOUT_MS);
-            const state = getStateRef.current?.() ?? null;
-            // A null-state poll uses the bare URL, which cannot carry acks — send
-            // none so pending ids survive until a projector-state poll transmits them.
-            const ackIds = state ? [...pendingPageAckIds] : [];
+            const pollKind = nextPollKind;
+            nextPollKind = 'normal';
+
             try {
-                const result = await fetchPresentCommand(pollController.signal, state && lastExecutedIdRef.current ? { ...state, lid: lastExecutedIdRef.current } : state, ackIds);
+                let state = getStateRef.current?.() ?? null;
+
+                if (pollKind === 'lid-flush' && !state) {
+                    flushNullStateTicks += 1;
+                    if (flushNullStateTicks >= MAX_FLUSH_NULL_STATE_TICKS) {
+                        flushNullStateTicks = 0;
+                        schedulePoll(cadenceInterval(), 'normal');
+                    } else {
+                        schedulePoll(LID_FLUSH_MS, 'lid-flush');
+                    }
+                    return;
+                }
+
+                if (pollKind === 'lid-flush') {
+                    flushNullStateTicks = 0;
+                }
+
+                const requestWasStateful = state !== null;
+                const ackIds = state ? [...pendingPageAckIds] : [];
+                const fetchState = state && lastExecutedIdRef.current
+                    ? { ...state, lid: lastExecutedIdRef.current }
+                    : state;
+
+                const result = await fetchPresentCommand(pollController.signal, fetchState, ackIds);
                 if (stopped) return;
 
                 if (result.ok) {
@@ -146,44 +179,47 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
                     }
                     failureCount = 0;
                     let delivered = false;
-                    // Page commands execute in tap order and are acknowledged on the
-                    // next successful projector poll only after the callback succeeds.
+                    let armLidFlush = false;
+
                     for (const pageCommand of result.pageCommands) {
                         if (invokeCommand(pageCommand)) pendingPageAckIds.push(pageCommand.id);
                         delivered = true;
                     }
+
                     const command = result.command;
                     if (command && shouldExecute(command, lastExecutedIdRef.current, result.serverTime)) {
                         if (invokeCommand(command)) {
                             lastExecutedIdRef.current = command.id;
+                            if (requestWasStateful) armLidFlush = true;
                         }
                         delivered = true;
                     }
+
                     if (delivered) lastDeliveredAt = Date.now();
-                    const interval = lastDeliveredAt !== null && Date.now() - lastDeliveredAt < ACTIVE_WINDOW_MS
-                        ? FAST_POLL_MS
-                        : POLL_MS;
-                    timeout = window.setTimeout(run, interval);
+
+                    if (armLidFlush) {
+                        schedulePoll(LID_FLUSH_MS, 'lid-flush');
+                    } else {
+                        schedulePoll(cadenceInterval(), 'normal');
+                    }
                     return;
                 }
 
                 failureCount += 1;
-                timeout = window.setTimeout(run, presentCommandBackoffMs(failureCount));
+                schedulePoll(presentCommandBackoffMs(failureCount), 'normal');
             } finally {
                 window.clearTimeout(timeoutId);
                 inFlight = false;
             }
         };
 
-        // Backgrounded tabs throttle timers (often to 10s+); a brief offline
-        // gap is the same. On wake, drop the pending interval and poll now —
-        // but never overlap an in-flight request (double page-turn on stage).
         const pollNow = () => {
             if (stopped || inFlight) return;
-            if (timeout !== null) {
-                window.clearTimeout(timeout);
-                timeout = null;
-            }
+            clearScheduledPoll();
+            // Wake must not resurrect a pending lid-flush arm (T12): run one normal poll;
+            // stateful wake still sends lid via lastExecutedIdRef merge.
+            nextPollKind = 'normal';
+            flushNullStateTicks = 0;
             void run();
         };
 
@@ -206,7 +242,7 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
         return () => {
             stopped = true;
             controller?.abort();
-            if (timeout !== null) window.clearTimeout(timeout);
+            clearScheduledPoll();
             if (canSubscribe) {
                 document.removeEventListener('visibilitychange', onVisibilityChange);
                 window.removeEventListener('online', pollNow);
