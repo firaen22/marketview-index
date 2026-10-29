@@ -243,6 +243,14 @@ describe('present-command API handler', () => {
         expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
     });
 
+    it('accepts the 90th GET in the rate-limit window', async () => {
+        redisState.current.incr.mockResolvedValue(90);
+
+        const res = await call(makeReq({ method: 'GET' }));
+
+        expect(res.statusCode).toBe(200);
+    });
+
     it('GET stores valid projector state and includes it in the response', async () => {
         const res = await call(projectorGet({ st: '1', mode: 'pdf', page: '2', v: '0' }));
 

@@ -156,9 +156,7 @@ curl -s -X POST "$ORIGIN/api/present-command" \
 - `POST` send with a highlight date suffix ≈ 368 ms, HTTP 200.
 - Projector ack (wall time until `projector.lid` equals `command.id`): one-shot compare+YTD ≈ 2.8 s, structured compare with a May–Aug band ≈ 3.6 s, send+highlight ≈ 2.1 s, overlay clear ≈ 2.2 s (about 2.1–3.6 s).
 
-Parse time is the POST. The ack wait is the projector poll in `src/hooks/usePresentCommand.ts`. Idle `POLL_MS` is 2500 (about 24/min). The poll that runs the command does not yet send the new id; `lid` goes out on the next poll, which is `FAST_POLL_MS` 1000 for 60 s after that delivery. Each of those polls is one ~300 ms GET. That wait is the 2.1–3.6 s operators feel.
-
-Leave both intervals. `RATE_LIMIT_MAX` is 90/min per IP (`api/present-command.ts`), budgeted as this projector poll plus the control page’s ~15/min assist poll (`usePresentAssist`, 4000 ms) on one office NAT. The ack check in `CopilotBar` adds a separate 1500 ms loop (at most 8 tries) only while it waits for `lid`. A shorter idle poll is a product call: the number lives only in the client, and the ~24/min figure is 60/2.5.
+Parse time is the POST. After P0, a successful stateful slot execute triggers one **`LID_FLUSH_MS` (50 ms)** follow-up poll so the server receives `lid` without waiting a full **`FAST_POLL_MS` (1000 ms)** tick. Idle **`POLL_MS` is 1800 ms** (~33/min). In-talk projector FAST stays **1000 ms** (~60/min for 60 s after delivery). **`RATE_LIMIT_MAX` is 90/min** per IP — budget ~80/min baseline (FAST + assist + control display) before flushes and CopilotBar ack GETs; see `docs/present-latency-fix-plan.md`. CopilotBar ack remains **1500 ms × 8 attempts** until a separate P2 change.
 
 Same session, these checks passed: QQQ is in market-data; H01 and QQ aliases resolve; one-shot compare+YTD works; the highlight window works via the text suffix and via `action:"compare"`; an overlay action stays in PDF mode. A bare send with no catalog returns `invalid_catalog`.
 
