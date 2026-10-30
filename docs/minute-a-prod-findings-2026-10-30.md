@@ -4,14 +4,14 @@ Host: **`https://marketindex.pmd-hk.com`**. Plan: `docs/present-minute-a-p2-plan
 
 **Verdict:** **FAIL** (no canonical **PASS**). **Prod-validated** not set.
 
----
+**Scope:** This document and plan **v1.8** are **runbook/findings only** — they do **not** change application code, poll intervals, rate limits, or bot/API latency. Speed/responsiveness on prod remain as after [#90](https://github.com/firaen22/marketview-index/pull/90) plus operator setup (`/present` heartbeat, HTTP or phone control).
 
 ## Summary
 
 | Finding | Detail |
 |---------|--------|
 | Rate limit | Run 2: **zero GET 429** on hooked fetch in the automation window (anchor caveat below). |
-| Cmd1 | HSI chip → **UI ✓** at **+8.1 s** vs automation **T_first**; **ack GET 1–4 not logged** — do not treat as schedule-complete for canonical Minute A. |
+| Cmd1 | HSI chip → **UI ✓** at **+8.1 s** vs **automation anchor** (first `st=1` poll on P only); **ack GET 1–4 not logged** — not schedule-complete for canonical Minute A. |
 | Cmd2 | **`show NDX`** send attempt **+24.6 s**; **no UI ✓**; text left in box ⇒ **not proof of slot POST**. Not a parser-tested alias (`show hsi`, `nasdaq` → `^IXIC` are). |
 | Setup | **Precondition P2 failed:** two **tabs**, not two visible windows. Run is **non-canonical**. |
 | P2-B (CopilotBar) | **Not justified** — external advisory (2026-10-30): fix runbook/cmd2 before retry; no timing PR. |
@@ -51,6 +51,8 @@ Brief: prod Minute A partial success + cmd2/`show NDX` + P2 policy. Dispatched *
 | Sol 6.1 | `ADVISE_FIX` (plan/runbook before retry) | Same substance |
 
 Artifacts (operator machine, not in repo): `/tmp/minute-a-advice-xVGWko/`.
+
+**PR #92 pre-commit (2026-10-30):** Round 1 — Grok **FIX F1–F3**; Sol **FIX F1–F2** (addressed). Round 2 — Sol **PROCEED**; Grok **FIX F1** (summary “automation anchor” wording — addressed).
 
 ---
 
