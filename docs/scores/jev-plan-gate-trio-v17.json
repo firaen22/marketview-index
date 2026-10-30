@@ -1,0 +1,26 @@
+{
+  "model": "jev-1.14.0",
+  "answers": {
+    "trio_plan_gate_solid": {
+      "type": "score",
+      "score": 2.18,
+      "confidence": 0.44,
+      "legend": {
+        "0": "Not warranted",
+        "1": "Weak",
+        "2": "Warranted",
+        "3": "Strongly warranted"
+      },
+      "probabilities": {
+        "0": 0.03,
+        "1": 0.13,
+        "2": 0.47,
+        "3": 0.37
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 456,
+    "output_tokens": 22
+  }
+}
