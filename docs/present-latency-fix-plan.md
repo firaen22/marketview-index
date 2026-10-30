@@ -1,6 +1,6 @@
 # Present remote latency fix — implementation plan (v2.4)
 
-Status: **Dual PLAN_PROCEED** — Sol 6.1 (v2.4 gate); Grok 4.7 (v2.4.1 ack budget). Ready to **implement P0+P1**.
+Status: **P0+P1 merged** ([PR #90](https://github.com/firaen22/marketview-index/pull/90)). **Minute A + P2:** `docs/present-minute-a-p2-plan.md` (v1.7 — **dual PLAN_PROCEED**).
 
 ---
 

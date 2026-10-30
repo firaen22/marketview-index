@@ -1,0 +1,78 @@
+{
+  "model": "jev-1.14.0",
+  "task": "v1.7 reviewer-fix effectiveness",
+  "answers": {
+    "fix_adequacy_overall": {
+      "type": "score",
+      "score": 1.73,
+      "confidence": 0.22,
+      "legend": {
+        "0": "Inadequate: finding still unaddressed or contradicts parent/code.",
+        "1": "Partial: mentioned but operator could still mis-run.",
+        "2": "Adequate: fix matches finding intent; minor edge unspoken.",
+        "3": "Strong: fix fully closes finding for a careful operator."
+      },
+      "probabilities": {
+        "0": 0.14,
+        "1": 0.25,
+        "2": 0.36,
+        "3": 0.25
+      }
+    },
+    "sol_proceed_warranted": {
+      "type": "score",
+      "score": 1.57,
+      "confidence": 0.05,
+      "legend": {
+        "0": "Not warranted: clear plan defect remains.",
+        "1": "Weak: PROCEED plausible but material gaps.",
+        "2": "Warranted: PROCEED fits; no blocking plan gap.",
+        "3": "Strongly warranted: PROCEED is correct gate outcome."
+      },
+      "probabilities": {
+        "0": 0.19,
+        "1": 0.33,
+        "2": 0.2,
+        "3": 0.28
+      }
+    },
+    "grok_proceed_warranted": {
+      "type": "score",
+      "score": 1.52,
+      "confidence": 0.05,
+      "legend": {
+        "0": "Not warranted: clear plan defect remains.",
+        "1": "Weak: PROCEED plausible but material gaps.",
+        "2": "Warranted: PROCEED fits; no blocking plan gap.",
+        "3": "Strongly warranted: PROCEED is correct gate outcome."
+      },
+      "probabilities": {
+        "0": 0.21,
+        "1": 0.32,
+        "2": 0.2,
+        "3": 0.27
+      }
+    },
+    "minute_a_executable": {
+      "type": "score",
+      "score": 1.44,
+      "confidence": 0.16,
+      "legend": {
+        "0": "Inadequate: finding still unaddressed or contradicts parent/code.",
+        "1": "Partial: mentioned but operator could still mis-run.",
+        "2": "Adequate: fix matches finding intent; minor edge unspoken.",
+        "3": "Strong: fix fully closes finding for a careful operator."
+      },
+      "probabilities": {
+        "0": 0.2,
+        "1": 0.33,
+        "2": 0.3,
+        "3": 0.17
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 1475,
+    "output_tokens": 78
+  }
+}
