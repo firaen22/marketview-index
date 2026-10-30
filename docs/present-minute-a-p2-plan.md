@@ -1,6 +1,6 @@
-# Present remote — Minute A validation + P2 CopilotBar plan (v1.7)
+# Present remote — Minute A validation + P2 CopilotBar plan (v1.8)
 
-Status: **Dual PLAN_PROCEED** — Sol 6.1 + Grok 4.7 (v1.7).
+Status: **Dual PLAN_PROCEED** on v1.7 text; **prod Minute A FAIL** on 2026-10-30 (see findings doc). **Prod-validated:** not set.
 
 **Context:** P0+P1 on `main` ([PR #90](https://github.com/firaen22/marketview-index/pull/90)). Parent: `docs/present-latency-fix-plan.md` (v2.4.1).
 
@@ -81,7 +81,7 @@ Same as option A except chain spacing **~750 ms** (±400 ms) after each response
 1. P1–P3 preconditions.
 2. Setup → note **T_first**.
 3. POST slot command 1 (e.g. `show HSI`) on **C**; achieve **✓** per § Ack option A and schedule table.
-4. Wait **≥20 s** from POST1; POST slot command 2 (e.g. `show NDX`); **✓** per § Ack option A and schedule table.
+4. Wait **≥20 s** from POST1; POST slot command 2 (e.g. **`show nasdaq`** — parser maps to `^IXIC`; **do not use `show NDX`** until a dedicated alias exists); **✓** per § Ack option A and schedule table.
 5. Keep **both** windows logging until **T_first + 60 s**; **zero 429**.
 
 **Record:** host, deployment id / `git rev`, IP note, POST/✓ times vs **T_first**, ack index (1–4) per command, visibility-wake Y/N, **PASS / FAIL / INCONCLUSIVE**.
@@ -115,6 +115,7 @@ First line: **`PLAN_PROCEED`** or **`PLAN_FIX (F1, …)`**. Max 400 words.
 |-----|------|
 | v1.6 | Sol **PLAN_FIX** F1; Grok **PLAN_FIX** F1–F3 |
 | **v1.7** | Sol **PLAN_PROCEED**; Grok **PLAN_PROCEED**; docs pre-commit Sol+Grok **PROCEED** (2026-10-30) |
+| **v1.8** | Prod attempt **FAIL** (2026-10-30); cmd2 example **`show nasdaq`**; findings: `docs/minute-a-prod-findings-2026-10-30.md` |
 
 ### TypeSafe jev-1.14.0 — reviewer-fix effectiveness (v1.7 plan text)
 
