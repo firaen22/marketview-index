@@ -1,6 +1,6 @@
 # Present remote latency fix — implementation plan (v2.4)
 
-Status: **P0+P1 merged** ([PR #90](https://github.com/firaen22/marketview-index/pull/90)). **Minute A + P2:** `docs/present-minute-a-p2-plan.md` (v1.7 — **dual PLAN_PROCEED**).
+Status: **P0+P1 merged** ([PR #90](https://github.com/firaen22/marketview-index/pull/90)). **Minute A + P2:** `docs/present-minute-a-p2-plan.md` (v1.8 — prod attempt **FAIL** 2026-10-30; findings in `docs/minute-a-prod-findings-2026-10-30.md`).
 
 ---
 
