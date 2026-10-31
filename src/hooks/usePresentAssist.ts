@@ -18,6 +18,8 @@ import { buildJargonWarmBody, isJargonEligible } from '../jargon';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 const POLL_MS = 4000;
+/** Abort hung projector-state polls so the assist loop can backoff and retry. */
+const POLL_TIMEOUT_MS = 10_000;
 const LIVE_MS = 15_000;
 const BACKOFF_MS = [8000, 16000, 32000] as const;
 const ASSIST_DEBOUNCE_MS = 800;
@@ -188,8 +190,14 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
 
         const run = async () => {
             controller = new AbortController();
+            const pollController = controller;
+            let timedOut = false;
+            const pollTimeoutId = window.setTimeout(() => {
+                timedOut = true;
+                pollController.abort();
+            }, POLL_TIMEOUT_MS);
             try {
-                const result = await fetchProjectorState(controller.signal);
+                const result = await fetchProjectorState(pollController.signal);
                 if (stopped) return;
                 failureCount = 0;
                 lastPollSuccessRef.current = { serverTime: result.serverTime, localAt: Date.now() };
@@ -209,7 +217,9 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 setServerTime(result.serverTime);
                 timeout = window.setTimeout(run, POLL_MS);
             } catch (error) {
-                if (stopped || (error as DOMException).name === 'AbortError') return;
+                if (stopped) return;
+                // Teardown abort only — timeout abort must fall through to backoff.
+                if ((error as DOMException).name === 'AbortError' && !timedOut) return;
                 failureCount += 1;
                 // A single failed poll must not drop live mode while the last
                 // reported state is still within its 15s TTL — estimate server
@@ -226,6 +236,8 @@ export function usePresentAssist({ slide, lang, enabled }: Options): PresentAssi
                 wasLiveRef.current = nextLive;
                 setServerTime(estimatedServerTime);
                 timeout = window.setTimeout(run, presentAssistBackoffMs(failureCount));
+            } finally {
+                window.clearTimeout(pollTimeoutId);
             }
         };
 

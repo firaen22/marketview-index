@@ -20,7 +20,7 @@ vi.mock('../pdfText', () => ({
     renderPdfPageToJpeg: (...args: unknown[]) => renderPdfPageToJpeg(args[0], args[1]),
 }));
 
-const { usePresentAssist } = await import('./usePresentAssist');
+const { presentAssistBackoffMs, usePresentAssist } = await import('./usePresentAssist');
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -71,6 +71,49 @@ describe('usePresentAssist integration', () => {
         });
         container.remove();
         vi.useRealTimers();
+    });
+
+    it('recovers when a projector-state poll hangs instead of stalling live updates', async () => {
+        const aborted: boolean[] = [];
+        fetchProjectorState.mockImplementation((signal?: AbortSignal) => new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () => {
+                aborted.push(true);
+                reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+            });
+        }));
+
+        root = createRoot(container);
+        await act(async () => {
+            root.render(createElement(Harness));
+        });
+        await flush();
+        expect(fetchProjectorState).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(9000);
+        });
+        await flush();
+        expect(fetchProjectorState).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(2000);
+        });
+        await flush();
+        expect(aborted.length).toBeGreaterThan(0);
+
+        fetchProjectorState.mockImplementation(async () => ({
+            projector: { mode: 'pdf', page: 2, v: 7, at: Date.now() },
+            projectorLast: null,
+            applied: null,
+            control: null,
+            serverTime: Date.now(),
+        }));
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(presentAssistBackoffMs(1));
+        });
+        await flush();
+        expect(fetchProjectorState.mock.calls.length).toBeGreaterThan(1);
     });
 
     it('a slow assist request survives poll cycles instead of being re-aborted (regression)', async () => {
