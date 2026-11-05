@@ -68,7 +68,8 @@ const presentAssistSchema = z.union([
     z.object({
         // Same normalization as lib/presentAssist.ts normalizeAssistText; the
         // server checks 40–6000 on the NORMALIZED text, so bound that, not raw.
-        text: z.string().max(100_000).transform(normalizeAssistText).pipe(z.string().min(40).max(6000)),
+        // No raw cap: only the normalized text (≤ 6000) is sent, and production checks only that.
+        text: z.string().transform(normalizeAssistText).pipe(z.string().min(40).max(6000)),
         lang: langSchema.default('en'),
     }).strict(),
     z.object({
@@ -380,7 +381,8 @@ export const TOOL_DEFINITIONS = [
                             description: 'Raw base64 (no data: prefix); length a multiple of 4',
                         },
                         slideId: { type: 'string', pattern: '^\\d{1,15}#\\d{1,5}$' },
-                        deckKey: { type: 'string', minLength: 1, maxLength: 2048 },
+                        // No maxLength: JSON Schema counts code points, zod/server count UTF-16 units (≤ 2048).
+                        deckKey: { type: 'string', minLength: 1, description: 'Deck identifier, ≤ 2048 UTF-16 code units' },
                         lang: { type: 'string', enum: ['en', 'zh-TW'], default: 'en' },
                     },
                 },

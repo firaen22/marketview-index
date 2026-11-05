@@ -90,5 +90,22 @@ describe('gate r1 F3 — advertised JSON Schema matches handler limits', () => {
         const r = await TOOL_HANDLERS.present_assist({ text: '😀'.repeat(20) });
         expect(r.isError, r.content[0].text).not.toBe(true);
     });
+    it('r5 F1: no raw cap before normalization — 40 x + 100k spaces reaches the server as exactly 40 x', async () => {
+        const fetchFn = vi.fn(async (_u: string, _i?: RequestInit) => Response.json({ success: true, assist: { points: ['p'], questions: [] } }));
+        vi.stubGlobal('fetch', fetchFn);
+        const r = await TOOL_HANDLERS.present_assist({ text: 'x'.repeat(40) + ' '.repeat(100_000) });
+        expect(r.isError, r.content[0].text).not.toBe(true);
+        expect(JSON.parse(String(fetchFn.mock.calls[0][1]?.body)).text).toBe('x'.repeat(40));
+    });
+    it('r4 F1: deckKey schema accepts nothing the handler rejects on length (1025 emoji = 2050 UTF-16)', async () => {
+        const key = '😀'.repeat(1025);
+        const fetchFn = vi.fn(async () => Response.json({ success: true, assist: { points: ['p'], questions: [] } }));
+        vi.stubGlobal('fetch', fetchFn);
+        const r = await TOOL_HANDLERS.present_assist({ imageBase64: 'A'.repeat(100), slideId: '1#1', deckKey: key });
+        expect(r.isError).toBe(true);
+        expect(fetchFn).not.toHaveBeenCalled();
+        // JSON Schema maxLength counts code points (1025 here) — it cannot express the UTF-16 bound, so none is advertised.
+        expect(def('present_assist').oneOf[1].properties.deckKey.maxLength).toBeUndefined();
+    });
 });
 
