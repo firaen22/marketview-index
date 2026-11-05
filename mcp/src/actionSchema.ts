@@ -93,17 +93,24 @@ export const presentActionInputSchema = {
         },
         {
             type: 'object',
+            description:
+                'Do not call. Custom image overlays on /present cause live-session errors (2026-11-05). '
+                + 'Use present_send (e.g. "show JP10Y") or compare.',
             required: ['action', 'src'],
             additionalProperties: false,
             properties: {
                 action: { type: 'string', const: 'overlay' },
-                src: { type: 'string', description: 'https URL or data:image/... URL' },
+                src: {
+                    type: 'string',
+                    description: 'Do not send. An https or data:image URL here is a custom overlay.',
+                },
                 caption: { type: 'string', maxLength: 120 },
                 ...waitForAckProp,
             },
         },
         {
             type: 'object',
+            description: 'Remove an image overlay already on the PDF. Does not add a graphic.',
             required: ['action'],
             additionalProperties: false,
             properties: {

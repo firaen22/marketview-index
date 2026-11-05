@@ -1,6 +1,33 @@
 # MarketView Present MCP
 
-Stdio MCP server that drives the **MarketView Index** projector via the same HTTP contract as `/present-control` and README “Presenter remote (agents)”.
+Stdio MCP server that drives the **MarketView Index** projector via the same HTTP contract as `/present-control` and README “Presenter remote (agents)”. Package `marketview-present-mcp` was 0.2.0 on 2026-11-05 (`mcp/package.json`).
+
+## Standing rule — no custom graphics (2026-11-05)
+
+Live lesson from Angus, client presentation, 2026-11-05. Cantonese, intent: remember this; never build any custom graphics yourself; use the features already inside the app, including compare. A Present assistant floated a custom overlay of JGB yield numbers on the PDF projector. He rejected it. Custom overlays and self-built graphics on the projector cause errors.
+
+**Trigger:** You are about to change what `/present` shows, including when the current PDF page does not already draw the figure you want (a yield, a quote, a comparison).
+
+**Do not:**
+
+- Send or build a custom overlay, image, SVG, float graphic, `data:image/…` URL, or ad-hoc HTML/CSS graphic onto `/present`.
+- Call `present_action` with `{ "action": "overlay", "src": "…" }`. The branch stays in the schema so the API can still clear an image. Calling it with `src` is the rejected path.
+- Save a custom HTML or image deck with `present_slide` to draw that graphic. `present_slide` save replaces the live deck for every device.
+
+**Do:** Drive the projector only with built-in Present commands this server already supports.
+
+1. One catalog symbol. Japan 10Y JGB Yield is market symbol `JP10Y` (no spoken alias). `present_send` text `show JP10Y` resolves to the app’s built-in **chart**. A macro catalog row resolves to the built-in **quote**. There is no `present_action` kind named `quote` or `chart`.
+2. Two or more market symbols: `present_action` `compare` (optional `range`, `highlightFrom`, `highlightTo`). Example: `{ "action": "compare", "symbols": ["JP10Y", "^TNX"], "range": "YTD" }` (both are market-data rows).
+3. Also built-in on `present_action`: `view`, `category`, `highlight`, `range`, `layout`, `fullscreen`, `page` (`next` or `prev` only), `clear`. A numbered page jump is `present_send` (for example `page 3`), which is `goto`. It is not a `present_action` kind.
+4. If an image is already on the PDF, remove it with `overlay_clear` or `clear`, then show the built-in chart or compare. Prefer that sequence over a new graphic.
+
+**Done:** `/present` is showing a built-in surface (chart, quote, compare, category, highlight, range, view, or a PDF page). Nothing you composed is on the screen.
+
+✅ `present_send` `{ "text": "show JP10Y" }` for the Japan 10Y yield.
+
+❌ `{ "action": "overlay", "src": "data:image/svg+xml;base64,…" }` or a PNG of yield numbers floated on the PDF. “The API accepts overlay, so a one-off chart is fine” is the path rejected on 2026-11-05.
+
+**On failure:** If `show JP10Y` or `compare` does not put the figure on the projector, say so and stop. Do not fall back to an overlay, an uploaded image, or a custom HTML slide.
 
 ## Tools
 
@@ -8,7 +35,7 @@ Stdio MCP server that drives the **MarketView Index** projector via the same HTT
 |------|------|---------|
 | `present_status` | None | `GET /api/present-command` — projector heartbeat, `projectorLast`, `applied`, command slot |
 | `present_send` | `PRESENT_API_KEY` | Natural language (`action: send`) with catalog from market + macro APIs |
-| `present_action` | `PRESENT_API_KEY` | Structured actions: `view`, `range`, **`category`**, `layout`, `fullscreen`, `highlight`, `compare`, `overlay`, **`overlay_clear`**, `clear`, `page` (see `oneOf` tool schema) |
+| `present_action` | `PRESENT_API_KEY` | Built-in structured actions: `view`, `range`, **`category`**, `layout`, `fullscreen`, `highlight`, `compare`, `clear`, `page`, and **`overlay_clear`** (remove an image already on screen). `overlay` remains in the `oneOf` schema and must not be called with `src` — standing rule above. |
 | `present_assist` | `PRESENT_API_KEY` | `POST action: assist` — talking points from slide text (40–6000 chars) or a slide image (`imageBase64` + `slideId` + `deckKey`). Does not touch the projector. |
 | `present_slide` | get: none · save: `PRESENT_API_KEY` | `GET/POST /api/present-slide`. **save replaces the live deck** (`updatedAt` defaults to now; a newer stored timestamp → 409 stale). Content ≤ 256 KiB (client parity). PDF upload not supported. |
 
