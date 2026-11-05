@@ -1091,6 +1091,16 @@ describe('present-command API handler', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body.command).toMatchObject({ kind: 'range', range: 'YTD', symbols: [] });
 
+        res = await call(authPost({ action: 'category', category: 'US' }));
+        expect(res.statusCode).toBe(200);
+        const categoryId = res.body.command.id as string;
+        expect(res.body.command).toMatchObject({ kind: 'category', category: 'US', symbols: [] });
+        expect(mem.get(`present:cmdmeta:v1:${categoryId}`)).toContain('US');
+
+        res = await call(authPost({ action: 'category', category: 'NASDAQ' }));
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({ error: 'invalid_category' });
+
         res = await call(authPost({ action: 'highlight', symbol: '^HSI', catalog }));
         expect(res.statusCode).toBe(200);
         expect(res.body.command).toMatchObject({ kind: 'highlight', symbols: ['^HSI'] });

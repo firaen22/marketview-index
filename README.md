@@ -116,7 +116,7 @@ npm run lint    # tsc --noEmit
 
 **Poll contract (bots):** World-readable `GET /api/present-command` returns `projector` (live ≤15 s), `projectorLast` (last mode + `stale`/`ageMs`), `applied` (ack for the last executed command id), and `command` (slot). After each POST, poll until `applied.id === command.id` (or the control UI’s `projector.lid` matches) before chaining another command. Do not treat a non-null `command` alone as proof the projector is on index. Use **live** `projector.display.fs` for fullscreen (`0`/`1`); `applied` for `fullscreen enter` can be true while `fs` stays `0` if the browser denied activation — retry or read live telemetry only. `projectorLast.display.fs` is not trustworthy after the heartbeat expires. Remote control cannot resize the OS window or move monitors — use `layout` / embed density and fullscreen enter/exit only.
 
-**Structured POST (index):** `{"action":"view","view":"index"}` · `{"action":"layout","density":"compact"|"comfortable"|"auto"}` · `{"action":"range","range":"YTD"}` (etc.) · `{"action":"highlight","symbol":"^HSI"}` · `{"action":"fullscreen","mode":"enter"|"exit"}` (no `toggle`).
+**Structured POST (index):** `{"action":"view","view":"index"}` · `{"action":"layout","density":"compact"|"comfortable"|"auto"}` · `{"action":"range","range":"YTD"}` (etc.) · `{"action":"category","category":"US"}` (etc. — same labels as embed chips: `All`, `US`, `Asia`, …) · `{"action":"highlight","symbol":"^HSI"}` · `{"action":"fullscreen","mode":"enter"|"exit"}` (no `toggle`).
 
 Writes send `x-api-key: $PRESENT_API_KEY`. Do not put the key in the repo.
 
@@ -162,10 +162,15 @@ Same session, these checks passed: QQQ is in market-data; H01 and QQ aliases res
 
 `GET` or `POST /api/present-slide` returns `{ "success": true, "slide": { "mode", "content", "updatedAt" } }` — the slide is nested under `slide`. PDF object keys must be passed through exactly as issued (`/api/pdf-proxy?key=` plus the literal key). Underscores in that key are part of the string; rewriting or “normalizing” it fails the allowlist.
 
+## Present MCP (Cursor / Claude)
+
+Local stdio MCP for agent-driven projector control: `mcp/` (`present_status`, `present_send`, `present_action`). See `mcp/README.md` for `PRESENT_API_KEY` and Cursor registration.
+
 ## Repo layout
 
 ```
 api/            Vercel serverless functions (market data, AI, presenter endpoints)
+mcp/            Stdio MCP — presenter remote for agents
 src/            React app — routes at the top level, shared parts in components/ and hooks/
 lib/            Code shared between api/ and src/
 .claude/skills/ In-repo skill library: architecture invariants, debugging playbooks,

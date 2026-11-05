@@ -62,12 +62,13 @@ Artifacts (operator machine, not in repo): `/tmp/minute-a-advice-xVGWko/`.
 - **Blocking for API bots:** a **live foreground** tab at **`/present`** must keep authenticated **`st=1`** projector polls. Without that heartbeat, live **`projector`** expires (~15 s); **`projectorLast`** / a queued **`command`** do not prove what is on screen. P0+P1 on [#90](https://github.com/firaen22/marketview-index/pull/90) shorten ack once heartbeat is up; this findings PR is **not** a speed or control unlock.
 - Live talk: prefer **`/present-control` on a second device** or an API bot on the egress box; Grok CLI / Computer Use is too slow for in-talk switches.
 - **Market Update Helper** bot definition was not in Oct 26 `grokbot-mirror-backup`.
-- **Operator feedback on PR [#92](https://github.com/firaen22/marketview-index/pull/92)** (Market Update Helper, **not blocking** this docs PR): live ask for **category/region filter controls on the `/present` embed** (e.g. prioritize US indices) — a **product** gap, not part of the Minute A **FAIL** record above. Heartbeat + HTTP control notes in this section are separate runbook context.
+- **Operator feedback on PR [#92](https://github.com/firaen22/marketview-index/pull/92)** (Market Update Helper): remote **`category`** POST + embed bridge (**addressed** on main after findings). Optional future: control-page category chips mirroring embed.
 
 ---
 
 ## Next steps
 
-1. **Canonical manual Minute A:** two **visible** windows, **≥60 s** quiet, Preserve log on **both**, **T_first** = earliest GET in either log, cmd1 **HSI chip**, cmd2 **`show nasdaq`**, record **✓** and ack GET **1–4** per command.
+1. **Canonical manual Minute A:** two **visible** windows, **≥60 s** quiet, Preserve log on **both**, **T_first** = earliest GET in either log, cmd1 **HSI chip**, cmd2 **`show NDX`** (→ `QQQ`) or **`show nasdaq`** (→ `^IXIC`) — pick one and record it; **✓** and ack GET **1–4** per command.
 2. On **PASS**, set **prod-validated** in plan history; stay on **P2-A**.
-3. Optional: add **NDX** alias only if product wants Nasdaq-100 wording (do not map to `^IXIC` Composite without product sign-off).
+3. **Shipped (2026-11):** **`NDX`** / **`show NDX`** resolve to **`QQQ`** (Nasdaq-100 ETF), not **`^IXIC`** Composite — see `lib/presentCommand.ts` aliases. Minute A cmd2 may use **`show NDX`**, **`show nasdaq`** (Composite), or **`QQ`** (QQQ).
+4. **Remote category filter:** structured **`POST {"action":"category","category":"US"}`** (and MCP `present_action`) drives embed chips via **`mv-category`** — addresses Market Update Helper feedback on PR #92.

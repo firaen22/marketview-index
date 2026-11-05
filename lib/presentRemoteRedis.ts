@@ -1,5 +1,6 @@
 import type { PresentCommand, PresentRange, PresentView } from './presentCommand.js';
 import type { PresentFullscreenMode, PresentIndexDensity } from './presentIndexView.js';
+import type { PresentIndexCategoryFilter } from './presentIndexCategory.js';
 
 export const PROJECTOR_STATE_KEY = 'present:pstate:v1';
 export const PROJECTOR_LAST_KEY = 'present:pstate:last:v1';
@@ -18,6 +19,7 @@ export interface CmdMeta {
     fsMode?: PresentFullscreenMode;
     symbol?: string;
     range?: PresentRange;
+    category?: PresentIndexCategoryFilter;
 }
 
 export interface AppliedState {
@@ -29,6 +31,7 @@ export interface AppliedState {
     fsMode?: PresentFullscreenMode;
     symbol?: string;
     range?: PresentRange;
+    category?: PresentIndexCategoryFilter;
 }
 
 export interface ProjectorSnapshot {
@@ -62,6 +65,8 @@ export function buildCmdMeta(command: PresentCommand): CmdMeta {
             return { ...base, symbol: command.symbols[0] };
         case 'range':
             return { ...base, range: command.range! };
+        case 'category':
+            return { ...base, category: command.category! };
         default:
             return base;
     }
@@ -77,6 +82,7 @@ export function buildAppliedFromMeta(id: string, meta: CmdMeta, ackAt: number): 
         ...(meta.fsMode !== undefined ? { fsMode: meta.fsMode } : {}),
         ...(meta.symbol !== undefined ? { symbol: meta.symbol } : {}),
         ...(meta.range !== undefined ? { range: meta.range } : {}),
+        ...(meta.category !== undefined ? { category: meta.category } : {}),
     };
 }
 

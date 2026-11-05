@@ -5,8 +5,9 @@ import {
     type PresentFullscreenMode,
     type PresentIndexDensity,
 } from './presentIndexView.js';
+import { isPresentIndexCategoryFilter, type PresentIndexCategoryFilter } from './presentIndexCategory.js';
 
-export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range' | 'explain' | 'highlight' | 'overlay' | 'layout' | 'fullscreen';
+export type PresentCommandKind = 'chart' | 'compare' | 'quote' | 'view' | 'clear' | 'page' | 'goto' | 'jargon' | 'cycle' | 'range' | 'explain' | 'highlight' | 'overlay' | 'layout' | 'fullscreen' | 'category';
 export type { PresentFullscreenMode, PresentIndexDensity } from './presentIndexView.js';
 export type PresentView = 'slide' | 'index' | 'heatmap';
 export type PageDirection = 'next' | 'prev';
@@ -35,6 +36,7 @@ export interface PresentCommand {
     overlay?: PresentOverlayPayload;
     density?: PresentIndexDensity;
     fsMode?: PresentFullscreenMode;
+    category?: PresentIndexCategoryFilter;
     issuedAt: number;
 }
 
@@ -59,9 +61,10 @@ export type PresentIntent =
     | { kind: 'explain'; symbols: []; term: string }
     | { kind: 'highlight'; symbols: string[] }
     | { kind: 'layout'; symbols: []; density: PresentIndexDensity }
-    | { kind: 'fullscreen'; symbols: []; fsMode: PresentFullscreenMode };
+    | { kind: 'fullscreen'; symbols: []; fsMode: PresentFullscreenMode }
+    | { kind: 'category'; symbols: []; category: PresentIndexCategoryFilter };
 
-const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page', 'goto', 'jargon', 'cycle', 'range', 'explain', 'highlight', 'overlay', 'layout', 'fullscreen'] as const;
+const KINDS = ['chart', 'compare', 'quote', 'view', 'clear', 'page', 'goto', 'jargon', 'cycle', 'range', 'explain', 'highlight', 'overlay', 'layout', 'fullscreen', 'category'] as const;
 const VIEWS = ['slide', 'index', 'heatmap'] as const;
 const CLEAR_WORDS = new Set(['clear', 'close', 'back', 'slides', 'slide', '返回', '清除', '關閉', '投影片']);
 const HEATMAP_WORDS = new Set(['heatmap', '熱圖', '熱力圖']);
@@ -99,6 +102,7 @@ type RawIntent = {
     highlightTo?: unknown;
     density?: unknown;
     fsMode?: unknown;
+    category?: unknown;
 };
 
 // Spoken/typed nicknames. Matching is EXACT-only (after verb/noun stripping):
@@ -113,7 +117,7 @@ const SYMBOL_ALIASES: Record<string, string[]> = {
     '^HSI': ['恒指', '恆指', '恒生指數', '恒生指数', '恆生指數', '大市', 'hang seng'],
     '^GSPC': ['標普', '标普', '標普500', '標普五百', '標準普爾', 'spx', 's&p', 's&p500', 'sp500'],
     '^IXIC': ['納指', '纳指', '納斯達克', '纳斯达克', 'nasdaq'],
-    'QQQ': ['qq', 'qqq', '納指100', '纳指100'],
+    'QQQ': ['qq', 'qqq', 'ndx', '納指100', '纳指100'],
     '0P00000EBQ': ['h01', '駿利亨德森', '俊利亨德森', 'henderson tech', '亨德森科技'],
     '^DJI': ['道指', '杜指', '道瓊斯', '道琼斯', '道瓊', 'dow'],
     '^N225': ['日經', '日经', '日經225', '日经225', 'nikkei'],
@@ -687,6 +691,13 @@ export function validatePresentIntent(
             : { ok: false };
     }
 
+    if (raw.kind === 'category') {
+        const category = raw.category;
+        return Array.isArray(raw.symbols) && raw.symbols.length === 0 && isPresentIndexCategoryFilter(category)
+            ? { ok: true, intent: { kind: 'category', symbols: [], category } }
+            : { ok: false };
+    }
+
     if (raw.kind === 'fullscreen') {
         const fsMode = raw.fsMode;
         return Array.isArray(raw.symbols) && raw.symbols.length === 0 && isPresentFullscreenMode(fsMode)
@@ -750,6 +761,9 @@ export function buildPresentCommand(intent: PresentIntent, id: string, issuedAt:
     }
     if (intent.kind === 'layout') {
         return { v: 1, id, kind: 'layout', symbols: [], density: intent.density, issuedAt };
+    }
+    if (intent.kind === 'category') {
+        return { v: 1, id, kind: 'category', symbols: [], category: intent.category, issuedAt };
     }
     if (intent.kind === 'fullscreen') {
         return { v: 1, id, kind: 'fullscreen', symbols: [], fsMode: intent.fsMode, issuedAt };
@@ -921,6 +935,13 @@ export function isExecutablePresentCommand(value: unknown): value is PresentComm
             && isPresentIndexDensity(command.density);
     }
     if ('density' in command) return false;
+
+    if (command.kind === 'category') {
+        return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'category', 'issuedAt'])
+            && command.symbols.length === 0
+            && isPresentIndexCategoryFilter(command.category);
+    }
+    if ('category' in command) return false;
 
     if (command.kind === 'fullscreen') {
         return hasOnlyKeys(command, ['v', 'id', 'kind', 'symbols', 'fsMode', 'issuedAt'])
