@@ -27,6 +27,7 @@ import { useMacroData } from './hooks/useMacroData';
 import { computeNewSinceVisit, getLastVisitAt, recordVisitNow } from './newSinceVisit';
 import { getLocale } from './locales';
 import type { ResolvedIndexDensity } from '../lib/presentIndexView';
+import { parseEmbedCategory } from './embedBridge';
 
 export default function Dashboard() {
   const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
@@ -109,7 +110,7 @@ export default function Dashboard() {
     let clearTimer: ReturnType<typeof setTimeout> | null = null;
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      const data = event.data as { type?: unknown; symbol?: unknown; density?: unknown; range?: unknown } | null;
+      const data = event.data as { type?: unknown; symbol?: unknown; density?: unknown; range?: unknown; category?: unknown } | null;
       if (!data || typeof data !== 'object') return;
       if (data.type === 'mv-density') {
         if (data.density === 'compact' || data.density === 'comfortable') {
@@ -122,6 +123,11 @@ export default function Dashboard() {
         if (['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'].includes(range)) {
           setTimeRange(range);
         }
+        return;
+      }
+      if (data.type === 'mv-category') {
+        const category = parseEmbedCategory(data.category);
+        if (category) setSelectedCategory(category);
         return;
       }
       if (data.type !== 'mv-highlight' || typeof data.symbol !== 'string' || data.symbol.length < 1 || data.symbol.length > 32) return;
@@ -242,25 +248,31 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {/* Category Filter */}
-              {!isEmbed && (
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+              {/* Category filter — also on embed=1 (/present index iframe) */}
+              <div className={cn(
+                'flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8',
+                isEmbed && 'mb-3 gap-2',
+              )}>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(category => (
                     <button
                       key={category}
+                      type="button"
                       onClick={() => setSelectedCategory(category)}
                       className={cn(
-                        "px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border",
+                        'rounded-md font-medium transition-all duration-200 border',
+                        isEmbed ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm',
                         selectedCategory === category
-                          ? "bg-zinc-100 text-zinc-900 border-zinc-100 shadow-[0_0_15px_rgba(255,255,255,0.1)]"
-                          : "bg-zinc-900/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200"
+                          ? 'bg-zinc-100 text-zinc-900 border-zinc-100 shadow-[0_0_15px_rgba(255,255,255,0.1)]'
+                          : 'bg-zinc-900/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200',
                       )}
                     >
                       {t.categories[category] || category}
                     </button>
                   ))}
+                  {!isEmbed && (
                   <button
+                    type="button"
                     onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
                     className={cn(
                       "hidden sm:flex items-center ml-2 px-2 py-1 bg-zinc-900/30 rounded border transition-colors cursor-pointer",
@@ -277,11 +289,13 @@ export default function Dashboard() {
                       {sortOrder === 'desc' ? t.sort.highToLow : t.sort.lowToHigh}
                     </span>
                   </button>
+                  )}
                 </div>
 
-                <TimeRangeSelector value={timeRange} onChange={setTimeRange} variant="subtle" />
+                {!isEmbed && (
+                  <TimeRangeSelector value={timeRange} onChange={setTimeRange} variant="subtle" />
+                )}
               </div>
-              )}
 
               {fallbackMessage && (
                 <div className="mb-4 bg-zinc-800/80 border border-zinc-700 text-yellow-500/90 text-xs px-4 py-2 rounded-lg flex items-center animate-in fade-in slide-in-from-top-2 duration-300">
