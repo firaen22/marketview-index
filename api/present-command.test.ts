@@ -52,6 +52,7 @@ const catalog = [
     { symbol: '^DJI', name: '道瓊斯', nameEn: 'Dow Jones', group: 'market' },
     { symbol: '^FTSE', name: '富時100', nameEn: 'FTSE 100', group: 'market' },
     { symbol: '^N225', name: '日經225', nameEn: 'Nikkei 225', group: 'market' },
+    { symbol: 'QQQ', name: 'Invesco QQQ', nameEn: 'Invesco QQQ', group: 'market' },
     { symbol: 'US10Y', name: '美國十年期債息', nameEn: 'US 10Y Yield', group: 'macro' },
 ] as const;
 
@@ -418,6 +419,11 @@ describe('present-command API handler', () => {
         expect(res.body.command.id.length).toBeGreaterThan(0);
         expect(redisState.current.eval).toHaveBeenCalled();
         expect(lastStoredCommand()).toMatchObject({ kind: 'chart', symbols: ['^HSI'] });
+
+        res = await call(authPost({ action: 'send', text: 'show NDX', lang: 'en', catalog }));
+        expect(res.statusCode).toBe(200);
+        expect(res.body.command).toMatchObject({ kind: 'chart', symbols: ['QQQ'] });
+        expect(lastStoredCommand()).toMatchObject({ kind: 'chart', symbols: ['QQQ'] });
 
         res = await call(authPost({ action: 'clear' }));
 

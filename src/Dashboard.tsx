@@ -28,6 +28,7 @@ import { computeNewSinceVisit, getLastVisitAt, recordVisitNow } from './newSince
 import { getLocale } from './locales';
 import type { ResolvedIndexDensity } from '../lib/presentIndexView';
 import { parseEmbedCategory } from './embedBridge';
+import { embedAnswerPresentPing } from './embedHandshake';
 
 export default function Dashboard() {
   const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
@@ -112,6 +113,11 @@ export default function Dashboard() {
       if (event.origin !== window.location.origin) return;
       const data = event.data as { type?: unknown; symbol?: unknown; density?: unknown; range?: unknown; category?: unknown } | null;
       if (!data || typeof data !== 'object') return;
+      const readyReply = embedAnswerPresentPing(data);
+      if (readyReply) {
+        window.parent.postMessage({ type: readyReply }, window.location.origin);
+        return;
+      }
       if (data.type === 'mv-density') {
         if (data.density === 'compact' || data.density === 'comfortable') {
           setIndexDensity(data.density);

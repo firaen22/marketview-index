@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PresentCommand } from '../lib/presentCommand';
+import { canPostToIndexEmbed, createIndexEmbedBridgeController, embedAnswerPresentPing, MV_PRESENT_PING } from './embedHandshake';
 
 vi.mock('./components/PdfViewer', () => ({
     PdfViewer: () => null,
@@ -239,6 +240,51 @@ describe('executePresentationCommandWithDeps', () => {
         const ready = baseDeps({ mainView: 'index' });
         expect(executePresentationCommandWithDeps(command, ready)).toBe(true);
         expect(ready.postToIndexIframe).toHaveBeenCalledWith({ type: 'mv-category', category: 'US' });
+    });
+
+    it('rejects category commands with invalid labels', () => {
+        const command = {
+            v: 1,
+            id: 'cat-bad',
+            kind: 'category',
+            symbols: [],
+            category: 'NASDAQ',
+            issuedAt: 1000,
+        } as unknown as PresentCommand;
+        const deps = baseDeps({ mainView: 'index' });
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(false);
+        expect(deps.postToIndexIframe).not.toHaveBeenCalled();
+    });
+
+    it('category posts only after embed bridge controller recovery (controller helpers; mounted page: PresentationPage.embedHandshake.test.tsx)', () => {
+        const bump = vi.fn();
+        const bridge = createIndexEmbedBridgeController({ bumpPoll: bump });
+        const posts: unknown[] = [];
+        const postToIndexIframe = (msg: unknown) => {
+            if (!canPostToIndexEmbed(bridge.refs, true)) return false;
+            posts.push(msg);
+            return true;
+        };
+        const command: PresentCommand = {
+            v: 1,
+            id: 'cat-bridge',
+            kind: 'category',
+            symbols: [],
+            category: 'US',
+            issuedAt: 1000,
+        };
+        const deps = baseDeps({ mainView: 'index', postToIndexIframe });
+
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(false);
+        expect(posts).toHaveLength(0);
+
+        bridge.attachListener();
+        bridge.onIframeLoad();
+        const ping = bridge.createParentPingMessage();
+        const reply = embedAnswerPresentPing(ping);
+        bridge.onParentWindowMessage({ type: reply! });
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(true);
+        expect(posts).toEqual([{ type: 'mv-category', category: 'US' }]);
     });
 
     it('acks fullscreen enter when already fullscreen without calling applyFullscreen', () => {

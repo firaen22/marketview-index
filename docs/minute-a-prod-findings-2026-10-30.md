@@ -62,7 +62,7 @@ Artifacts (operator machine, not in repo): `/tmp/minute-a-advice-xVGWko/`.
 - **Blocking for API bots:** a **live foreground** tab at **`/present`** must keep authenticated **`st=1`** projector polls. Without that heartbeat, live **`projector`** expires (~15 s); **`projectorLast`** / a queued **`command`** do not prove what is on screen. P0+P1 on [#90](https://github.com/firaen22/marketview-index/pull/90) shorten ack once heartbeat is up; this findings PR is **not** a speed or control unlock.
 - Live talk: prefer **`/present-control` on a second device** or an API bot on the egress box; Grok CLI / Computer Use is too slow for in-talk switches.
 - **Market Update Helper** bot definition was not in Oct 26 `grokbot-mirror-backup`.
-- **Operator feedback on PR [#92](https://github.com/firaen22/marketview-index/pull/92)** (Market Update Helper): remote **`category`** POST + embed bridge (**addressed** on main after findings). Optional future: control-page category chips mirroring embed.
+- **Operator feedback on PR [#92](https://github.com/firaen22/marketview-index/pull/92)** (Market Update Helper): remote **`category`** POST + embed bridge (**shipped** [#96](https://github.com/firaen22/marketview-index/pull/96); **2026-11-05 retest** on PR #92 found slot writes without projector ack when `/present` missed the embed `mv-present-ready` handshake — fixed via `mv-present-ping` + immediate poll retry). Optional future: control-page category chips mirroring embed.
 
 ---
 

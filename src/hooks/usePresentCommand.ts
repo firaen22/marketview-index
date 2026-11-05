@@ -78,13 +78,16 @@ interface Options {
     enabled: boolean;
     getState?: () => ProjectorState | null;
     onCommand: (command: PresentCommand) => boolean;
+    /** Called once when polling starts; use to retry slot commands after embed bridge ready. */
+    registerPollNow?: (pollNow: () => void) => void;
 }
 
 type PollKind = 'normal' | 'lid-flush';
 
-export function usePresentCommand({ enabled, getState, onCommand }: Options) {
+export function usePresentCommand({ enabled, getState, onCommand, registerPollNow }: Options) {
     const onCommandRef = useRef(onCommand);
     const getStateRef = useRef(getState);
+    const registerPollNowRef = useRef(registerPollNow);
     const lastExecutedIdRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -94,6 +97,10 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
     useEffect(() => {
         getStateRef.current = getState;
     }, [getState]);
+
+    useEffect(() => {
+        registerPollNowRef.current = registerPollNow;
+    }, [registerPollNow]);
 
     useEffect(() => {
         if (!enabled) return;
@@ -237,6 +244,7 @@ export function usePresentCommand({ enabled, getState, onCommand }: Options) {
             window.addEventListener('online', pollNow);
         }
 
+        registerPollNowRef.current?.(pollNow);
         void run();
 
         return () => {
