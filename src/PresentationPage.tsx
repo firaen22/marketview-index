@@ -1,4 +1,6 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { parsePresentIndexCategory } from '../lib/presentIndexCategory';
+import { canPostToIndexEmbed, createIndexEmbedBridgeController } from './embedHandshake';
 import { MarketStatCard } from './components/MarketStatCard';
 import { MacroStatCard } from './components/MacroStatCard';
 import { SlideRenderer } from './components/SlideRenderer';
@@ -368,12 +370,14 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
     }
 
     if (cmd.kind === 'category') {
+        const category = parsePresentIndexCategory(cmd.category);
+        if (!category) return false;
         if (mainView !== 'index') {
             setMainView('index');
             resetDwellCountdown();
             return false;
         }
-        if (!postToIndexIframe({ type: 'mv-category', category: cmd.category! })) return false;
+        if (!postToIndexIframe({ type: 'mv-category', category })) return false;
         resetDwellCountdown();
         return true;
     }
@@ -472,9 +476,15 @@ export default function PresentationPage() {
         setRemoteJargon(null);
     }, []);
     const indexIframeRef = useRef<HTMLIFrameElement | null>(null);
-    const indexIframeLoadedRef = useRef(false);
-    const indexEmbedBridgeReadyRef = useRef(false);
-    // The DOM node indexIframeLoadedRef was last marked loaded for, so a ref
+    const bumpPresentPollRef = useRef<(() => void) | null>(null);
+    const embedBridgeRef = useRef<ReturnType<typeof createIndexEmbedBridgeController> | null>(null);
+    if (!embedBridgeRef.current) {
+        embedBridgeRef.current = createIndexEmbedBridgeController({
+            bumpPoll: () => bumpPresentPollRef.current?.(),
+        });
+    }
+    const embedBridge = embedBridgeRef.current;
+    // The DOM node embedBridge.refs was last marked loaded for, so a ref
     // re-attach to the SAME already-loaded element does not strand the flag false.
     const lastLoadedIndexNodeRef = useRef<HTMLIFrameElement | null>(null);
     const hasLoggedMarketStatusError = useRef(false);
@@ -654,20 +664,10 @@ export default function PresentationPage() {
 
     const postToIndexIframe = useCallback((msg: unknown): boolean => {
         const win = indexIframeRef.current?.contentWindow;
-        if (!win || !indexIframeLoadedRef.current || !indexEmbedBridgeReadyRef.current) return false;
+        if (!win || !canPostToIndexEmbed(embedBridge.refs, true)) return false;
         win.postMessage(msg, window.location.origin);
         return true;
-    }, []);
-
-    useEffect(() => {
-        const onMessage = (event: MessageEvent) => {
-            if (event.origin !== window.location.origin) return;
-            const data = event.data as { type?: unknown } | null;
-            if (data?.type === 'mv-present-ready') indexEmbedBridgeReadyRef.current = true;
-        };
-        window.addEventListener('message', onMessage);
-        return () => window.removeEventListener('message', onMessage);
-    }, []);
+    }, [embedBridge]);
 
     const persistPresentCycle = useCallback((next: PresentCycle) => {
         const normalized = normalizePresentCycle(next);
@@ -731,7 +731,29 @@ export default function PresentationPage() {
         applyFullscreen,
     }), [marketData, qp, resetDwellCountdown, mainView, slide.mode, persistPresentCycle, normalizedPresentCycle, setDataRange, showExplainTerm, clearRemoteJargon, postToIndexIframe, indexEmbedWidth, applyFullscreen]);
 
-    usePresentCommand({ enabled: true, getState: getProjectorState, onCommand: executePresentCommand });
+    usePresentCommand({
+        enabled: true,
+        getState: getProjectorState,
+        onCommand: executePresentCommand,
+        registerPollNow: (pollNow) => {
+            bumpPresentPollRef.current = pollNow;
+        },
+    });
+
+    useLayoutEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            if (event.origin !== window.location.origin) return;
+            // Only the index embed may open the bridge.
+            if (!event.source || event.source !== indexIframeRef.current?.contentWindow) return;
+            embedBridge.onParentWindowMessage(event.data);
+        };
+        window.addEventListener('message', onMessage);
+        embedBridge.attachListener();
+        const win = indexIframeRef.current?.contentWindow;
+        const ping = embedBridge.createParentPingMessage();
+        if (ping && win) win.postMessage(ping, window.location.origin);
+        return () => window.removeEventListener('message', onMessage);
+    }, [embedBridge]);
 
     const moveMainView = useCallback((direction: CycleDirection) => {
         setMainView(v => nextPresentView(v, direction));
@@ -890,8 +912,8 @@ export default function PresentationPage() {
             // blindly clearing the flag here would strand it false and silently
             // drop every subsequent `highlight` command.
             if (node && node !== lastLoadedIndexNodeRef.current) {
-                indexIframeLoadedRef.current = false;
-                indexEmbedBridgeReadyRef.current = false;
+                embedBridge.refs.iframeLoaded = false;
+                embedBridge.refs.bridgeReady = false;
             }
         }
         iframeCleanupRef.current[view]?.();
@@ -940,8 +962,10 @@ export default function PresentationPage() {
 
         const onLoad = () => {
             if (view === 'index') {
-                indexIframeLoadedRef.current = true;
                 lastLoadedIndexNodeRef.current = node;
+                embedBridge.onIframeLoad();
+                const ping = embedBridge.createParentPingMessage();
+                if (ping) node.contentWindow?.postMessage(ping, window.location.origin);
             }
             bindContentWindow();
         };
@@ -951,7 +975,7 @@ export default function PresentationPage() {
             node.removeEventListener('load', onLoad);
             cleanupContent?.();
         };
-    }, [handlePresenterKeydown, handlePresenterPointerDown, handlePresenterPointerMove, isTypingTarget]);
+    }, [handlePresenterKeydown, handlePresenterPointerDown, handlePresenterPointerMove, isTypingTarget, embedBridge]);
 
     useEffect(() => {
         return () => {

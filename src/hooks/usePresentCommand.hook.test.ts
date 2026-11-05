@@ -17,11 +17,13 @@ let container: HTMLDivElement;
 function Harness({
     onCommand,
     getState,
+    onRegisterPollNow,
 }: {
     onCommand: (command: PresentCommand) => boolean;
     getState?: () => import('./usePresentCommand').ProjectorState | null;
+    onRegisterPollNow?: (pollNow: () => void) => void;
 }) {
-    usePresentCommand({ enabled: true, onCommand, getState });
+    usePresentCommand({ enabled: true, onCommand, getState, registerPollNow: onRegisterPollNow });
     return null;
 }
 
@@ -633,6 +635,115 @@ describe('usePresentCommand polling', () => {
         await advance(20000);
         expect(fetchMock).toHaveBeenCalledTimes(1);
 
+        root = createRoot(container);
+    });
+
+    it('registerPollNow while idle fetches again after the in-flight poll settles', async () => {
+        let resolveFirst: ((value: unknown) => void) | undefined;
+        const fetchMock = vi.fn(() => new Promise(resolve => {
+            resolveFirst = resolve;
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+        let pollNow: (() => void) | null = null;
+
+        await act(async () => {
+            root.render(createElement(Harness, {
+                onCommand: () => true,
+                onRegisterPollNow: (fn) => { pollNow = fn; },
+            }));
+        });
+        await flush();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(pollNow).toBeTypeOf('function');
+
+        await act(async () => {
+            resolveFirst?.(okResponse());
+        });
+        await flush();
+        await advance(POLL_MS - 1);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            pollNow!();
+        });
+        await flush();
+        expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('retries unconsumed category on registered wake and reports lid once', async () => {
+        const projectorState = { mode: 'index' as const, page: 1, v: 0 };
+        const categoryCmd = {
+            v: 1 as const,
+            id: 'cat-1',
+            kind: 'category' as const,
+            symbols: [] as string[],
+            category: 'US',
+            issuedAt: SERVER_TIME,
+        };
+        let failOnce = true;
+        let executes = 0;
+        let pollNow: (() => void) | null = null;
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(okResponse({ command: categoryCmd }))
+            .mockResolvedValueOnce(okResponse({ command: categoryCmd }))
+            .mockResolvedValueOnce(okResponse())
+            .mockResolvedValueOnce(okResponse({ command: categoryCmd }))
+            .mockResolvedValue(okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+
+        await act(async () => {
+            root.render(createElement(Harness, {
+                onCommand: () => {
+                    executes += 1;
+                    if (failOnce) {
+                        failOnce = false;
+                        return false;
+                    }
+                    return true;
+                },
+                getState: () => projectorState,
+                onRegisterPollNow: (fn) => { pollNow = fn; },
+            }));
+        });
+        await flush();
+        expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('lid=cat-1');
+
+        await act(async () => {
+            pollNow!();
+        });
+        await flush();
+
+        await advance(LID_FLUSH_MS);
+        const lidCall = fetchMock.mock.calls.find(call => String(call[0]).includes('lid=cat-1'));
+        expect(lidCall).toBeTruthy();
+        expect(executes).toBe(2);
+
+        await advance(FAST_POLL_MS);
+        expect(executes).toBe(2);
+    });
+
+    it('wake after unmount does not fetch again', async () => {
+        let pollNow: (() => void) | null = null;
+        const fetchMock = vi.fn().mockResolvedValue(okResponse());
+        vi.stubGlobal('fetch', fetchMock);
+
+        await act(async () => {
+            root.render(createElement(Harness, {
+                onCommand: () => true,
+                onRegisterPollNow: (fn) => { pollNow = fn; },
+            }));
+        });
+        await flush();
+        const callsBefore = fetchMock.mock.calls.length;
+        await act(async () => {
+            root.unmount();
+        });
+        await act(async () => {
+            pollNow!();
+        });
+        await flush();
+        await advance(5000);
+        expect(fetchMock.mock.calls.length).toBe(callsBefore);
         root = createRoot(container);
     });
 });
