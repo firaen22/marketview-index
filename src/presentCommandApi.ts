@@ -13,6 +13,7 @@ import type { AssistResult } from '../lib/presentAssist';
 import { validateAssistResult } from '../lib/presentAssist';
 import { type ControlSurfaceState, type ProjectorDisplay, validateProjectorDisplay } from '../lib/presentDisplay';
 import { isPresentFullscreenMode, isPresentIndexDensity } from '../lib/presentIndexView';
+import { parsePresentIndexCategory, type PresentIndexCategoryFilter } from '../lib/presentIndexCategory';
 
 export type { ControlSurfaceState } from '../lib/presentDisplay';
 
@@ -42,6 +43,7 @@ export interface PresentAppliedState {
     fsMode?: PresentFullscreenMode;
     symbol?: string;
     range?: PresentRange;
+    category?: PresentIndexCategoryFilter;
 }
 
 if (import.meta.env.DEV && import.meta.env.MODE !== 'test' && !API_KEY) {
@@ -231,6 +233,11 @@ function parsePresentApplied(value: unknown): PresentAppliedState | null {
         const rangeKey = typeof raw.range === 'string' ? raw.range.toUpperCase() : null;
         if (!rangeKey || !PRESENT_RANGES.includes(rangeKey as PresentRange)) return null;
         applied.range = rangeKey as PresentRange;
+    }
+    if (raw.category !== undefined) {
+        const category = parsePresentIndexCategory(raw.category);
+        if (!category) return null;
+        applied.category = category;
     }
     return applied;
 }

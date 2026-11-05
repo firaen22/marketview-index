@@ -73,6 +73,28 @@ describe('presentCommandApi additions', () => {
         });
     });
 
+    it('fetchProjectorState parses applied category', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({
+            serverTime: 1,
+            applied: { id: 'c1', kind: 'category', category: 'US', at: 1 },
+        }));
+
+        await expect(fetchProjectorState()).resolves.toMatchObject({
+            applied: { id: 'c1', kind: 'category', category: 'US', at: 1 },
+        });
+    });
+
+    it('fetchProjectorState drops applied state with invalid category', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({
+            serverTime: 1,
+            applied: { id: 'c1', kind: 'category', category: 'NASDAQ', at: 1 },
+        }));
+
+        await expect(fetchProjectorState()).resolves.toMatchObject({
+            applied: null,
+        });
+    });
+
     it('fetchProjectorState parses projectorLast and applied', async () => {
         globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({
             serverTime: 20_000,

@@ -61,6 +61,8 @@ describe('H01 and QQQ aliases', () => {
     it('maps QQ to QQQ and leaves Nasdaq Composite on the nasdaq alias', () => {
         expect(parseCommandDeterministic('QQ', catalog)).toEqual({ kind: 'chart', symbols: ['QQQ'] });
         expect(parseCommandDeterministic('QQQ', catalog)).toEqual({ kind: 'chart', symbols: ['QQQ'] });
+        expect(parseCommandDeterministic('NDX', catalog)).toEqual({ kind: 'chart', symbols: ['QQQ'] });
+        expect(parseCommandDeterministic('show NDX', catalog)).toEqual({ kind: 'chart', symbols: ['QQQ'] });
         expect(parseCommandDeterministic('nasdaq', catalog)).toEqual({ kind: 'chart', symbols: ['^IXIC'] });
     });
 

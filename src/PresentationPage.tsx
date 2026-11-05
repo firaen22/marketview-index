@@ -367,6 +367,17 @@ export function executePresentationCommandWithDeps(cmd: PresentCommand, deps: Pr
         return true;
     }
 
+    if (cmd.kind === 'category') {
+        if (mainView !== 'index') {
+            setMainView('index');
+            resetDwellCountdown();
+            return false;
+        }
+        if (!postToIndexIframe({ type: 'mv-category', category: cmd.category! })) return false;
+        resetDwellCountdown();
+        return true;
+    }
+
     if (cmd.kind === 'fullscreen') {
         const mode = cmd.fsMode!;
         if (mode === 'enter' && document.fullscreenElement) {

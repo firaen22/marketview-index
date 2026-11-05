@@ -223,6 +223,24 @@ describe('executePresentationCommandWithDeps', () => {
         expect(ready.postToIndexIframe).toHaveBeenCalledWith({ type: 'mv-density', density: 'comfortable' });
     });
 
+    it('retries category until index iframe accepts mv-category', () => {
+        const command: PresentCommand = {
+            v: 1,
+            id: 'cat-1',
+            kind: 'category',
+            symbols: [],
+            category: 'US',
+            issuedAt: 1000,
+        };
+        const deps = baseDeps({ mainView: 'slide' });
+        expect(executePresentationCommandWithDeps(command, deps)).toBe(false);
+        expect(deps.setMainView).toHaveBeenCalledWith('index');
+
+        const ready = baseDeps({ mainView: 'index' });
+        expect(executePresentationCommandWithDeps(command, ready)).toBe(true);
+        expect(ready.postToIndexIframe).toHaveBeenCalledWith({ type: 'mv-category', category: 'US' });
+    });
+
     it('acks fullscreen enter when already fullscreen without calling applyFullscreen', () => {
         const command: PresentCommand = {
             v: 1,

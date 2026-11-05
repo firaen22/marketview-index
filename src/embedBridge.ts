@@ -1,12 +1,7 @@
-import { CATEGORIES_ORDER } from './constants';
-import type { IndexCategory } from './types';
+import { parsePresentIndexCategory, type PresentIndexCategoryFilter } from '../lib/presentIndexCategory';
 
-export type EmbedCategory = 'All' | IndexCategory;
+export type EmbedCategory = PresentIndexCategoryFilter;
 
 export function parseEmbedCategory(value: unknown): EmbedCategory | null {
-    if (typeof value !== 'string') return null;
-    if ((CATEGORIES_ORDER as readonly string[]).includes(value)) {
-        return value as EmbedCategory;
-    }
-    return null;
+    return parsePresentIndexCategory(value);
 }

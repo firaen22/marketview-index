@@ -1,0 +1,25 @@
+{
+  "name": "marketview-present-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP stdio server for MarketView Index presenter remote (/api/present-command).",
+  "bin": {
+    "marketview-present-mcp": "dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "mcp": "node dist/server.js",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "~5.8.2",
+    "vitest": "^4.1.8"
+  }
+}

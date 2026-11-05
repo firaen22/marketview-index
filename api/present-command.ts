@@ -35,6 +35,7 @@ import {
 } from '../lib/presentDisplay.js';
 import { isOverlayCaption, isOverlayImageSrc } from '../lib/presentOverlay.js';
 import { isPresentFullscreenMode, isPresentIndexDensity } from '../lib/presentIndexView.js';
+import { parsePresentIndexCategory } from '../lib/presentIndexCategory.js';
 import {
     APPLIED_STATE_KEY,
     buildAppliedFromMeta,
@@ -195,6 +196,11 @@ function parseAppliedState(value: unknown): AppliedState | null {
         const rangeKey = typeof raw.range === 'string' ? raw.range.toUpperCase() : null;
         if (!rangeKey || !PRESENT_RANGES.includes(rangeKey as typeof PRESENT_RANGES[number])) return null;
         applied.range = rangeKey as AppliedState['range'];
+    }
+    if (raw.category !== undefined) {
+        const category = parsePresentIndexCategory(raw.category);
+        if (!category) return null;
+        applied.category = category;
     }
     return applied;
 }
@@ -757,6 +763,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const validation = validatePresentIntent({ kind: 'range', symbols: [], range: parsed.body.range }, []);
             if (!validation.ok || validation.intent.kind !== 'range') {
                 return json(res, 400, { error: 'invalid_range' });
+            }
+            const command = buildPresentCommand(validation.intent, crypto.randomUUID(), receivedAt);
+            if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
+            return json(res, 200, { success: true, command });
+        }
+
+        if (parsed.body.action === 'category') {
+            const receivedAt = Date.now();
+            const category = parsePresentIndexCategory(parsed.body.category);
+            if (!category) {
+                return json(res, 400, { error: 'invalid_category' });
+            }
+            const validation = validatePresentIntent({ kind: 'category', symbols: [], category }, []);
+            if (!validation.ok || validation.intent.kind !== 'category') {
+                return json(res, 400, { error: 'invalid_category' });
             }
             const command = buildPresentCommand(validation.intent, crypto.randomUUID(), receivedAt);
             if (!await storeCommandIfFresh(command, receivedAt)) return json(res, 409, { error: 'superseded' });
