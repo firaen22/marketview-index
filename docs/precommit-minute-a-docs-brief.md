@@ -1,13 +1,13 @@
-Pre-commit gate: docs-only PR for Minute A + P2 plan v1.7.
+Pre-commit gate: docs-only PR #92 (Minute A prod FAIL + plan v1.8).
 
-Review git diff vs main for:
-- docs/present-minute-a-p2-plan.md
-- docs/plan-minute-a-p2-review-brief.md
-- docs/present-latency-fix-plan.md (link updates)
-- docs/scores/jev-minute-a-v17-effectiveness.json
-- docs/scores/jev-plan-gate-trio-v17.json (if present)
+Review git diff vs main parent for:
+- docs/minute-a-prod-findings-2026-10-30.md
+- docs/present-minute-a-p2-plan.md (v1.8)
+- docs/present-latency-fix-plan.md (status link)
 
-No application code changes. Plan gate: Sol/codex PLAN_PROCEED, Grok PLAN_PROCEED on v1.7.
+Cross-check: T_first vs automation anchor wording; ack GET 1–4 vs UI ✓; /present heartbeat for API bots; cmd2 must be parser-valid (`show nasdaq`, not `show NDX` in runbook); scope (no latency/code unlock claims).
+
+No application code changes.
 
 First line exactly: PROCEED or FIX (F1...)
 

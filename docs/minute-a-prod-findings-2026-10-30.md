@@ -61,7 +61,8 @@ Artifacts (operator machine, not in repo): `/tmp/minute-a-advice-xVGWko/`.
 - Remote control path (on **`main`**, unchanged by this docs PR): **HTTP** `GET`/`POST /api/present-command` with **`PRESENT_API_KEY`** on writes — not CopilotBar browser automation. See `docs/present-remote-helper-plan.md` and README bot section.
 - **Blocking for API bots:** a **live foreground** tab at **`/present`** must keep authenticated **`st=1`** projector polls. Without that heartbeat, live **`projector`** expires (~15 s); **`projectorLast`** / a queued **`command`** do not prove what is on screen. P0+P1 on [#90](https://github.com/firaen22/marketview-index/pull/90) shorten ack once heartbeat is up; this findings PR is **not** a speed or control unlock.
 - Live talk: prefer **`/present-control` on a second device** or an API bot on the egress box; Grok CLI / Computer Use is too slow for in-talk switches.
-- **Market Update Helper** bot definition was not in Oct 26 `grokbot-mirror-backup`; operator PR [#92](https://github.com/firaen22/marketview-index/pull/92) comment aligns with the heartbeat + HTTP notes above.
+- **Market Update Helper** bot definition was not in Oct 26 `grokbot-mirror-backup`.
+- **Operator feedback on PR [#92](https://github.com/firaen22/marketview-index/pull/92)** (Market Update Helper, **not blocking** this docs PR): live ask for **category/region filter controls on the `/present` embed** (e.g. prioritize US indices) — a **product** gap, not part of the Minute A **FAIL** record above. Heartbeat + HTTP control notes in this section are separate runbook context.
 
 ---
 
