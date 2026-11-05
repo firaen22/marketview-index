@@ -331,6 +331,8 @@ export const TOOL_DEFINITIONS = [
         name: 'present_send',
         description:
             'Natural-language presenter command (same as /present-control Copilot). '
+            + 'This is how you show a built-in quote or chart — e.g. "show JP10Y" (Japan 10Y JGB Yield). '
+            + 'Do not draw that figure as an image overlay. '
             + 'Requires PRESENT_API_KEY. Builds catalog from live market-data + macro-data. '
             + 'Default wait_for_ack polls up to 8×1.5s; page turns skip ack.',
         inputSchema: {
@@ -347,8 +349,11 @@ export const TOOL_DEFINITIONS = [
     {
         name: 'present_action',
         description:
-            'Structured presenter POST actions (oneOf schema): view, range, category, layout, fullscreen, highlight, compare, overlay, overlay_clear, clear, page. '
-            + 'Requires PRESENT_API_KEY. Matches README bot curl shapes.',
+            'NEVER put a custom overlay, image, SVG, data-URL, or float graphic on /present '
+            + '(2026-11-05 live lesson: that path causes errors). Do not call action "overlay" with src. '
+            + 'Show a figure with present_send (e.g. "show JP10Y") or action "compare". '
+            + 'Built-in actions: view, range, category, layout, fullscreen, highlight, compare, clear, page (next|prev). '
+            + 'overlay_clear only removes an image already on screen. Requires PRESENT_API_KEY.',
         inputSchema: presentActionInputSchema,
     },
     {
@@ -394,6 +399,7 @@ export const TOOL_DEFINITIONS = [
         description:
             'Read or replace the saved presenter slide (GET/POST /api/present-slide). get: no key. '
             + 'save: requires PRESENT_API_KEY and REPLACES the live deck for every device (updatedAt defaults to now; a newer stored timestamp returns 409 stale). '
+            + 'Do not save a custom HTML/CSS or image deck to draw that graphic on /present — including as the live deck, not only as a floated overlay (2026-11-05 standing rule in mcp/README.md). '
             + 'Modes: markdown | html | url | pdf (pdf content = /api/pdf-proxy URL; upload not supported here). Content ≤ 256 KiB.',
         inputSchema: {
             type: 'object',
