@@ -44,7 +44,16 @@ export interface PresentAppliedState {
     id: string;
     kind: string;
     at: number;
+    view?: PresentView;
+    density?: PresentIndexDensity;
+    fsMode?: PresentFullscreenMode;
+    symbol?: string;
+    range?: PresentRange;
+    category?: string;
 }
+
+/** Last /present-control surface report (GET `control`); shape owned by the app. */
+export type ControlSurfaceState = Record<string, unknown>;
 
 export interface PresentStatusPayload {
     success: boolean;
@@ -53,12 +62,27 @@ export interface PresentStatusPayload {
     projector: ProjectorState | null;
     projectorLast: ProjectorLastState | null;
     applied: PresentAppliedState | null;
+    control?: ControlSurfaceState | null;
 }
 
 export interface AckWaitResult {
     acknowledged: boolean;
     attempts: number;
     status: PresentStatusPayload;
+}
+
+export type PresentSlideMode = 'markdown' | 'html' | 'url' | 'pdf';
+export const PRESENT_SLIDE_MODES = ['markdown', 'html', 'url', 'pdf'] as const;
+
+export interface PresentSlide {
+    mode: PresentSlideMode;
+    content: string;
+    updatedAt: number;
+}
+
+export interface AssistResult {
+    points: string[];
+    questions: { q: string; a: string }[];
 }
 
 export class PresentApiError extends Error {
