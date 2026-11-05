@@ -94,7 +94,7 @@ export const presentActionInputSchema = {
         {
             type: 'object',
             description:
-                'Do not call. Custom image overlays on /present cause live-session errors (2026-11-05). '
+                'Do not call. Custom image overlays on /present cause errors (2026-11-05). '
                 + 'Use present_send (e.g. "show JP10Y") or compare.',
             required: ['action', 'src'],
             additionalProperties: false,

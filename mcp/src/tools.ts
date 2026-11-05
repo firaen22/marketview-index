@@ -399,7 +399,7 @@ export const TOOL_DEFINITIONS = [
         description:
             'Read or replace the saved presenter slide (GET/POST /api/present-slide). get: no key. '
             + 'save: requires PRESENT_API_KEY and REPLACES the live deck for every device (updatedAt defaults to now; a newer stored timestamp returns 409 stale). '
-            + 'Do not save a custom HTML/CSS or image deck to float a graphic on /present (2026-11-05 standing rule in mcp/README.md). '
+            + 'Do not save a custom HTML/CSS or image deck to draw that graphic on /present — including as the live deck, not only as a floated overlay (2026-11-05 standing rule in mcp/README.md). '
             + 'Modes: markdown | html | url | pdf (pdf content = /api/pdf-proxy URL; upload not supported here). Content ≤ 256 KiB.',
         inputSchema: {
             type: 'object',

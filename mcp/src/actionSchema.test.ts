@@ -27,4 +27,12 @@ describe('MCP tool schemas', () => {
             .find(entry => entry.properties.action.const === 'overlay_clear');
         expect(clear?.description).toMatch(/Remove an image overlay/);
     });
+
+    it('present_send and present_slide refuse floating a custom graphic', () => {
+        const send = TOOL_DEFINITIONS.find(d => d.name === 'present_send');
+        expect(send?.description).toMatch(/Do not draw that figure as an image overlay/);
+        const slide = TOOL_DEFINITIONS.find(d => d.name === 'present_slide');
+        expect(slide?.description).toMatch(/Do not save a custom HTML\/CSS or image deck to draw that graphic/);
+        expect(slide?.description).toMatch(/including as the live deck/);
+    });
 });

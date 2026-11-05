@@ -131,19 +131,19 @@ curl -s -X POST "$ORIGIN/api/present-command" \
 
 `symbols` are quote symbols, not spoken nicknames. `0P00000EBQ` is 駿利亨德森遠見基金 - 環球科技領先基金 (voice “H01”, including the misheard 俊利亨德森). `QQQ` is Invesco QQQ (voice “QQ”). `^IXIC` is Nasdaq Composite — use it only when you mean the composite, not the ETF. Spoken `H01` / `QQ` resolve on `action: "send"` when those rows are in the catalog the control page already sends. Pass `catalog` on `action: "compare"` to reject a symbol that is not on that list. The date band is a `ReferenceArea` on the open compare modal. The 2026-10-23 dry-run after PR #83 applied compare bands on production (the projector ack matched the command id); a later compare POST changes the window without another deploy. `highlightFrom` / `highlightTo` are inclusive `YYYY-MM-DD`. On `action: "send"`, the same window is a trailing suffix `highlight YYYY-MM-DD YYYY-MM-DD` (no word “to”). If the selected period (1W…5Y chips still work) does not overlap the window, the chart says so and draws no band.
 
-**Overlay (image on the PDF — do not send one live).** Custom overlays and self-built graphics on `/present` cause errors. Angus rejected that path in a client presentation on 2026-11-05 (a floated JGB yield overlay). Present MCP operators follow the standing rule in `mcp/README.md`: `present_send` (for example `show JP10Y`) or `compare`, never an image you composed. The HTTP action remains so an image already on screen can be cleared. It is not the way to put a new figure on the projector.
+**Overlay (image on the PDF — do not send one).** Custom overlays and self-built graphics on `/present` cause errors. Angus rejected that path in a client presentation on 2026-11-05 (a floated JGB yield overlay). Present MCP operators follow the standing rule in `mcp/README.md`: `present_send` (for example `show JP10Y`) or `compare`, never an image you composed. The HTTP clear path remains so an image already on screen can be removed. It is not the way to put a new figure on the projector.
 
 Do not nest a PDF iframe in an HTML slide: that iframe does not paint inside the sandboxed `srcdoc` frame and the projector goes gray. Clearing an overlay does not change the saved slide.
 
 ```bash
-# Clear only. Do not POST action "overlay" with a src during a live session.
+# Clear only. Do not POST action "overlay" with a src.
 curl -s -X POST "$ORIGIN/api/present-command" \
   -H "content-type: application/json" \
   -H "x-api-key: $PRESENT_API_KEY" \
   -d '{"action":"overlay","clear":true}'
 ```
 
-An accepted `src`, if you are reading an old command rather than sending one, is `https://…` or a `data:image/(png|jpeg|webp|svg+xml);base64,…` URL, capped so the command stays under the API body limit. The image is centered at about 65% of the viewport. `{"action":"clear"}` also removes it, and closes the compare modal and other overlays, and returns the projector to the slide view. It does not upload a new deck.
+Do not POST a new overlay `src`. `{"action":"clear"}` also removes an existing overlay, closes the compare modal and other overlays, and returns the projector to the slide view. It does not upload a new deck.
 
 **Speed (measured 2026-10-23, after PR #83).** External bot box, Asia/Hong_Kong, against `https://marketindex.pmd-hk.com`.
 
@@ -161,7 +161,7 @@ Same session, these checks passed: QQQ is in market-data; H01 and QQ aliases res
 
 ## Present MCP (Cursor / Claude)
 
-Local stdio MCP for agent-driven projector control: `mcp/` (`present_status`, `present_send`, `present_action`). See `mcp/README.md` for `PRESENT_API_KEY`, Cursor registration, and the standing rule: no custom overlays on `/present`; built-in quote/chart and compare only.
+Local stdio MCP for agent-driven projector control: `mcp/` (`present_status`, `present_send`, `present_action`). See `mcp/README.md` for `PRESENT_API_KEY`, Cursor registration, and the standing rule: no custom overlays on `/present`; drive the projector with built-ins (`present_send`, `compare`, `overlay_clear` / `clear`, and the other `present_action` kinds listed there).
 
 ## Repo layout
 

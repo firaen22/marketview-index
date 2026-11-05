@@ -11,7 +11,7 @@ Live lesson from Angus, client presentation, 2026-11-05. Cantonese, intent: reme
 **Do not:**
 
 - Send or build a custom overlay, image, SVG, float graphic, `data:image/…` URL, or ad-hoc HTML/CSS graphic onto `/present`.
-- Call `present_action` with `{ "action": "overlay", "src": "…" }`. The branch stays in the schema so the API can still clear an image. Calling it with `src` is the rejected path.
+- Call `present_action` with `{ "action": "overlay", "src": "…" }`. That `oneOf` arm remains in the schema (do not call it with `src`). Clearing an image already on screen is `overlay_clear` or `clear` — not the overlay+src arm.
 - Save a custom HTML or image deck with `present_slide` to draw that graphic. `present_slide` save replaces the live deck for every device.
 
 **Do:** Drive the projector only with built-in Present commands this server already supports.
@@ -19,7 +19,7 @@ Live lesson from Angus, client presentation, 2026-11-05. Cantonese, intent: reme
 1. One catalog symbol. Japan 10Y JGB Yield is market symbol `JP10Y` (no spoken alias). `present_send` text `show JP10Y` resolves to the app’s built-in **chart**. A macro catalog row resolves to the built-in **quote**. There is no `present_action` kind named `quote` or `chart`.
 2. Two or more market symbols: `present_action` `compare` (optional `range`, `highlightFrom`, `highlightTo`). Example: `{ "action": "compare", "symbols": ["JP10Y", "^TNX"], "range": "YTD" }` (both are market-data rows).
 3. Also built-in on `present_action`: `view`, `category`, `highlight`, `range`, `layout`, `fullscreen`, `page` (`next` or `prev` only), `clear`. A numbered page jump is `present_send` (for example `page 3`), which is `goto`. It is not a `present_action` kind.
-4. If an image is already on the PDF, remove it with `overlay_clear` or `clear`, then show the built-in chart or compare. Prefer that sequence over a new graphic.
+4. If an image is already on the PDF, remove it with `overlay_clear` or `clear`, then show the built-in chart or compare. Do not fall back to a new graphic.
 
 **Done:** `/present` is showing a built-in surface (chart, quote, compare, category, highlight, range, view, or a PDF page). Nothing you composed is on the screen.
 
