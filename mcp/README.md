@@ -11,7 +11,7 @@ Live lesson from Angus, client presentation, 2026-11-05. Cantonese, intent: reme
 **Do not:**
 
 - Send or build a custom overlay, image, SVG, float graphic, `data:image/…` URL, or ad-hoc HTML/CSS graphic onto `/present`.
-- Call `present_action` with `{ "action": "overlay", "src": "…" }`. That `oneOf` arm remains in the schema (do not call it with `src`). Clearing an image already on screen is `overlay_clear` or `clear` — not the overlay+src arm.
+- Call `present_action` with `{ "action": "overlay", "src": "…" }`. The MCP **refuses** that arm locally (`custom_overlay_forbidden`; no POST). The `oneOf` schema arm remains for documentation only. Clearing an image already on screen is `overlay_clear` or `clear`.
 - Save a custom HTML or image deck with `present_slide` to draw that graphic. `present_slide` save replaces the live deck for every device.
 
 **Do:** Drive the projector only with built-in Present commands this server already supports.
@@ -35,7 +35,7 @@ Live lesson from Angus, client presentation, 2026-11-05. Cantonese, intent: reme
 |------|------|---------|
 | `present_status` | None | `GET /api/present-command` — projector heartbeat, `projectorLast`, `applied`, command slot |
 | `present_send` | `PRESENT_API_KEY` | Natural language (`action: send`) with catalog from market + macro APIs |
-| `present_action` | `PRESENT_API_KEY` | Built-in structured actions: `view`, `range`, **`category`**, `layout`, `fullscreen`, `highlight`, `compare`, `clear`, `page`, and **`overlay_clear`** (remove an image already on screen). `overlay` remains in the `oneOf` schema and must not be called with `src` — standing rule above. |
+| `present_action` | `PRESENT_API_KEY` | Built-in structured actions: `view`, `range`, **`category`**, `layout`, `fullscreen`, `highlight`, `compare`, `clear`, `page`, and **`overlay_clear`** (remove an image already on screen). `overlay`+`src` is in the schema but **always refused** by the MCP (`custom_overlay_forbidden`) — standing rule above. |
 | `present_assist` | `PRESENT_API_KEY` | `POST action: assist` — talking points from slide text (40–6000 chars) or a slide image (`imageBase64` + `slideId` + `deckKey`). Does not touch the projector. |
 | `present_slide` | get: none · save: `PRESENT_API_KEY` | `GET/POST /api/present-slide`. **save replaces the live deck** (`updatedAt` defaults to now; a newer stored timestamp → 409 stale). Content ≤ 256 KiB (client parity). PDF upload not supported. |
 

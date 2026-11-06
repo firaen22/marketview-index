@@ -5,13 +5,13 @@ import { requestJson } from './presentClient.js';
 interface MarketRow {
     symbol?: string;
     name?: string;
-    nameEn?: string;
+    nameEn?: string | null;
 }
 
 interface MacroRow {
     symbol?: string;
     name?: string;
-    nameEn?: string;
+    nameEn?: string | null;
 }
 
 /** Keyed by `origin|lang` so a refresh for one lang never evicts another's stale fallback. */
@@ -26,7 +26,8 @@ async function getRows(fetchImpl: typeof fetch, url: string, label: string): Pro
     const { response, payload } = await requestJson(fetchImpl, url, {}, CATALOG_TIMEOUT_MS, label);
     if (!response.ok) throw new PresentApiError(response.status, `${label}_http_${response.status}`);
     const data = (payload as { data?: Array<MarketRow | MacroRow> }).data;
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) throw new PresentApiError(502, `${label}_malformed`);
+    return data;
 }
 
 async function buildCatalog(origin: string, lang: PresentLang, fetchImpl: typeof fetch): Promise<CatalogItem[]> {
@@ -38,7 +39,19 @@ async function buildCatalog(origin: string, lang: PresentLang, fetchImpl: typeof
     const catalog: CatalogItem[] = [];
     for (const [rows, group] of [[marketRows, 'market'], [macroRows, 'macro']] as const) {
         for (const row of rows) {
-            if (!row.symbol || !row.name) continue;
+            if (
+                !row
+                || typeof row !== 'object'
+                || Array.isArray(row)
+                || typeof row.symbol !== 'string'
+                || row.symbol.length < 1
+                || row.symbol.length > 24
+                || typeof row.name !== 'string'
+                || row.name.length < 1
+                || row.name.length > 80
+                || ('nameEn' in row && row.nameEn !== null && row.nameEn !== undefined && typeof row.nameEn !== 'string')
+                || (typeof row.nameEn === 'string' && row.nameEn.length > 80)
+            ) continue;
             catalog.push({
                 symbol: row.symbol,
                 name: row.name,

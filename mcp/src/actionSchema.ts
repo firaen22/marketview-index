@@ -4,7 +4,7 @@ import { PRESENT_RANGES } from './types.js';
 const waitForAckProp = {
     wait_for_ack: {
         type: 'boolean',
-        description: 'Poll GET until applied.id or projector.lid matches (default true). Page always skips.',
+        description: 'Poll GET until applied.id or projector.lid matches (default true).',
         default: true,
     },
 };
@@ -86,16 +86,26 @@ export const presentActionInputSchema = {
                     items: { type: 'string' },
                 },
                 range: { type: 'string', enum: [...PRESENT_RANGES] },
-                highlightFrom: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-                highlightTo: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+                highlightFrom: {
+                    type: 'string',
+                    pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+                    description:
+                        'Highlight band start; must be a real calendar day in YYYY-MM-DD form (invalid dates such as 2026-02-31 are rejected), must be set together with highlightTo or both omitted, and must be on or before highlightTo.',
+                },
+                highlightTo: {
+                    type: 'string',
+                    pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+                    description:
+                        'Highlight band end; must be a real calendar day in YYYY-MM-DD form (invalid dates such as 2026-02-31 are rejected), must be set together with highlightFrom or both omitted, and highlightFrom must be on or before this date.',
+                },
                 ...waitForAckProp,
             },
         },
         {
             type: 'object',
             description:
-                'Do not call. Custom image overlays on /present cause errors (2026-11-05). '
-                + 'Use present_send (e.g. "show JP10Y") or compare.',
+                'Always refused by this MCP — custom image overlays are forbidden (2026-11-05). Do not call. '
+                + 'Use present_send (e.g. "show JP10Y") or compare; clear with overlay_clear.',
             required: ['action', 'src'],
             additionalProperties: false,
             properties: {

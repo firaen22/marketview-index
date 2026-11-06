@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { loadConfig, loadConfigForStatus } from './config.js';
 import { fetchCommandCatalog } from './catalog.js';
 import {
+    ACK_MAX_ATTEMPTS,
+    ACK_POLL_INTERVAL_MS,
+    ACK_POLL_SCHEDULE_MS,
     fetchPresentSlide,
     fetchPresentStatus,
     postPresentCommand,
@@ -28,35 +31,88 @@ const langSchema = z.enum(['en', 'zh-TW']);
 
 const presentStatusSchema = z.object({}).strict();
 
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function isRealCalendarDay(value: string): boolean {
+    if (!CALENDAR_DAY.test(value)) return false;
+    const [y, m, d] = value.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+const ACK_POLL_DELAYS_MS = Array.from({ length: ACK_MAX_ATTEMPTS }, (_, i) =>
+    ACK_POLL_SCHEDULE_MS[i] ?? ACK_POLL_INTERVAL_MS,
+);
+const ACK_POLL_WALL_MS = ACK_POLL_DELAYS_MS.reduce((sum, ms) => sum + ms, 0);
+const ACK_POLL_DESCRIPTION =
+    `${ACK_MAX_ATTEMPTS} GETs max, first after ${ACK_POLL_DELAYS_MS[0]} ms, `
+    + `schedule ${ACK_POLL_DELAYS_MS.join(', ')} ms ≈ ${(ACK_POLL_WALL_MS / 1000).toFixed(1)} s wall`;
+
+const PAGE_TURN_NOTE =
+    'Page turn queued; not acknowledged. Expires if the projector does not drain it within 15 s '
+    + '— do not resend just because there is no ack.';
+
 const presentSendSchema = z.object({
-    text: z.string().min(1).max(200),
+    text: z.string().transform(v => v.trim()).pipe(z.string().min(1).max(200)),
     lang: langSchema.default('en'),
     wait_for_ack: z.boolean().default(true),
 }).strict();
 
+function assertCompareHighlightWindow(highlightFrom?: string, highlightTo?: string): void {
+    const hasFrom = highlightFrom !== undefined;
+    const hasTo = highlightTo !== undefined;
+    const issues: z.ZodIssue[] = [];
+    if (hasFrom !== hasTo) {
+        issues.push({
+            code: z.ZodIssueCode.custom,
+            message: 'highlightFrom and highlightTo must both be set or both omitted',
+            path: hasFrom ? ['highlightTo'] : ['highlightFrom'],
+        });
+    } else if (hasFrom && hasTo) {
+        if (!isRealCalendarDay(highlightFrom)) {
+            issues.push({ code: z.ZodIssueCode.custom, message: 'invalid calendar date', path: ['highlightFrom'] });
+        }
+        if (!isRealCalendarDay(highlightTo)) {
+            issues.push({ code: z.ZodIssueCode.custom, message: 'invalid calendar date', path: ['highlightTo'] });
+        }
+        if (
+            isRealCalendarDay(highlightFrom)
+            && isRealCalendarDay(highlightTo)
+            && highlightFrom > highlightTo
+        ) {
+            issues.push({
+                code: z.ZodIssueCode.custom,
+                message: 'highlightFrom must be on or before highlightTo',
+                path: ['highlightFrom'],
+            });
+        }
+    }
+    if (issues.length > 0) throw new z.ZodError(issues);
+}
+
 const presentActionSchema = z.discriminatedUnion('action', [
-    z.object({ action: z.literal('view'), view: z.enum(['slide', 'index', 'heatmap']), wait_for_ack: z.boolean().default(true) }),
-    z.object({ action: z.literal('range'), range: z.enum(PRESENT_RANGES), wait_for_ack: z.boolean().default(true) }),
+    z.object({ action: z.literal('view'), view: z.enum(['slide', 'index', 'heatmap']), wait_for_ack: z.boolean().default(true) }).strict(),
+    z.object({ action: z.literal('range'), range: z.enum(PRESENT_RANGES), wait_for_ack: z.boolean().default(true) }).strict(),
     z.object({
         action: z.literal('category'),
         category: z.enum(PRESENT_INDEX_CATEGORY_VALUES),
         wait_for_ack: z.boolean().default(true),
-    }),
-    z.object({ action: z.literal('layout'), density: z.enum(['compact', 'comfortable', 'auto']), wait_for_ack: z.boolean().default(true) }),
-    z.object({ action: z.literal('fullscreen'), mode: z.enum(['enter', 'exit']), wait_for_ack: z.boolean().default(true) }),
-    z.object({ action: z.literal('highlight'), symbol: z.string().min(1).max(32), wait_for_ack: z.boolean().default(true) }),
+    }).strict(),
+    z.object({ action: z.literal('layout'), density: z.enum(['compact', 'comfortable', 'auto']), wait_for_ack: z.boolean().default(true) }).strict(),
+    z.object({ action: z.literal('fullscreen'), mode: z.enum(['enter', 'exit']), wait_for_ack: z.boolean().default(true) }).strict(),
+    z.object({ action: z.literal('highlight'), symbol: z.string().min(1).max(32), wait_for_ack: z.boolean().default(true) }).strict(),
     z.object({
         action: z.literal('compare'),
         symbols: z.array(z.string().min(1).max(24)).min(1).max(5),
         range: z.enum(PRESENT_RANGES).optional(),
-        highlightFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        highlightTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        highlightFrom: z.string().regex(CALENDAR_DAY).optional(),
+        highlightTo: z.string().regex(CALENDAR_DAY).optional(),
         wait_for_ack: z.boolean().default(true),
-    }),
-    z.object({ action: z.literal('overlay'), src: z.string().min(1), caption: z.string().max(120).optional(), wait_for_ack: z.boolean().default(true) }),
-    z.object({ action: z.literal('overlay_clear'), wait_for_ack: z.boolean().default(true) }),
-    z.object({ action: z.literal('clear'), wait_for_ack: z.boolean().default(true) }),
-    z.object({ action: z.literal('page'), direction: z.enum(['next', 'prev']) }),
+    }).strict(),
+    z.object({ action: z.literal('overlay'), src: z.string().min(1), caption: z.string().max(120).optional(), wait_for_ack: z.boolean().default(true) }).strict(),
+    z.object({ action: z.literal('overlay_clear'), wait_for_ack: z.boolean().default(true) }).strict(),
+    z.object({ action: z.literal('clear'), wait_for_ack: z.boolean().default(true) }).strict(),
+    z.object({ action: z.literal('page'), direction: z.enum(['next', 'prev']) }).strict(),
 ]);
 
 export function normalizeAssistText(text: string): string {
@@ -179,7 +235,8 @@ export const TOOL_HANDLERS: Record<keyof typeof TOOL_SCHEMAS, (args: Record<stri
                 notes: [
                     'Treat live projector.mode as on-screen truth; projectorLast when heartbeat expired.',
                     'Do not infer index on screen from command slot alone.',
-                    'After writes, poll until applied.id === command.id (this tool on present_send/present_action does that when wait_for_ack=true).',
+                    'After writes (not page turns — those are never in applied), poll until applied.id === command.id (present_send/present_action when wait_for_ack=true).',
+                    'Page turns expire if undrained within 15 s; no ack — do not resend for missing applied.id alone.',
                     'control = last /present-control surface report (null when no control tab reported recently).',
                 ],
             });
@@ -204,9 +261,21 @@ export const TOOL_HANDLERS: Record<keyof typeof TOOL_SCHEMAS, (args: Record<stri
     present_action: async (raw) => {
         try {
             const args = presentActionSchema.parse(raw);
+            if (args.action === 'overlay') {
+                return textResult({
+                    error: 'custom_overlay_forbidden',
+                    message:
+                        'Custom overlays are refused. Clear with overlay_clear or clear; '
+                        + 'show built-in charts/quotes via present_send (e.g. "show SYMBOL") or present_action compare.',
+                }, true);
+            }
+            if (args.action === 'compare') {
+                assertCompareHighlightWindow(args.highlightFrom, args.highlightTo);
+            }
             const { origin, apiKey } = loadConfig();
             let body: Record<string, unknown>;
             let waitForAck = true;
+            let pageNote: string | undefined;
 
             switch (args.action) {
                 case 'view':
@@ -242,17 +311,13 @@ export const TOOL_HANDLERS: Record<keyof typeof TOOL_SCHEMAS, (args: Record<stri
                         symbols: args.symbols,
                         catalog,
                         ...(args.range ? { range: args.range } : {}),
-                        ...(args.highlightFrom && args.highlightTo
+                        ...(args.highlightFrom !== undefined
                             ? { highlightFrom: args.highlightFrom, highlightTo: args.highlightTo }
                             : {}),
                     };
                     waitForAck = args.wait_for_ack;
                     break;
                 }
-                case 'overlay':
-                    body = { action: 'overlay', src: args.src, ...(args.caption ? { caption: args.caption } : {}) };
-                    waitForAck = args.wait_for_ack;
-                    break;
                 case 'overlay_clear':
                     body = { action: 'overlay', clear: true };
                     waitForAck = args.wait_for_ack;
@@ -264,6 +329,7 @@ export const TOOL_HANDLERS: Record<keyof typeof TOOL_SCHEMAS, (args: Record<stri
                 case 'page':
                     body = { action: 'page', direction: args.direction };
                     waitForAck = false;
+                    pageNote = PAGE_TURN_NOTE;
                     break;
                 default:
                     return textResult({ error: 'unsupported_action' }, true);
@@ -272,7 +338,11 @@ export const TOOL_HANDLERS: Record<keyof typeof TOOL_SCHEMAS, (args: Record<stri
             const payload = await postPresentCommand(origin, apiKey, body);
             const command = payload.command;
             const ack = await maybeWaitAck(origin, command, waitForAck);
-            return textResult({ command, ...ack });
+            return textResult({
+                command,
+                ...ack,
+                ...(pageNote ? { note: pageNote } : {}),
+            });
         } catch (error) {
             return errorResult(error);
         }
@@ -334,12 +404,15 @@ export const TOOL_DEFINITIONS = [
             + 'This is how you show a built-in quote or chart — e.g. "show JP10Y" (Japan 10Y JGB Yield). '
             + 'Do not draw that figure as an image overlay. '
             + 'Requires PRESENT_API_KEY. Builds catalog from live market-data + macro-data. '
-            + 'Default wait_for_ack polls up to 8×1.5s; page turns skip ack.',
+            + `Default wait_for_ack polls up to ${ACK_POLL_DESCRIPTION}; page turns skip ack.`,
         inputSchema: {
             type: 'object',
             required: ['text'],
             properties: {
-                text: { type: 'string', description: 'Command text, e.g. "show HSI", "HSI vs S&P YTD", "dashboard"' },
+                text: {
+                    type: 'string',
+                    description: 'Command text, e.g. "show HSI", "HSI vs S&P YTD", "dashboard"; 1–200 UTF-16 code units after trimming',
+                },
                 lang: { type: 'string', enum: ['en', 'zh-TW'], default: 'en' },
                 wait_for_ack: { type: 'boolean', default: true },
             },
