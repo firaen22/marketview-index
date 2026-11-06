@@ -48,6 +48,7 @@ export async function requestJson(
     timeoutMs: number,
     label: string,
     signal?: AbortSignal,
+    allowNonObject2xx = false,
 ): Promise<{ response: Response; payload: Record<string, unknown> }> {
     const timeout = AbortSignal.timeout(timeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
@@ -72,7 +73,8 @@ export async function requestJson(
         ? parsed as Record<string, unknown>
         : null;
     if (!payload) {
-        if (response.ok) throw new PresentApiError(502, `${label}_malformed_json`);
+        if (response.ok && !allowNonObject2xx) throw new PresentApiError(502, `${label}_malformed_json`);
+        if (response.ok) return { response, payload: parsed as Record<string, unknown> };
         return { response, payload: {} };
     }
     return { response, payload };
@@ -88,6 +90,12 @@ export async function fetchPresentStatus(
     );
     if (!response.ok) {
         throw new PresentApiError(response.status, String(payload?.error ?? `present-command GET failed (${response.status})`));
+    }
+    if (
+        payload.projector !== null
+        && (typeof payload.projector !== 'object' || Array.isArray(payload.projector))
+    ) {
+        throw new PresentApiError(502, 'status_malformed_json');
     }
     return payload as unknown as PresentStatusPayload;
 }
@@ -122,13 +130,20 @@ export async function postPresentCommand(
 ): Promise<{ command: PresentCommand } & Record<string, unknown>> {
     const payload = await postJson(origin, '/api/present-command', apiKey, body, fetchImpl, POST_TIMEOUT_MS, 'command', signal);
     const command = payload?.command;
-    if (!command || typeof command !== 'object') {
+    if (
+        !command
+        || typeof command !== 'object'
+        || Array.isArray(command)
+        || typeof (command as { id?: unknown }).id !== 'string'
+        || (command as { id: string }).id.length === 0
+    ) {
         throw new PresentApiError(502, 'malformed_command');
     }
     return payload as { command: PresentCommand } & Record<string, unknown>;
 }
 
 export function isCommandAcked(status: PresentStatusPayload, commandId: string): boolean {
+    if (typeof commandId !== 'string' || commandId.length === 0) return false;
     return status.applied?.id === commandId || status.projector?.lid === commandId;
 }
 
@@ -206,12 +221,34 @@ export async function fetchPresentSlide(
     signal?: AbortSignal,
 ): Promise<PresentSlide | null> {
     const { response, payload } = await requestJson(
-        fetchImpl, `${origin}/api/present-slide`, {}, SLIDE_TIMEOUT_MS, 'slide_get', signal,
+        fetchImpl, `${origin}/api/present-slide`, {}, SLIDE_TIMEOUT_MS, 'slide_get', signal, true,
     );
     if (!response.ok) {
         throw new PresentApiError(response.status, String(payload?.error ?? `present-slide GET failed (${response.status})`));
     }
-    return (payload?.slide ?? null) as PresentSlide | null;
+    if (
+        !payload
+        || typeof payload !== 'object'
+        || Array.isArray(payload)
+        || !Object.prototype.hasOwnProperty.call(payload, 'slide')
+    ) {
+        throw new PresentApiError(502, 'malformed_slide');
+    }
+    const slide = payload.slide;
+    if (
+        slide !== null
+        && (
+            typeof slide !== 'object'
+            || Array.isArray(slide)
+            || typeof (slide as { content?: unknown }).content !== 'string'
+            || typeof (slide as { mode?: unknown }).mode !== 'string'
+            || typeof (slide as { updatedAt?: unknown }).updatedAt !== 'number'
+            || !Number.isFinite((slide as { updatedAt: number }).updatedAt)
+        )
+    ) {
+        throw new PresentApiError(502, 'malformed_slide');
+    }
+    return slide as PresentSlide | null;
 }
 
 export async function savePresentSlide(
@@ -225,7 +262,15 @@ export async function savePresentSlide(
         origin, '/api/present-slide', apiKey, slide, fetchImpl, SLIDE_TIMEOUT_MS, 'slide_save', signal,
     );
     const saved = payload?.slide as PresentSlide | undefined;
-    if (!saved || typeof saved !== 'object') throw new PresentApiError(502, 'malformed_slide');
+    if (
+        !saved
+        || typeof saved !== 'object'
+        || Array.isArray(saved)
+        || typeof saved.content !== 'string'
+        || typeof saved.mode !== 'string'
+        || typeof saved.updatedAt !== 'number'
+        || !Number.isFinite(saved.updatedAt)
+    ) throw new PresentApiError(502, 'malformed_slide');
     return saved;
 }
 
